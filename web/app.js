@@ -131,6 +131,12 @@ const columns = {
     ["mineZ", "my z"],
     ["otherZ", "other z"],
     ["zDiff", "z diff"],
+    ["mineLogPower", "my logPower"],
+    ["otherLogPower", "other logPower"],
+    ["logPowerDiff", "logPower diff"],
+    ["minePoint", "my Point"],
+    ["otherPoint", "other Point"],
+    ["pointDiff", "Point diff"],
     ["result", "result"],
     ["mineUpdatedAt", "my updatedAt"],
     ["otherUpdatedAt", "other updatedAt"],
@@ -2270,10 +2276,16 @@ function renderTop100Metric(button, rows) {
 function renderCompareSummary(rows) {
   const both = rows.filter((row) => row.mineScore !== null && row.otherScore !== null);
   const zBoth = both.filter((row) => Number.isFinite(row.zDiff));
+  const logPowerBoth = both.filter((row) => Number.isFinite(row.logPowerDiff));
+  const pointBoth = both.filter((row) => Number.isFinite(row.pointDiff));
   const scoreMine = both.filter((row) => row.scoreDiff > 0).length;
   const scoreOther = both.filter((row) => row.scoreDiff < 0).length;
   const zMine = zBoth.filter((row) => row.zDiff > 0).length;
   const zOther = zBoth.filter((row) => row.zDiff < 0).length;
+  const logPowerMine = logPowerBoth.filter((row) => row.logPowerDiff > 0).length;
+  const logPowerOther = logPowerBoth.filter((row) => row.logPowerDiff < 0).length;
+  const pointMine = pointBoth.filter((row) => row.pointDiff > 0).length;
+  const pointOther = pointBoth.filter((row) => row.pointDiff < 0).length;
   const reversals = both.filter((row) => row.isReversal).length;
   const avgZDiff = zBoth.length ? zBoth.reduce((sum, row) => sum + row.zDiff, 0) / zBoth.length : 0;
   const cards = [
@@ -2283,13 +2295,38 @@ function renderCompareSummary(rows) {
     ["score 상대 우위", scoreOther],
     ["z 내가 우위", zMine],
     ["z 상대 우위", zOther],
+    ["logPower 내가 우위", logPowerMine],
+    ["logPower 상대 우위", logPowerOther],
+    ["Point 내가 우위", pointMine],
+    ["Point 상대 우위", pointOther],
     ["역전", reversals],
     ["평균 z 차이", avgZDiff.toFixed(2)],
+    ...buildDjClassCompareCards(),
   ];
   tableSummary.innerHTML = cards
     .map(([label, value]) => `<div class="tableMetric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
     .join("");
   tableSummary.hidden = false;
+}
+
+function buildDjClassCompareCards() {
+  const selectedButton = buttonFilter.value;
+  const buttons = selectedButton ? [Number(selectedButton)] : BUTTONS;
+  const mineByButton = new Map((state.payload?.djClasses || []).map((row) => [Number(row.button), row]));
+  const otherByButton = new Map((state.comparePayload?.djClasses || []).map((row) => [Number(row.button), row]));
+  return buttons.map((button) => {
+    const mine = mineByButton.get(button);
+    const other = otherByButton.get(button);
+    const mineClass = mine?.djClass || "-";
+    const otherClass = other?.djClass || "-";
+    const minePower = formatDjClassPower(mine?.djPowerSum);
+    const otherPower = formatDjClassPower(other?.djPowerSum);
+    return [`${button}B DJ Class`, `내 ${mineClass} (${minePower}) / 상대 ${otherClass} (${otherPower})`];
+  });
+}
+
+function formatDjClassPower(value) {
+  return Number.isFinite(Number(value)) ? Number(value).toFixed(2) : "-";
 }
 
 function applyNameWidth() {
@@ -2828,6 +2865,13 @@ function buildCompareRows() {
     const otherZ = otherScore === null ? null : zScore(otherScore, otherStats.get(otherFloor), minStd);
     const scoreDiff = mineScore === null || otherScore === null ? null : mineScore - otherScore;
     const zDiff = mineZ === null || otherZ === null ? null : mineZ - otherZ;
+    const button = Number(base.button);
+    const mineLogPower = mineScore === null ? null : scoreToPoint(mineScore) * difficultyConstantForFloor(mineFloor, button);
+    const otherLogPower = otherScore === null ? null : scoreToPoint(otherScore) * difficultyConstantForFloor(otherFloor, button);
+    const logPowerDiff = Number.isFinite(mineLogPower) && Number.isFinite(otherLogPower) ? mineLogPower - otherLogPower : null;
+    const minePoint = mine && Number.isFinite(Number(mine.rating)) ? Number(mine.rating) : null;
+    const otherPoint = other && Number.isFinite(Number(other.rating)) ? Number(other.rating) : null;
+    const pointDiff = minePoint === null || otherPoint === null ? null : minePoint - otherPoint;
     const isReversal = scoreDiff !== null && zDiff !== null && Math.sign(scoreDiff) !== 0 && Math.sign(zDiff) !== 0 && Math.sign(scoreDiff) !== Math.sign(zDiff);
     return {
       button: base.button,
@@ -2843,8 +2887,16 @@ function buildCompareRows() {
       mineZ,
       otherZ,
       zDiff,
+      mineLogPower,
+      otherLogPower,
+      logPowerDiff,
+      minePoint,
+      otherPoint,
+      pointDiff,
       absScoreDiff: scoreDiff === null ? null : Math.abs(scoreDiff),
       absZDiff: zDiff === null ? null : Math.abs(zDiff),
+      absLogPowerDiff: logPowerDiff === null ? null : Math.abs(logPowerDiff),
+      absPointDiff: pointDiff === null ? null : Math.abs(pointDiff),
       isReversal,
       result: compareResult(scoreDiff, zDiff, mineScore, otherScore),
       mineMaxCombo: mine?.maxCombo === true,
@@ -2925,6 +2977,10 @@ function filterRows(rows) {
       if (mode === "scoreOther" && !(row.scoreDiff < 0)) return false;
       if (mode === "zMine" && !(row.zDiff > 0)) return false;
       if (mode === "zOther" && !(row.zDiff < 0)) return false;
+      if (mode === "logPowerMine" && !(row.logPowerDiff > 0)) return false;
+      if (mode === "logPowerOther" && !(row.logPowerDiff < 0)) return false;
+      if (mode === "pointMine" && !(row.pointDiff > 0)) return false;
+      if (mode === "pointOther" && !(row.pointDiff < 0)) return false;
       if (mode === "reversal" && !row.isReversal) return false;
     }
     if (!query) return true;
@@ -2973,12 +3029,12 @@ function renderCell(row, key) {
   const classes = [];
   if (key === "name") classes.push("nameCell");
   if (key === "name" && isRecentRecord(row.updatedAt)) classes.push("recentName");
-  if (["button", "rank", "floor", "score", "mineScore", "otherScore", "scoreDiff", "mineZ", "otherZ", "zDiff", "scorePoint", "difficultyConstant", "floorMaxPoint", "logPower", "rating", "maxRating", "djpower", "maxDjpower", "top50sum", "tierPoint", "nextRating", "djPowerSum", "djPowerConversion", "maxDjPower"].includes(key)) classes.push("num");
+  if (["button", "rank", "floor", "score", "mineScore", "otherScore", "scoreDiff", "mineZ", "otherZ", "zDiff", "mineLogPower", "otherLogPower", "logPowerDiff", "minePoint", "otherPoint", "pointDiff", "scorePoint", "difficultyConstant", "floorMaxPoint", "logPower", "rating", "maxRating", "djpower", "maxDjpower", "top50sum", "tierPoint", "nextRating", "djPowerSum", "djPowerConversion", "maxDjPower"].includes(key)) classes.push("num");
   if (key === "pattern") classes.push("pattern");
   if (key === "level") classes.push("level");
   if (key === "score" && row.maxCombo === true) classes.push("comboScore");
-  if (["scoreDiff", "zDiff"].includes(key) && Number(value) > 0) classes.push("positiveDiff");
-  if (["scoreDiff", "zDiff"].includes(key) && Number(value) < 0) classes.push("negativeDiff");
+  if (["scoreDiff", "zDiff", "logPowerDiff", "pointDiff"].includes(key) && Number(value) > 0) classes.push("positiveDiff");
+  if (["scoreDiff", "zDiff", "logPowerDiff", "pointDiff"].includes(key) && Number(value) < 0) classes.push("negativeDiff");
   if (key === "result" && row.isReversal) classes.push("reversalCell");
   if (key === "mineScore" && row.mineMaxCombo === true) classes.push("comboScore");
   if (key === "otherScore" && row.otherMaxCombo === true) classes.push("comboScore");
@@ -3023,6 +3079,7 @@ function formatValue(value, key = "") {
   if (value === null || value === undefined) return "";
   if (["mineScore", "otherScore", "scoreDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
   if (["mineZ", "otherZ", "zDiff", "absZDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
+  if (["mineLogPower", "otherLogPower", "logPowerDiff", "absLogPowerDiff", "minePoint", "otherPoint", "pointDiff", "absPointDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
   if (["scorePoint", "difficultyConstant", "floorMaxPoint", "logPower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
   if (["rating", "djpower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
   if (key === "updatedAt" || key === "generatedAt") return formatDate(value);
