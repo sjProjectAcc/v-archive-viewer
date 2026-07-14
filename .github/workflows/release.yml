@@ -1,0 +1,108 @@
+name: Build, release, and deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    outputs:
+      release_tag: ${{ steps.release.outputs.release_tag }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build desktop app
+        run: npm run desktop:build
+
+      - name: Package desktop app
+        id: release
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tag = "v$version"
+          $asset = "v-archive-viewer-windows-x64.zip"
+          New-Item -ItemType Directory -Force downloads | Out-Null
+          Copy-Item release/README.txt downloads/README.txt
+          Compress-Archive -LiteralPath src-tauri/target/release/v-archive-viewer.exe,downloads/README.txt -DestinationPath "downloads/$asset" -CompressionLevel Optimal
+          "release_tag=$tag" >> $env:GITHUB_OUTPUT
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+          "DESKTOP_DOWNLOAD_URL=https://github.com/${{ github.repository }}/releases/download/$tag/$asset" >> $env:GITHUB_ENV
+
+      - name: Build GitHub Pages site
+        env:
+          PUBLIC_BASE_PATH: /v-archive-viewer/
+          COPY_DESKTOP_DOWNLOAD: "false"
+        run: npm run build
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $asset = "downloads/v-archive-viewer-windows-x64.zip#v-archive-viewer-windows-x64.zip"
+          $tagSha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$env:RELEASE_TAG" --jq .object.sha 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            if ($tagSha -ne $env:GITHUB_SHA) {
+              throw "Release $env:RELEASE_TAG belongs to another commit. Bump package.json and tauri.conf.json before publishing."
+            }
+            gh release upload $env:RELEASE_TAG $asset --repo $env:GITHUB_REPOSITORY --clobber
+          } else {
+            gh release create $env:RELEASE_TAG $asset --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title $env:RELEASE_TAG --generate-notes
+          }
+
+      - name: Upload site build
+        uses: actions/upload-artifact@v4
+        with:
+          name: pages-site
+          path: dist
+          include-hidden-files: true
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download site build
+        uses: actions/download-artifact@v4
+        with:
+          name: pages-site
+          path: dist
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

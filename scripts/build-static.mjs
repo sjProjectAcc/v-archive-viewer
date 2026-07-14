@@ -18,13 +18,21 @@ const downloadBody = await readFile(resolve(root, "downloads", downloadFile)).ca
   throw error;
 });
 const packageConfig = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
+const repository = process.env.GITHUB_REPOSITORY || "sjProjectAcc/v-archive-viewer";
+const releaseTag = process.env.RELEASE_TAG || `v${packageConfig.version}`;
+const normalizedBasePath = (process.env.PUBLIC_BASE_PATH || "").replace(/^\/+|\/+$/g, "");
+const publicBasePath = normalizedBasePath ? `/${normalizedBasePath}/` : "/";
+const publicAsset = (path) => `${publicBasePath}${path}`.replace(/\/{2,}/g, "/");
+const downloadUrl = process.env.DESKTOP_DOWNLOAD_URL
+  || `https://github.com/${repository}/releases/download/${releaseTag}/${downloadFile}`;
+const copyDownloadToDist = process.env.COPY_DESKTOP_DOWNLOAD !== "false";
 const appHash = digest(appBody);
 const stylesHash = digest(stylesBody);
 const downloadHash = downloadBody ? digest(downloadBody) : "source-only";
 const desktopManifest = downloadBody
   ? JSON.stringify({
       version: packageConfig.version,
-      url: `https://v-archive-viewer.ara-share.chatgpt.site${downloadPath}`,
+      url: downloadUrl,
       sha256: createHash("sha256").update(downloadBody).digest("hex"),
       size: downloadBody.length,
     })
@@ -36,18 +44,19 @@ const versionCheck = `  <meta name="v-archive-version" content="${version}">
   <script>
     (() => {
       const current = "${version}";
-      fetch("/version", { cache: "no-store" })
+      fetch(${JSON.stringify(publicAsset("version"))}, { cache: "no-store" })
         .then((response) => response.ok ? response.text() : current)
         .then((latest) => {
           const next = latest.trim();
-          if (next && next !== current) location.replace("/?v=" + encodeURIComponent(next));
+          if (next && next !== current) location.replace(${JSON.stringify(publicBasePath)} + "?v=" + encodeURIComponent(next));
         })
         .catch(() => {});
     })();
   </script>`;
 const htmlBody = sourceHtml
-  .replace('href="/styles.css"', `href="/${stylesFile}"`)
-  .replace('src="/app.js"', `src="/${appFile}"`)
+  .replace('href="/styles.css"', `href="${publicAsset(stylesFile)}"`)
+  .replace('src="/app.js"', `src="${publicAsset(appFile)}"`)
+  .replace(`href="${downloadPath}"`, `href="${downloadUrl}"`)
   .replace("</head>", `${versionCheck}\n</head>`);
 
 await rm(output, { recursive: true, force: true });
@@ -60,10 +69,13 @@ await writeFile(resolve(output, appFile), appBody, "utf8");
 await writeFile(resolve(output, stylesFile), stylesBody, "utf8");
 await writeFile(resolve(output, "version"), version, "utf8");
 if (downloadBody) {
-  await mkdir(resolve(output, "downloads"), { recursive: true });
   await writeFile(resolve(output, "desktop-version.json"), desktopManifest, "utf8");
-  await writeFile(resolve(output, "downloads", downloadFile), downloadBody);
+  if (copyDownloadToDist) {
+    await mkdir(resolve(output, "downloads"), { recursive: true });
+    await writeFile(resolve(output, "downloads", downloadFile), downloadBody);
+  }
 }
+await writeFile(resolve(output, ".nojekyll"), "", "utf8");
 
 const htmlAsset = {
   body: htmlBody,
@@ -100,14 +112,16 @@ if (downloadBody) {
     etag: `"desktop-${packageConfig.version}-${downloadHash}"`,
     cacheControl: "no-store",
   };
-  assets[downloadPath] = {
-    body: downloadBody.toString("base64"),
-    base64: true,
-    type: "application/zip",
-    etag: `"${downloadHash}"`,
-    cacheControl: "public, max-age=3600",
-    downloadName: downloadFile,
-  };
+  if (copyDownloadToDist) {
+    assets[downloadPath] = {
+      body: downloadBody.toString("base64"),
+      base64: true,
+      type: "application/zip",
+      etag: `"${downloadHash}"`,
+      cacheControl: "public, max-age=3600",
+      downloadName: downloadFile,
+    };
+  }
 }
 
 const server = `const assets = ${JSON.stringify(assets)};

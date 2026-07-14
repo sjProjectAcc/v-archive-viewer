@@ -15,8 +15,8 @@ use tauri::{AppHandle, Manager, State};
 const API_BASE_URL: &str = "https://v-archive.net";
 const ACCOUNT_CONFIG_FILE: &str = "account-path.json";
 const UPDATE_MANIFEST_URL: &str =
-    "https://v-archive-viewer.ara-share.chatgpt.site/desktop-version.json";
-const UPDATE_HOST: &str = "v-archive-viewer.ara-share.chatgpt.site";
+    "https://sjprojectacc.github.io/v-archive-viewer/desktop-version.json";
+const UPDATE_HOST: &str = "github.com";
 
 #[derive(Default)]
 struct ApiSession {
