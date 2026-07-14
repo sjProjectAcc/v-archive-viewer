@@ -1,0 +1,13 @@
+{
+  "version": "0.1.1",
+  "scripts": {
+    "build": "node scripts/build-static.mjs",
+    "tauri": "tauri",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.0"
+  }
+}

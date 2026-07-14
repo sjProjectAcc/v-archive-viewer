@@ -1,0 +1,2941 @@
+const state = {
+  payload: null,
+  comparePayload: null,
+  floorMinImageRows: [],
+  floorMinImageRecords: [],
+  buttonTop50BaseMax: null,
+  floorPatternCounts: null,
+  view: "chart",
+  chartMetric: "score",
+  chartYMinByMetric: {},
+  chartYMinAutoByMetric: {},
+  chartYMaxByMetric: {},
+  chartYMaxAutoByMetric: {},
+  chartXRangeByMode: {},
+  chartXMode: "floor",
+  historyEntries: [],
+  historyRows: [],
+  historyCollecting: false,
+  historyStopRequested: false,
+  historyRenderToken: 0,
+  sortKey: null,
+  sortDir: "asc",
+};
+
+const floorLabels = Array.from({ length: 17 }, (_, n) => [1, 2, 3].map((m) => `${n + 1}.${m}`)).flat();
+const SETTINGS_KEY = "vArchiveViewerSettings";
+const NICKNAME_HISTORY_KEY = "vArchiveNicknameHistory";
+const DEFAULT_NICKNAME = "lemoncube7";
+const API_BASE_URL = "https://v-archive.net";
+const SONG_DB_URL = `${API_BASE_URL}/db/v2/songs.json`;
+const BUTTONS = [4, 5, 6, 8];
+const DB_NAME = "vArchiveViewerCache";
+const DB_VERSION = 2;
+const PROFILE_STORE = "profiles";
+const HISTORY_STORE = "recordHistories";
+const SCORE_BASE = Math.pow(30, 1 / 10);
+const ANCHOR_FLOOR_LABEL = "15.2";
+const ANCHOR_DIFFICULTY_CONSTANT = 10;
+const FLOOR_STEP_RATIO = 10 / 9;
+const TARGET_TOP50_MAX = 5000;
+const TOP50_SCALE_CACHE_KEY = "vArchiveTop50ScaleCache";
+const TOP50_SCALE_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+const FALLBACK_BUTTON_TOP50_BASE_MAX = Object.freeze({
+  4: 4128.5712345679,
+  5: 3934.60154458162,
+  6: 4123.30844581619,
+  8: 4272.28322359396,
+});
+const TOP_IMAGE_COLUMNS = 5;
+const TOP_IMAGE_ROWS = 6;
+const TOP_IMAGE_COUNT = TOP_IMAGE_COLUMNS * TOP_IMAGE_ROWS;
+
+const columns = {
+  top100: [
+    ["button", "button"],
+    ["rank", "rank"],
+    ["logPower", "logPower"],
+    ["floorMaxPoint", "floorMax"],
+    ["name", "name"],
+    ["pattern", "pattern"],
+    ["level", "level"],
+    ["floorName", "floor"],
+    ["score", "score"],
+    ["maxCombo", "maxCombo"],
+    ["updatedAt", "updatedAt"],
+  ],
+  records: [
+    ["button", "button"],
+    ["name", "name"],
+    ["pattern", "pattern"],
+    ["level", "level"],
+    ["floor", "floor"],
+    ["score", "score"],
+    ["rating", "rating"],
+    ["maxRating", "maxRating"],
+    ["djpower", "djpower"],
+    ["maxDjpower", "maxDjpower"],
+    ["updatedAt", "updatedAt"],
+  ],
+  history: [
+    ["button", "button"],
+    ["name", "name"],
+    ["pattern", "pattern"],
+    ["level", "level"],
+    ["floorName", "floor"],
+    ["score", "score"],
+    ["maxCombo", "maxCombo"],
+    ["logPower", "logPower"],
+    ["updatedAt", "updatedAt"],
+  ],
+  floorMinScore: [
+    ["button", "button"],
+    ["floor", "floor"],
+    ["score", "score"],
+    ["name", "name"],
+    ["pattern", "pattern"],
+    ["level", "level"],
+    ["updatedAt", "updatedAt"],
+  ],
+  tiers: [
+    ["button", "button"],
+    ["top50sum", "top50sum"],
+    ["tierPoint", "tierPoint"],
+    ["tierName", "tierName"],
+    ["nextRating", "nextRating"],
+    ["nextTierName", "nextTierName"],
+  ],
+  djClasses: [
+    ["button", "button"],
+    ["djPowerSum", "djPowerSum"],
+    ["djPowerConversion", "djPowerConversion"],
+    ["maxDjPower", "maxDjPower"],
+    ["djClass", "djClass"],
+  ],
+  errors: [
+    ["category", "category"],
+    ["button", "button"],
+    ["status", "status"],
+    ["message", "message"],
+    ["url", "url"],
+  ],
+  compare: [
+    ["button", "button"],
+    ["name", "name"],
+    ["pattern", "pattern"],
+    ["level", "level"],
+    ["floorName", "floor"],
+    ["mineScore", "my score"],
+    ["otherScore", "other score"],
+    ["scoreDiff", "score diff"],
+    ["mineZ", "my z"],
+    ["otherZ", "other z"],
+    ["zDiff", "z diff"],
+    ["result", "result"],
+    ["mineUpdatedAt", "my updatedAt"],
+    ["otherUpdatedAt", "other updatedAt"],
+  ],
+};
+
+const statusText = document.querySelector("#statusText");
+const summaryEl = document.querySelector("#summary");
+const tableSection = document.querySelector("#tableSection");
+const tableSummary = document.querySelector("#tableSummary");
+const tableEl = document.querySelector("#dataTable");
+const chartPanel = document.querySelector("#chartPanel");
+const chartTooltip = document.querySelector("#chartTooltip");
+const historyPanel = document.querySelector("#historyPanel");
+const historyStatus = document.querySelector("#historyStatus");
+const historyCollectButton = document.querySelector("#historyCollectButton");
+const historyStopButton = document.querySelector("#historyStopButton");
+const historyProgress = document.querySelector("#historyProgress");
+const historyProgressBar = document.querySelector("#historyProgressBar");
+const historyLogPowerChart = document.querySelector("#historyLogPowerChart");
+const historyLegend = document.querySelector("#historyLegend");
+const historyTestPanel = document.querySelector("#historyTestPanel");
+const historyTestTitle = document.querySelector("#historyTestTitle");
+const historyTestButton = document.querySelector("#historyTestButton");
+const historyTestPattern = document.querySelector("#historyTestPattern");
+const historyTestRunButton = document.querySelector("#historyTestRunButton");
+const historyTestOpenLink = document.querySelector("#historyTestOpenLink");
+const historyTestOutput = document.querySelector("#historyTestOutput");
+const historyTestUserNo = document.querySelector("#historyTestUserNo");
+const historyTestToken = document.querySelector("#historyTestToken");
+const historyTestNativeRunButton = document.querySelector("#historyTestNativeRunButton");
+const historyTestAccountFileButton = document.querySelector("#historyTestAccountFileButton");
+const historyTestAccountFileStatus = document.querySelector("#historyTestAccountFileStatus");
+const nativeOnlyEls = document.querySelectorAll(".nativeOnly");
+const webOnlyEls = document.querySelectorAll(".webOnly");
+const desktopOnlyEls = document.querySelectorAll(".desktopOnly");
+const appVersionEl = document.querySelector("#appVersion");
+const desktopUpdateButton = document.querySelector("#desktopUpdateButton");
+const nicknameInput = document.querySelector("#nicknameInput");
+const nicknameApplyButton = document.querySelector("#nicknameApplyButton");
+const recentNicknamesEl = document.querySelector("#recentNicknames");
+const refreshButton = document.querySelector("#refreshButton");
+const fullRefreshButton = document.querySelector("#fullRefreshButton");
+const viewSelect = document.querySelector("#viewSelect");
+const buttonFilter = document.querySelector("#buttonFilter");
+const patternFilter = document.querySelector("#patternFilter");
+const searchInput = document.querySelector("#searchInput");
+const limitSelect = document.querySelector("#limitSelect");
+const nameWidthInput = document.querySelector("#nameWidthInput");
+const compareNicknameInput = document.querySelector("#compareNicknameInput");
+const compareLoadButton = document.querySelector("#compareLoadButton");
+const compareModeSelect = document.querySelector("#compareModeSelect");
+const compareSortSelect = document.querySelector("#compareSortSelect");
+const compareMinZSelect = document.querySelector("#compareMinZSelect");
+const compareFloorMinSelect = document.querySelector("#compareFloorMinSelect");
+const compareFloorMaxSelect = document.querySelector("#compareFloorMaxSelect");
+const compareStdFloorSelect = document.querySelector("#compareStdFloorSelect");
+const compareOnlyEls = document.querySelectorAll(".compareOnly");
+const chartMetricSelect = document.querySelector("#chartMetricSelect");
+const chartTitle = document.querySelector("#chartTitle");
+const chartDescription = document.querySelector("#chartDescription");
+const chartButtonFilter = document.querySelector("#chartButtonFilter");
+const xMinLabel = document.querySelector("#xMinLabel");
+const xMaxLabel = document.querySelector("#xMaxLabel");
+const xMinSelect = document.querySelector("#xMinSelect");
+const xMaxSelect = document.querySelector("#xMaxSelect");
+const yMinInput = document.querySelector("#yMinInput");
+const yMinAutoInput = document.querySelector("#yMinAutoInput");
+const yMaxInput = document.querySelector("#yMaxInput");
+const yMaxAutoInput = document.querySelector("#yMaxAutoInput");
+const chartFloorMaxLegend = document.querySelector("#chartFloorMaxLegend");
+const chartBelowLegend = document.querySelector("#chartBelowLegend");
+const chartFloorMaxLegendText = document.querySelector("#chartFloorMaxLegendText");
+const chartMaxLegend = document.querySelector("#chartMaxLegend");
+const chartAvgLegend = document.querySelector("#chartAvgLegend");
+const chartMinLegend = document.querySelector("#chartMinLegend");
+const chartImageButton = document.querySelector("#chartImageButton");
+const chartEl = document.querySelector("#floorScoreChart");
+
+window.addEventListener("load", () => {
+  renderAppVersion();
+  initDesktopBridge();
+  initFloorSelectors();
+  wireEvents();
+  loadTop50ScaleCache();
+  refresh(false);
+});
+
+function renderAppVersion() {
+  const version = document.querySelector('meta[name="v-archive-version"]')?.content;
+  appVersionEl.textContent = version ? `v${version}` : "local";
+  appVersionEl.title = version ? `배포 버전 ${version}` : "로컬 버전";
+}
+
+async function initDesktopBridge() {
+  const isDesktop = Boolean(window.__TAURI__?.core?.invoke);
+  nativeOnlyEls.forEach((el) => {
+    el.hidden = !isDesktop;
+  });
+  webOnlyEls.forEach((el) => {
+    el.hidden = isDesktop;
+  });
+  desktopOnlyEls.forEach((el) => {
+    el.hidden = !isDesktop;
+    el.disabled = !isDesktop;
+  });
+  if (!isDesktop) return;
+  checkForDesktopUpdate();
+
+  try {
+    const account = await window.__TAURI__.core.invoke("login_from_account_file");
+    renderAccountFileStatus(account);
+  } catch {
+    historyTestAccountFileStatus.textContent = "account.txt 선택 필요";
+  }
+}
+
+async function checkForDesktopUpdate() {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (!invoke) return;
+  desktopUpdateButton.hidden = true;
+  try {
+    const update = await invoke("check_for_update");
+    appVersionEl.textContent = `v${update.currentVersion}`;
+    appVersionEl.title = `데스크톱 버전 ${update.currentVersion}`;
+    if (!update.available) return;
+    desktopUpdateButton.textContent = `업데이트 v${update.latestVersion}`;
+    desktopUpdateButton.hidden = false;
+  } catch {
+    desktopUpdateButton.hidden = true;
+  }
+}
+
+async function installDesktopUpdate() {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (!invoke) return;
+  desktopUpdateButton.disabled = true;
+  statusText.textContent = "업데이트를 다운로드하고 있습니다...";
+  try {
+    await invoke("install_update");
+    statusText.textContent = "업데이트를 설치하기 위해 앱을 다시 시작합니다.";
+  } catch (error) {
+    desktopUpdateButton.disabled = false;
+    statusText.textContent = `업데이트 실패: ${String(error)}`;
+  }
+}
+
+function renderAccountFileStatus(account) {
+  historyTestAccountFileStatus.textContent = account?.fileName
+    ? `${account.fileName} 연결됨`
+    : "account.txt 미설정";
+  historyTestAccountFileStatus.title = account?.path || "";
+}
+
+function initFloorSelectors() {
+  const options = floorLabels.map((label) => `<option value="${label}">${label}</option>`).join("");
+  xMinSelect.innerHTML = options;
+  xMaxSelect.innerHTML = options;
+  compareFloorMinSelect.innerHTML = options;
+  compareFloorMaxSelect.innerHTML = options;
+  xMinSelect.value = "1.1";
+  xMaxSelect.value = "17.3";
+  compareFloorMinSelect.value = "1.1";
+  compareFloorMaxSelect.value = "17.3";
+  viewSelect.value = "chart";
+  applySavedSettings();
+}
+
+function wireEvents() {
+  refreshButton.addEventListener("click", () => refresh(false));
+  fullRefreshButton.addEventListener("click", () => {
+    if (confirm("캐시를 무시하고 전체 기록을 다시 불러올까요?")) refresh(true);
+  });
+  nicknameApplyButton.addEventListener("click", () => applyNickname());
+  nicknameInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") applyNickname();
+  });
+  nicknameInput.addEventListener("input", () => saveCurrentNickname(nicknameInput.value));
+  compareLoadButton.addEventListener("click", () => loadComparison(false));
+  compareNicknameInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") loadComparison(false);
+  });
+  [viewSelect, buttonFilter, patternFilter, searchInput, limitSelect, nameWidthInput, compareNicknameInput, compareModeSelect, compareSortSelect, compareMinZSelect, compareFloorMinSelect, compareFloorMaxSelect, compareStdFloorSelect].forEach((el) => {
+    el.addEventListener("input", () => {
+      if (el === viewSelect) state.sortKey = null;
+      state.view = viewSelect.value;
+      if ([compareSortSelect, compareModeSelect, compareMinZSelect, compareFloorMinSelect, compareFloorMaxSelect, compareStdFloorSelect].includes(el)) state.sortKey = null;
+      saveSettings();
+      render();
+    });
+  });
+  chartMetricSelect.addEventListener("change", () => {
+    storeCurrentChartRange();
+    storeCurrentChartXRange();
+    state.chartMetric = chartMetricSelect.value;
+    restoreChartRange(state.chartMetric);
+    saveSettings();
+    renderChart();
+  });
+  [chartButtonFilter, xMinSelect, xMaxSelect, yMinInput, yMinAutoInput, yMaxInput, yMaxAutoInput].forEach((el) => {
+    el.addEventListener("input", () => {
+      yMinInput.disabled = yMinAutoInput.checked;
+      yMaxInput.disabled = ["score", "scorePoint"].includes(chartMetricSelect.value) || yMaxAutoInput.checked;
+      storeCurrentChartRange();
+      storeCurrentChartXRange();
+      saveSettings();
+      renderChart();
+    });
+  });
+  chartImageButton.addEventListener("click", exportChartImage);
+  desktopUpdateButton.addEventListener("click", installDesktopUpdate);
+  historyTestRunButton.addEventListener("click", runHistoryApiTest);
+  historyTestNativeRunButton.addEventListener("click", runNativeHistoryApiTest);
+  historyTestAccountFileButton.addEventListener("click", selectAccountFile);
+  historyCollectButton.addEventListener("click", collectRecordHistories);
+  historyStopButton.addEventListener("click", () => {
+    state.historyStopRequested = true;
+    historyStatus.textContent = "현재 요청이 끝나면 중지합니다.";
+  });
+  [historyTestTitle, historyTestButton, historyTestPattern].forEach((el) => {
+    el.addEventListener("input", updateHistoryTestUrl);
+  });
+  historyTestTitle.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") runHistoryApiTest();
+  });
+  window.addEventListener("resize", renderChart);
+}
+
+function applySavedSettings() {
+  const settings = loadSettings();
+  nicknameInput.value = settings.nickname || getNicknameHistory()[0] || DEFAULT_NICKNAME;
+  renderRecentNicknames();
+  setIfOptionExists(viewSelect, settings.view || "chart");
+  setIfOptionExists(buttonFilter, settings.buttonFilter || "");
+  setIfOptionExists(patternFilter, settings.patternFilter || "");
+  setIfOptionExists(limitSelect, settings.limitSelect || "200");
+  setIfOptionExists(chartMetricSelect, settings.chartMetric || "score");
+  setIfOptionExists(chartButtonFilter, settings.chartButtonFilter || "4");
+  setIfOptionExists(xMinSelect, settings.xMin || "1.1");
+  setIfOptionExists(xMaxSelect, settings.xMax || "17.3");
+  state.chartMetric = chartMetricSelect.value;
+  state.chartYMinByMetric = { score: settings.yMin || "", ...(settings.chartYMinByMetric || {}) };
+  state.chartYMinAutoByMetric = { score: settings.yMinAuto !== false, ...(settings.chartYMinAutoByMetric || {}) };
+  state.chartYMaxByMetric = { score: "100", scorePoint: "10", ...(settings.chartYMaxByMetric || {}) };
+  state.chartYMaxAutoByMetric = { score: true, scorePoint: true, ...(settings.chartYMaxAutoByMetric || {}) };
+  state.chartXRangeByMode = {
+    floor: { min: settings.xMin || "1.1", max: settings.xMax || "17.3" },
+    ...(settings.chartXRangeByMode || {}),
+  };
+  restoreChartRange(state.chartMetric);
+  searchInput.value = settings.search || "";
+  nameWidthInput.value = settings.nameWidth || "320";
+  compareNicknameInput.value = settings.compareNickname || "";
+  setIfOptionExists(compareModeSelect, settings.compareMode || "");
+  setIfOptionExists(compareSortSelect, settings.compareSort || "absZDiff");
+  setIfOptionExists(compareMinZSelect, settings.compareMinZ || "0");
+  setIfOptionExists(compareFloorMinSelect, settings.compareFloorMin || "1.1");
+  setIfOptionExists(compareFloorMaxSelect, settings.compareFloorMax || "17.3");
+  setIfOptionExists(compareStdFloorSelect, settings.compareStdFloor || "0.05");
+  state.view = viewSelect.value;
+  applyNameWidth();
+  updateCompareControls();
+}
+
+function saveSettings() {
+  storeCurrentChartRange();
+  storeCurrentChartXRange();
+  const settings = {
+    view: viewSelect.value,
+    buttonFilter: buttonFilter.value,
+    patternFilter: patternFilter.value,
+    search: searchInput.value,
+    nickname: getCurrentNickname(),
+    compareNickname: compareNicknameInput.value.trim(),
+    compareMode: compareModeSelect.value,
+    compareSort: compareSortSelect.value,
+    compareMinZ: compareMinZSelect.value,
+    compareFloorMin: compareFloorMinSelect.value,
+    compareFloorMax: compareFloorMaxSelect.value,
+    compareStdFloor: compareStdFloorSelect.value,
+    limitSelect: limitSelect.value,
+    nameWidth: nameWidthInput.value,
+    chartMetric: chartMetricSelect.value,
+    chartButtonFilter: chartButtonFilter.value,
+    xMin: xMinSelect.value,
+    xMax: xMaxSelect.value,
+    yMin: yMinInput.value,
+    yMinAuto: yMinAutoInput.checked,
+    chartYMinByMetric: state.chartYMinByMetric,
+    chartYMinAutoByMetric: state.chartYMinAutoByMetric,
+    chartYMaxByMetric: state.chartYMaxByMetric,
+    chartYMaxAutoByMetric: state.chartYMaxAutoByMetric,
+    chartXRangeByMode: state.chartXRangeByMode,
+  };
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  applyNameWidth();
+}
+
+function storeCurrentChartXRange() {
+  const mode = state.chartXMode || "floor";
+  if (!xMinSelect?.value || !xMaxSelect?.value) return;
+  state.chartXRangeByMode[mode] = { min: xMinSelect.value, max: xMaxSelect.value };
+}
+
+function storeCurrentChartRange() {
+  const metric = state.chartMetric || chartMetricSelect?.value || "score";
+  state.chartYMinByMetric[metric] = yMinInput?.value || "";
+  state.chartYMinAutoByMetric[metric] = yMinAutoInput?.checked !== false;
+  state.chartYMaxByMetric[metric] = yMaxInput?.value || "";
+  state.chartYMaxAutoByMetric[metric] = yMaxAutoInput?.checked !== false;
+}
+
+function restoreChartRange(metric) {
+  yMinInput.value = state.chartYMinByMetric[metric] || "";
+  yMinAutoInput.checked = state.chartYMinAutoByMetric[metric] !== false;
+  yMinInput.disabled = yMinAutoInput.checked;
+  const fixedMaxValue = metric === "score" ? "100" : metric === "scorePoint" ? "10" : "";
+  const fixedMax = Boolean(fixedMaxValue);
+  yMaxInput.value = fixedMax ? fixedMaxValue : state.chartYMaxByMetric[metric] || "";
+  yMaxAutoInput.checked = fixedMax || state.chartYMaxAutoByMetric[metric] !== false;
+  yMaxAutoInput.disabled = fixedMax;
+  yMaxInput.disabled = fixedMax || yMaxAutoInput.checked;
+}
+
+function loadSettings() {
+  try {
+    return JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function loadTop50ScaleCache() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(TOP50_SCALE_CACHE_KEY) || "null");
+    if (!isValidButtonTop50BaseMax(cached?.baseMaxByButton) || !isValidFloorPatternCounts(cached?.floorPatternCounts)) return null;
+    state.buttonTop50BaseMax = cached.baseMaxByButton;
+    state.floorPatternCounts = cached.floorPatternCounts;
+    return cached;
+  } catch {
+    return null;
+  }
+}
+
+async function refreshTop50ScaleCache(force = false) {
+  const cached = loadTop50ScaleCache();
+  if (!force && cached && Date.now() - Number(cached.updatedAt || 0) < TOP50_SCALE_CACHE_TTL) return false;
+  try {
+    const response = await fetch(SONG_DB_URL, { credentials: "omit" });
+    if (!response.ok) return false;
+    const songs = await response.json();
+    const { baseMaxByButton, floorPatternCounts } = calculateSongCatalogMetrics(songs);
+    if (!isValidButtonTop50BaseMax(baseMaxByButton) || !isValidFloorPatternCounts(floorPatternCounts)) return false;
+    state.buttonTop50BaseMax = baseMaxByButton;
+    state.floorPatternCounts = floorPatternCounts;
+    localStorage.setItem(TOP50_SCALE_CACHE_KEY, JSON.stringify({ updatedAt: Date.now(), baseMaxByButton, floorPatternCounts }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function calculateSongCatalogMetrics(songs) {
+  if (!Array.isArray(songs)) return { baseMaxByButton: null, floorPatternCounts: null };
+  const baseMaxByButton = {};
+  const floorPatternCounts = {};
+  for (const button of BUTTONS) {
+    const floorMaxPoints = [];
+    floorPatternCounts[String(button)] = {};
+    for (const song of songs) {
+      const patterns = song?.patterns?.[`${button}B`];
+      if (!patterns || typeof patterns !== "object") continue;
+      for (const [patternName, pattern] of Object.entries(patterns)) {
+        const difficultyConstant = baseDifficultyConstantForFloor(pattern?.floorName);
+        if (!Number.isFinite(difficultyConstant)) continue;
+        floorMaxPoints.push(10 * difficultyConstant);
+        const patternCounts = floorPatternCounts[String(button)][patternName] || {};
+        patternCounts[pattern.floorName] = Number(patternCounts[pattern.floorName] || 0) + 1;
+        floorPatternCounts[String(button)][patternName] = patternCounts;
+      }
+    }
+    if (floorMaxPoints.length < 50) return { baseMaxByButton: null, floorPatternCounts: null };
+    floorMaxPoints.sort((a, b) => b - a);
+    baseMaxByButton[String(button)] = floorMaxPoints.slice(0, 50).reduce((sum, point) => sum + point, 0);
+  }
+  return { baseMaxByButton, floorPatternCounts };
+}
+
+function isValidButtonTop50BaseMax(value) {
+  return value && BUTTONS.every((button) => Number.isFinite(Number(value[String(button)])) && Number(value[String(button)]) > 0);
+}
+
+function isValidFloorPatternCounts(value) {
+  return value && BUTTONS.every((button) => value[String(button)] && typeof value[String(button)] === "object");
+}
+
+function getCurrentNickname() {
+  return (nicknameInput.value || "").trim();
+}
+
+function saveCurrentNickname(nickname) {
+  const settings = loadSettings();
+  settings.nickname = (nickname || "").trim();
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+function getNicknameHistory() {
+  try {
+    const nicknames = JSON.parse(localStorage.getItem(NICKNAME_HISTORY_KEY) || "[]");
+    return Array.isArray(nicknames) ? nicknames.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberNickname(nickname) {
+  const clean = (nickname || "").trim();
+  if (!clean) return;
+  const next = [clean, ...getNicknameHistory().filter((item) => item.toLowerCase() !== clean.toLowerCase())].slice(0, 8);
+  localStorage.setItem(NICKNAME_HISTORY_KEY, JSON.stringify(next));
+  saveCurrentNickname(clean);
+  renderRecentNicknames();
+}
+
+function renderRecentNicknames() {
+  const nicknames = getNicknameHistory();
+  recentNicknamesEl.innerHTML = nicknames
+    .map((nickname) => `<button class="nicknameChip" type="button" data-nickname="${escapeHtml(nickname)}">${escapeHtml(nickname)}</button>`)
+    .join("");
+  recentNicknamesEl.querySelectorAll(".nicknameChip").forEach((button) => {
+    button.addEventListener("click", () => {
+      nicknameInput.value = button.dataset.nickname || "";
+      applyNickname();
+    });
+  });
+}
+
+function applyNickname() {
+  const nickname = getCurrentNickname();
+  if (!nickname) {
+    statusText.textContent = "닉네임을 입력해 주세요.";
+    nicknameInput.focus();
+    return;
+  }
+  rememberNickname(nickname);
+  refresh(false);
+}
+
+function setIfOptionExists(select, value) {
+  const exists = Array.from(select.options).some((option) => option.value === value);
+  if (exists) select.value = value;
+}
+
+async function serverRefreshLegacy(full) {
+  const nickname = getCurrentNickname();
+  if (!nickname) {
+    statusText.textContent = "닉네임을 입력해 주세요.";
+    nicknameInput.focus();
+    return;
+  }
+  rememberNickname(nickname);
+  setBusy(true, full ? "전체 새로고침 중" : "새로고침 중");
+  try {
+    const params = new URLSearchParams({ nickname });
+    if (full) params.set("full", "1");
+    const response = await fetch(`/api/refresh?${params.toString()}`, { method: "POST" });
+    const payload = await response.json();
+    if (!response.ok || payload.ok === false) throw new Error(payload.message || "새로고침 실패");
+    state.payload = payload;
+    render();
+  } catch (error) {
+    statusText.textContent = `오류: ${error.message}`;
+    try {
+      const params = new URLSearchParams({ nickname });
+      state.payload = await fetch(`/api/data?${params.toString()}`).then((res) => res.json());
+      render();
+    } catch {
+      tableEl.innerHTML = `<tbody><tr><td class="empty">표시할 캐시 데이터가 없습니다.</td></tr></tbody>`;
+    }
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function refresh(full) {
+  const nickname = getCurrentNickname();
+  if (!nickname) {
+    statusText.textContent = "닉네임을 입력해 주세요.";
+    nicknameInput.focus();
+    return;
+  }
+  rememberNickname(nickname);
+  setBusy(true, full ? "전체 새로고침 중" : "새로고침 중");
+  try {
+    state.payload = await fetchArchive(nickname, full);
+    await refreshTop50ScaleCache(full);
+    render();
+  } catch (error) {
+    statusText.textContent = `오류: ${error.message}`;
+    try {
+      state.payload = await loadCachedPayload(nickname);
+      render();
+    } catch {
+      tableEl.innerHTML = `<tbody><tr><td class="empty">표시할 캐시 데이터가 없습니다.</td></tr></tbody>`;
+    }
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function loadComparison(full = false) {
+  const compareNickname = compareNicknameInput.value.trim();
+  if (!compareNickname) {
+    statusText.textContent = "비교 닉네임을 입력해 주세요.";
+    compareNicknameInput.focus();
+    return;
+  }
+  saveSettings();
+  setBusy(true, `비교 기록 불러오는 중: ${compareNickname}`);
+  try {
+    state.comparePayload = await fetchArchive(compareNickname, full);
+    viewSelect.value = "compare";
+    state.view = "compare";
+    saveSettings();
+    render();
+  } catch (error) {
+    statusText.textContent = `비교 오류: ${error.message}`;
+    try {
+      state.comparePayload = await loadCachedPayload(compareNickname);
+      viewSelect.value = "compare";
+      state.view = "compare";
+      render();
+    } catch {
+      tableEl.innerHTML = `<tbody><tr><td class="empty">비교 대상 캐시 데이터가 없습니다.</td></tr></tbody>`;
+    }
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function fetchArchive(nickname, forceFullRefresh = false) {
+  const cache = await loadProfileCache(nickname);
+  const cachedRecords = Array.isArray(cache.records) ? cache.records : [];
+  const cachedTiers = Array.isArray(cache.tiers) ? cache.tiers : [];
+  const cachedDjClasses = Array.isArray(cache.djClasses) ? cache.djClasses : [];
+  const cachedState = cache.state || {};
+  const since = forceFullRefresh ? null : cachedRecords.length ? cachedState.lastRecordSyncAt : null;
+  const syncStartedAt = utcNowIso();
+
+  const { records: recordUpdates, errors: recordErrors } = await fetchRecords(nickname, since);
+  const records = forceFullRefresh && !recordErrors.length ? recordUpdates : mergeRecords(cachedRecords, recordUpdates);
+  const statsNeeded = forceFullRefresh || !cachedTiers.length || !cachedDjClasses.length || recordUpdates.length > 0 || !since;
+  let tiers = cachedTiers;
+  let djClasses = cachedDjClasses;
+  let statsErrors = [];
+
+  if (statsNeeded) {
+    const stats = await fetchStats(nickname);
+    tiers = stats.tiers;
+    djClasses = stats.djClasses;
+    statsErrors = stats.errors;
+  }
+
+  const errors = [...recordErrors, ...statsErrors];
+  const nextState = {
+    ...cachedState,
+    nickname,
+    lastRunAt: utcNowIso(),
+    lastSince: since,
+    lastUpdatedRecords: recordUpdates.length,
+    lastForceFullRefresh: forceFullRefresh,
+  };
+
+  if (!recordErrors.length) {
+    nextState.lastRecordSyncAt = syncStartedAt;
+    cache.records = records;
+  }
+  if (!statsErrors.length && statsNeeded) {
+    cache.tiers = tiers;
+    cache.djClasses = djClasses;
+  }
+  cache.nickname = nickname;
+  cache.state = nextState;
+  await saveProfileCache(nickname, cache);
+
+  return buildPayload(nickname, records, tiers, djClasses, errors, {
+    since: since || "full",
+    updatedRecords: recordUpdates.length,
+    usedRecordCache: cachedRecords.length > 0,
+    usedStatsCache: !statsNeeded,
+    forceFullRefresh,
+    lastRecordSyncAt: nextState.lastRecordSyncAt || "",
+  });
+}
+
+async function loadCachedPayload(nickname) {
+  const cache = await loadProfileCache(nickname);
+  const records = Array.isArray(cache.records) ? cache.records : [];
+  const tiers = Array.isArray(cache.tiers) ? cache.tiers : [];
+  const djClasses = Array.isArray(cache.djClasses) ? cache.djClasses : [];
+  const cachedState = cache.state || {};
+  if (!records.length && !tiers.length && !djClasses.length) throw new Error("No cache");
+  return buildPayload(nickname, records, tiers, djClasses, [], {
+    since: cachedState.lastSince || "cache",
+    updatedRecords: cachedState.lastUpdatedRecords ?? "",
+    usedRecordCache: true,
+    usedStatsCache: true,
+    forceFullRefresh: cachedState.lastForceFullRefresh || false,
+    lastRecordSyncAt: cachedState.lastRecordSyncAt || "",
+  });
+}
+
+async function fetchRecords(nickname, since) {
+  const records = [];
+  const errors = [];
+  for (const button of BUTTONS) {
+    const query = since ? { since } : null;
+    const { data, error } = await requestJson(`/api/v2/archive/${encodeURIComponent(nickname)}/button/${button}`, query);
+    if (error) {
+      errors.push({ ...error, category: "records", button });
+    } else if (data?.success) {
+      for (const item of data.records || []) records.push({ ...item, button });
+    } else {
+      errors.push({ category: "records", button, url: `/archive/${nickname}/button/${button}`, status: "API", message: JSON.stringify(data) });
+    }
+    await delay(150);
+  }
+  return { records, errors };
+}
+
+async function fetchStats(nickname) {
+  const tiers = [];
+  const djClasses = [];
+  const errors = [];
+  for (const button of BUTTONS) {
+    const tier = await requestJson(`/api/v2/archive/${encodeURIComponent(nickname)}/tier/${button}`);
+    if (tier.error) errors.push({ ...tier.error, category: "tier", button });
+    else if (tier.data?.success) tiers.push({ ...tier.data, button });
+    else errors.push({ category: "tier", button, url: `/archive/${nickname}/tier/${button}`, status: "API", message: JSON.stringify(tier.data) });
+
+    const djClass = await requestJson(`/api/v2/archive/${encodeURIComponent(nickname)}/djClass/${button}`);
+    if (djClass.error) errors.push({ ...djClass.error, category: "djClass", button });
+    else if (djClass.data?.success) djClasses.push({ ...djClass.data, button });
+    else errors.push({ category: "djClass", button, url: `/archive/${nickname}/djClass/${button}`, status: "API", message: JSON.stringify(djClass.data) });
+    await delay(150);
+  }
+  return { tiers, djClasses, errors };
+}
+
+async function requestJson(path, query = null) {
+  const url = new URL(path, API_BASE_URL);
+  if (query) {
+    Object.entries(query).forEach(([key, value]) => {
+      if (value !== null && value !== undefined && value !== "") url.searchParams.set(key, value);
+    });
+  }
+  try {
+    const response = await fetch(url.toString());
+    const text = await response.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      return { data: null, error: { category: "parse", button: "-", url: url.toString(), status: "JSON", message: text.slice(0, 300) } };
+    }
+    if (!response.ok) {
+      return { data: null, error: { category: "http", button: "-", url: url.toString(), status: response.status, message: data?.message || data?.error || response.statusText } };
+    }
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error: { category: "network", button: "-", url: url.toString(), status: "NETWORK", message: error.message } };
+  }
+}
+
+function buildPayload(nickname, records, tiers, djClasses, errors, syncInfo) {
+  return {
+    ok: errors.length === 0,
+    nickname,
+    generatedAt: utcNowIso(),
+    sync: syncInfo,
+    summary: buildSummary(records, tiers, djClasses, errors),
+    records,
+    floorMinScore: buildFloorMinScore(records),
+    tiers: normalizeTiers(tiers),
+    djClasses,
+    errors,
+  };
+}
+
+function buildSummary(records, tiers, djClasses, errors) {
+  const byButton = {};
+  for (const button of BUTTONS) {
+    const buttonRecords = records.filter((record) => Number(record.button) === button);
+    const scores = buttonRecords.map((record) => Number(record.score)).filter(Number.isFinite);
+    byButton[String(button)] = {
+      records: buttonRecords.length,
+      minScore: scores.length ? Math.min(...scores) : null,
+      avgScore: scores.length ? round(scores.reduce((sum, score) => sum + score, 0) / scores.length, 4) : null,
+      maxCombo: buttonRecords.filter((record) => record.maxCombo === true).length,
+    };
+  }
+  return {
+    records: records.length,
+    tiers: tiers.length,
+    djClasses: djClasses.length,
+    errors: errors.length,
+    byButton,
+  };
+}
+
+function buildFloorMinScore(records) {
+  const minByFloor = new Map();
+  for (const record of records) {
+    if (record.button === undefined || record.floor === undefined || !Number.isFinite(Number(record.score))) continue;
+    const key = `${record.button}|${record.floor}`;
+    const score = Number(record.score);
+    if (!minByFloor.has(key) || score < minByFloor.get(key)) minByFloor.set(key, score);
+  }
+  return records
+    .filter((record) => {
+      const key = `${record.button}|${record.floor}`;
+      return minByFloor.has(key) && Number(record.score) === minByFloor.get(key);
+    })
+    .map((record) => ({
+      button: record.button,
+      title: record.title,
+      floor: record.floor,
+      score: record.score,
+      floorName: record.floorName,
+      name: record.name,
+      pattern: record.pattern,
+      level: record.level,
+      maxCombo: record.maxCombo,
+      updatedAt: record.updatedAt,
+    }))
+    .sort((a, b) => compare(a.button, b.button) || compare(a.floor, b.floor) || compare(a.score, b.score) || compare(a.name, b.name));
+}
+
+function normalizeTiers(tiers) {
+  return tiers.map((row) => {
+    const tier = row.tier || {};
+    const nextTier = row.next || {};
+    return {
+      button: row.button,
+      userNo: row.userNo,
+      nickname: row.nickname,
+      top50sum: row.top50sum,
+      tierPoint: row.tierPoint,
+      tierName: tier.name,
+      tierCode: tier.code,
+      nextRating: nextTier.rating,
+      nextTierName: nextTier.name,
+      nextTierCode: nextTier.code,
+    };
+  });
+}
+
+function recordKey(record) {
+  return `${record.button ?? ""}|${record.title ?? ""}|${record.pattern ?? ""}`;
+}
+
+function mergeRecords(cachedRecords, updates) {
+  const merged = new Map(cachedRecords.map((record) => [recordKey(record), { ...record }]));
+  for (const record of updates) merged.set(recordKey(record), { ...record });
+  return [...merged.values()].sort((a, b) => compare(a.button, b.button) || compare(a.title, b.title) || compare(a.pattern, b.pattern));
+}
+
+async function loadProfileCache(nickname) {
+  const db = await openCacheDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(PROFILE_STORE, "readonly").objectStore(PROFILE_STORE).get(cacheKey(nickname));
+    request.onsuccess = () => resolve(request.result || { nickname, records: [], tiers: [], djClasses: [], state: {} });
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveProfileCache(nickname, cache) {
+  const db = await openCacheDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(PROFILE_STORE, "readwrite").objectStore(PROFILE_STORE).put({ ...cache, id: cacheKey(nickname), nickname });
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function loadRecordHistories(nickname) {
+  const db = await openCacheDb();
+  return new Promise((resolve, reject) => {
+    const store = db.transaction(HISTORY_STORE, "readonly").objectStore(HISTORY_STORE);
+    const request = store.index("nickname").getAll(cacheKey(nickname));
+    request.onsuccess = () => resolve(Array.isArray(request.result) ? request.result : []);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveRecordHistory(entry) {
+  const db = await openCacheDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(HISTORY_STORE, "readwrite").objectStore(HISTORY_STORE).put(entry);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function openCacheDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(PROFILE_STORE)) db.createObjectStore(PROFILE_STORE, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(HISTORY_STORE)) {
+        const store = db.createObjectStore(HISTORY_STORE, { keyPath: "id" });
+        store.createIndex("nickname", "nickname", { unique: false });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function cacheKey(nickname) {
+  return (nickname || "").trim().toLowerCase();
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function utcNowIso() {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function round(value, digits) {
+  const scale = 10 ** digits;
+  return Math.round(value * scale) / scale;
+}
+
+function setBusy(isBusy, text = "") {
+  refreshButton.disabled = isBusy;
+  fullRefreshButton.disabled = isBusy;
+  nicknameApplyButton.disabled = isBusy;
+  nicknameInput.disabled = isBusy;
+  compareLoadButton.disabled = isBusy;
+  compareNicknameInput.disabled = isBusy;
+  if (isBusy) statusText.textContent = text;
+}
+
+function render() {
+  if (!state.payload) return;
+  renderSummary();
+  renderActiveView();
+  const sync = state.payload.sync || {};
+  const mode = sync.forceFullRefresh ? "전체" : sync.since === "full" ? "전체" : "증분";
+  statusText.textContent = `${state.payload.nickname} · ${mode} 갱신 · 업데이트 ${sync.updatedRecords ?? 0}건 · ${formatDate(state.payload.generatedAt)}`;
+}
+
+function renderActiveView() {
+  const isChart = viewSelect.value === "chart";
+  const isHistory = viewSelect.value === "history";
+  const isHistoryTest = viewSelect.value === "historyTest";
+  chartPanel.hidden = !isChart;
+  historyPanel.hidden = !isHistory;
+  historyTestPanel.hidden = !isHistoryTest;
+  tableSection.hidden = isChart || isHistoryTest;
+  updateCompareControls();
+  hideTooltip();
+  if (isChart) renderChart();
+  else if (isHistory) renderHistoryView();
+  else if (isHistoryTest) updateHistoryTestUrl();
+  else renderTable();
+}
+
+function getHistoryTestUrl() {
+  const params = new URLSearchParams({
+    title: historyTestTitle.value.trim(),
+    button: historyTestButton.value,
+    pattern: historyTestPattern.value,
+  });
+  return `${API_BASE_URL}/api/v3/archive/record-history?${params}`;
+}
+
+function updateHistoryTestUrl() {
+  historyTestOpenLink.href = getHistoryTestUrl();
+}
+
+async function runHistoryApiTest() {
+  const title = historyTestTitle.value.trim();
+  if (!/^\d+$/.test(title) || Number(title) < 1) {
+    historyTestOutput.textContent = "title은 1 이상의 정수여야 합니다.";
+    return;
+  }
+
+  const url = getHistoryTestUrl();
+  updateHistoryTestUrl();
+  historyTestRunButton.disabled = true;
+  historyTestOutput.textContent = `GET ${url}\n\n요청 중...`;
+  const startedAt = performance.now();
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      credentials: "include",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    const elapsed = Math.round(performance.now() - startedAt);
+    const rawBody = await response.text();
+    let body = rawBody || "(빈 응답)";
+    try {
+      body = JSON.stringify(JSON.parse(rawBody), null, 2);
+    } catch {
+      // Keep non-JSON responses intact for diagnosis.
+    }
+    const result = [
+      `GET ${url}`,
+      `HTTP ${response.status} ${response.statusText}`.trim(),
+      `소요 시간 ${elapsed}ms`,
+      `응답 형식 ${response.headers.get("content-type") || "알 수 없음"}`,
+      "",
+      body,
+    ];
+    historyTestOutput.textContent = result.join("\n");
+    statusText.textContent = response.ok
+      ? "Record History API 응답을 받았습니다."
+      : `Record History API가 HTTP ${response.status}로 응답했습니다.`;
+  } catch (error) {
+    const elapsed = Math.round(performance.now() - startedAt);
+    historyTestOutput.textContent = [
+      `GET ${url}`,
+      `요청 실패 (${elapsed}ms)`,
+      `${error.name}: ${error.message}`,
+      "",
+      "브라우저가 응답을 노출하지 않았습니다.",
+      "CORS 정책, 인증 쿠키의 SameSite 설정, 또는 네트워크 오류 중 하나일 수 있습니다.",
+      "위의 '새 탭에서 열기'로 같은 주소의 로그인 상태 응답을 비교할 수 있습니다.",
+    ].join("\n");
+    statusText.textContent = "Record History API 요청에 실패했습니다.";
+  } finally {
+    historyTestRunButton.disabled = false;
+  }
+}
+
+async function runNativeHistoryApiTest() {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (!invoke) {
+    historyTestOutput.textContent = "데스크톱 앱에서만 사용할 수 있습니다.";
+    return;
+  }
+
+  const userNo = historyTestUserNo.value.trim();
+  const token = historyTestToken.value.trim();
+  const title = historyTestTitle.value.trim();
+  if ((userNo && !token) || (!userNo && token)) {
+    historyTestOutput.textContent = "수동 로그인은 회원 번호와 토큰을 모두 입력해야 합니다.";
+    return;
+  }
+  if (!/^\d+$/.test(title) || Number(title) < 1) {
+    historyTestOutput.textContent = "title은 1 이상의 정수여야 합니다.";
+    return;
+  }
+
+  historyTestNativeRunButton.disabled = true;
+  historyTestOutput.textContent = "Rust 백엔드에서 로그인 및 요청 중...";
+  const startedAt = performance.now();
+  try {
+    if (userNo && token) {
+      if (!/^\d+$/.test(userNo)) throw new Error("회원 번호는 숫자여야 합니다.");
+      await invoke("login_with_token", { userNo, token });
+      historyTestToken.value = "";
+    } else {
+      const account = await invoke("login_from_account_file");
+      renderAccountFileStatus(account);
+    }
+    const response = await invoke("fetch_record_history", {
+      title: Number(title),
+      button: Number(historyTestButton.value),
+      pattern: historyTestPattern.value,
+    });
+    const elapsed = Math.round(performance.now() - startedAt);
+    historyTestOutput.textContent = [
+      "Tauri Rust backend",
+      `응답 성공 (${elapsed}ms)`,
+      "",
+      JSON.stringify(response, null, 2),
+    ].join("\n");
+    statusText.textContent = "데스크톱 백엔드에서 Record History API 응답을 받았습니다.";
+  } catch (error) {
+    const elapsed = Math.round(performance.now() - startedAt);
+    historyTestOutput.textContent = [
+      `데스크톱 요청 실패 (${elapsed}ms)`,
+      String(error),
+    ].join("\n");
+    statusText.textContent = "데스크톱 Record History API 요청에 실패했습니다.";
+  } finally {
+    historyTestNativeRunButton.disabled = false;
+  }
+}
+
+async function selectAccountFile() {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (!invoke) return;
+
+  historyTestAccountFileButton.disabled = true;
+  try {
+    const selected = await invoke("select_account_file");
+    if (!selected) return;
+    const account = await invoke("login_from_account_file");
+    renderAccountFileStatus(account);
+    statusText.textContent = "account.txt를 연결하고 로그인했습니다.";
+  } catch (error) {
+    historyTestAccountFileStatus.textContent = "account.txt 연결 실패";
+    historyTestOutput.textContent = String(error);
+  } finally {
+    historyTestAccountFileButton.disabled = false;
+  }
+}
+
+function historyCacheId(nickname, record) {
+  return `${cacheKey(nickname)}|${recordKey(record)}`;
+}
+
+function getHistoryTargets() {
+  const records = state.payload?.records || [];
+  const unique = new Map();
+  for (const record of records) {
+    if (!recordKey(record) || !getFloorLabel(record)) continue;
+    if (!BUTTONS.includes(Number(record.button))) continue;
+    if (!["NM", "HD", "MX", "SC"].includes(String(record.pattern))) continue;
+    if (!Number.isFinite(Number(record.title))) continue;
+    unique.set(recordKey(record), record);
+  }
+  return [...unique.values()];
+}
+
+function normalizeHistoryEvents(response, record) {
+  const events = Array.isArray(response?.history) ? response.history : [];
+  return events
+    .map((event) => ({
+      score: Number(event.score),
+      maxCombo: event.maxCombo === true || Number(event.maxCombo) === 1,
+      ymdt: event.ymdt || "",
+    }))
+    .filter((event) => Number.isFinite(event.score) && !Number.isNaN(new Date(event.ymdt).getTime()))
+    .sort((a, b) => new Date(a.ymdt) - new Date(b.ymdt));
+}
+
+async function fetchHistoryWithRetry(invoke, record) {
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await invoke("fetch_record_history", {
+        title: Number(record.title),
+        button: Number(record.button),
+        pattern: String(record.pattern),
+      });
+      if (response?.success !== true || !Array.isArray(response.history)) {
+        throw new Error(`API 응답 오류: ${JSON.stringify(response).slice(0, 240)}`);
+      }
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2) await delay(1200 * (attempt + 1));
+    }
+  }
+  throw lastError;
+}
+
+function setHistoryProgress(done, total) {
+  const ratio = total > 0 ? Math.min(1, done / total) : 0;
+  historyProgress.hidden = total === 0;
+  historyProgressBar.style.width = `${(ratio * 100).toFixed(2)}%`;
+}
+
+async function collectRecordHistories() {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (!invoke || state.historyCollecting || !state.payload) return;
+
+  const nickname = state.payload.nickname || getCurrentNickname();
+  const targets = getHistoryTargets();
+  state.historyCollecting = true;
+  state.historyStopRequested = false;
+  historyCollectButton.disabled = true;
+  historyStopButton.disabled = false;
+  let completed = 0;
+  let failed = 0;
+
+  try {
+    const account = await invoke("login_from_account_file");
+    renderAccountFileStatus(account);
+    const existing = await loadRecordHistories(nickname);
+    const existingById = new Map(existing.map((entry) => [entry.id, entry]));
+    const queue = targets.filter((record) => {
+      const cached = existingById.get(historyCacheId(nickname, record));
+      return !cached || (record.updatedAt && cached.sourceUpdatedAt !== record.updatedAt);
+    });
+    const cachedCount = targets.length - queue.length;
+
+    if (!queue.length) {
+      historyStatus.textContent = `${targets.length}개 패턴의 히스토리가 최신 상태입니다.`;
+      setHistoryProgress(0, 0);
+      await renderHistoryView();
+      return;
+    }
+
+    setHistoryProgress(0, queue.length);
+    for (const record of queue) {
+      if (state.historyStopRequested) break;
+      historyStatus.textContent = `수집 ${completed + 1}/${queue.length} · 캐시 ${cachedCount} · 실패 ${failed} · ${record.button}B ${record.name || record.title} ${record.pattern}`;
+      try {
+        const response = await fetchHistoryWithRetry(invoke, record);
+        const history = normalizeHistoryEvents(response, record);
+        const entry = {
+          id: historyCacheId(nickname, record),
+          nickname: cacheKey(nickname),
+          button: Number(record.button),
+          title: record.title,
+          name: record.name || "",
+          pattern: record.pattern || "",
+          level: record.level,
+          floor: record.floor,
+          floorName: getFloorLabel(record),
+          sourceUpdatedAt: record.updatedAt || "",
+          fetchedAt: utcNowIso(),
+          history,
+        };
+        await saveRecordHistory(entry);
+      } catch (error) {
+        failed += 1;
+        console.error("History collection failed", recordKey(record), error);
+      }
+      completed += 1;
+      setHistoryProgress(completed, queue.length);
+      if (completed % 10 === 0 && viewSelect.value === "history") await renderHistoryView();
+      await delay(250);
+    }
+
+    const stopped = state.historyStopRequested;
+    historyStatus.textContent = `${stopped ? "수집 중지" : "수집 완료"} · 처리 ${completed}/${queue.length} · 기존 캐시 ${cachedCount} · 실패 ${failed}`;
+    await renderHistoryView({ preserveStatus: true });
+  } catch (error) {
+    historyStatus.textContent = `히스토리 수집 오류: ${error}`;
+  } finally {
+    state.historyCollecting = false;
+    state.historyStopRequested = false;
+    historyCollectButton.disabled = false;
+    historyStopButton.disabled = true;
+  }
+}
+
+async function renderHistoryView(options = {}) {
+  if (!state.payload) return;
+  const renderToken = ++state.historyRenderToken;
+  const nickname = state.payload.nickname || getCurrentNickname();
+  try {
+    const entries = await loadRecordHistories(nickname);
+    if (renderToken !== state.historyRenderToken || viewSelect.value !== "history") return;
+    const targetIds = new Set(getHistoryTargets().map((record) => historyCacheId(nickname, record)));
+    state.historyEntries = entries.filter((entry) => targetIds.has(entry.id));
+    state.historyRows = buildHistoryRows(state.historyEntries);
+    if (!options.preserveStatus && !state.historyCollecting) {
+      const eventCount = state.historyRows.length;
+      historyStatus.textContent = `${state.historyEntries.length}/${targetIds.size}개 패턴 · ${eventCount}개 기록`;
+      setHistoryProgress(0, 0);
+    }
+    renderLogPowerHistoryChart(state.historyEntries);
+    renderTable();
+  } catch (error) {
+    historyStatus.textContent = `히스토리 캐시 오류: ${error.message || error}`;
+  }
+}
+
+function buildHistoryRows(entries) {
+  return entries.flatMap((entry) => {
+    const difficultyConstant = difficultyConstantForFloor(entry.floorName, entry.button);
+    return (entry.history || []).map((event) => ({
+      button: entry.button,
+      title: entry.title,
+      name: entry.name,
+      pattern: entry.pattern,
+      level: entry.level,
+      floor: entry.floor,
+      floorName: entry.floorName,
+      score: event.score,
+      maxCombo: event.maxCombo === true,
+      logPower: scoreToPoint(Number(event.score)) * difficultyConstant,
+      updatedAt: event.ymdt,
+    }));
+  });
+}
+
+function buildLogPowerHistorySeries(entries) {
+  const selectedButton = buttonFilter.value;
+  const selectedPattern = patternFilter.value;
+  const buttons = selectedButton ? [Number(selectedButton)] : BUTTONS;
+  const series = new Map(buttons.map((button) => [button, []]));
+  const valuesByButton = new Map(buttons.map((button) => [button, new Map()]));
+  const events = [];
+
+  for (const entry of entries) {
+    const button = Number(entry.button);
+    if (!series.has(button) || (selectedPattern && entry.pattern !== selectedPattern)) continue;
+    const difficultyConstant = difficultyConstantForFloor(entry.floorName, button);
+    if (!Number.isFinite(difficultyConstant)) continue;
+    for (const event of entry.history || []) {
+      const time = new Date(event.ymdt).getTime();
+      const value = scoreToPoint(Number(event.score)) * difficultyConstant;
+      if (Number.isFinite(time) && Number.isFinite(value)) {
+        events.push({ button, key: entry.id, time, value });
+      }
+    }
+  }
+  events.sort((a, b) => a.time - b.time);
+
+  for (const event of events) {
+    const values = valuesByButton.get(event.button);
+    values.set(event.key, event.value);
+    const sum = [...values.values()]
+      .sort((a, b) => b - a)
+      .slice(0, 50)
+      .reduce((total, value) => total + value, 0);
+    const points = series.get(event.button);
+    const previous = points[points.length - 1];
+    if (!previous || Math.abs(previous.value - sum) > 0.0001) points.push({ time: event.time, value: sum });
+  }
+  return series;
+}
+
+function renderLogPowerHistoryChart(entries) {
+  const series = buildLogPowerHistorySeries(entries);
+  const allPoints = [...series.values()].flat();
+  const colors = { 4: "#1268b3", 5: "#23845f", 6: "#7b61c9", 8: "#c03535" };
+  const width = 1200;
+  const height = 360;
+  const pad = { left: 72, right: 24, top: 24, bottom: 48 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+
+  if (!allPoints.length) {
+    historyLogPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="logPower history"><rect class="chartBg" width="${width}" height="${height}"></rect><text class="emptyText" x="${width / 2}" y="${height / 2}">수집된 히스토리가 없습니다.</text></svg>`;
+    historyLegend.innerHTML = "";
+    return;
+  }
+
+  const minTime = Math.min(...allPoints.map((point) => point.time));
+  const rawMaxTime = Math.max(...allPoints.map((point) => point.time));
+  const maxTime = rawMaxTime === minTime ? minTime + 86400000 : rawMaxTime;
+  const maxValue = Math.max(...allPoints.map((point) => point.value));
+  const yMax = Math.max(100, Math.ceil((maxValue * 1.06) / 100) * 100);
+  const xFor = (time) => pad.left + ((time - minTime) / (maxTime - minTime)) * plotW;
+  const yFor = (value) => pad.top + plotH - (value / yMax) * plotH;
+
+  const yGrid = Array.from({ length: 6 }, (_, index) => {
+    const value = (yMax * index) / 5;
+    const y = yFor(value);
+    return `<line class="gridLine" x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}"></line><text class="axisLabel" x="${pad.left - 10}" y="${y + 4}" text-anchor="end">${Math.round(value)}</text>`;
+  }).join("");
+  const xGrid = Array.from({ length: 6 }, (_, index) => {
+    const time = minTime + ((maxTime - minTime) * index) / 5;
+    const x = xFor(time);
+    const date = new Date(time);
+    const label = `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}`;
+    return `<line class="gridLine" x1="${x}" y1="${pad.top}" x2="${x}" y2="${pad.top + plotH}"></line><text class="axisLabel" x="${x}" y="${height - 20}" text-anchor="middle">${label}</text>`;
+  }).join("");
+  const lines = [...series.entries()].map(([button, points]) => {
+    if (!points.length) return "";
+    const coordinates = points.map((point) => `${xFor(point.time).toFixed(2)},${yFor(point.value).toFixed(2)}`).join(" ");
+    return `<polyline points="${coordinates}" fill="none" stroke="${colors[button]}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></polyline>`;
+  }).join("");
+
+  historyLogPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top50 logPower history"><defs><clipPath id="historyPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" width="${width}" height="${height}"></rect>${yGrid}${xGrid}<g clip-path="url(#historyPlotClip)">${lines}</g><text class="axisTitle" x="16" y="18">Top50 logPower</text></svg>`;
+  historyLegend.innerHTML = [...series.entries()]
+    .filter(([, points]) => points.length)
+    .map(([button, points]) => `<span><i style="background:${colors[button]}"></i>${button}B ${points[points.length - 1].value.toFixed(2)}</span>`)
+    .join("");
+}
+
+function updateCompareControls() {
+  compareOnlyEls.forEach((el) => {
+    el.hidden = viewSelect.value !== "compare";
+  });
+}
+
+function renderSummary() {
+  const summary = state.payload.summary || {};
+  const sync = state.payload.sync || {};
+  const metrics = [
+    ["Records", summary.records ?? 0],
+    ["Updated", sync.updatedRecords ?? 0],
+    ["Since", sync.since || "full"],
+    ["Errors", summary.errors ?? 0],
+    ["4B", summary.byButton?.["4"]?.records ?? 0],
+    ["5B", summary.byButton?.["5"]?.records ?? 0],
+    ["6B", summary.byButton?.["6"]?.records ?? 0],
+    ["8B", summary.byButton?.["8"]?.records ?? 0],
+  ];
+  summaryEl.innerHTML = metrics
+    .map(([label, value]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(formatValue(value))}</strong></div>`)
+    .join("");
+}
+
+function renderChart() {
+  if (!state.payload || viewSelect.value !== "chart") return;
+
+  const width = Math.max(760, chartEl.clientWidth || 1000);
+  const height = 430;
+  const pad = { left: 58, right: 24, top: 22, bottom: 62 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const button = chartButtonFilter.value;
+  const metric = getChartMetric();
+  const buttonRecords = (state.payload.records || []).filter((row) => String(row.button) === button);
+  const xRange = configureChartXAxis(metric, buttonRecords);
+  if (!xRange) {
+    chartEl.innerHTML = `<div class="empty">축 범위를 확인해주세요.</div>`;
+    return;
+  }
+
+  const groupName = metric.xMode === "maxDjpower" ? "maxDJPower 그룹" : "floor";
+  chartTitle.textContent = metric.title;
+  chartDescription.textContent = `점은 개별 기록, 선은 ${groupName}별 최고/평균/최저${metric.floorMaxValue ? "/최대치" : ""} ${metric.label}입니다.`;
+  chartFloorMaxLegend.hidden = !metric.floorMaxValue;
+  chartBelowLegend.hidden = metric.xMode === "maxDjpower";
+  chartMaxLegend.textContent = `${groupName} 최고`;
+  chartAvgLegend.textContent = `${groupName} 평균`;
+  chartMinLegend.textContent = `${groupName} 최저`;
+  chartFloorMaxLegendText.textContent = metric.xMode === "maxDjpower" ? "maxDJPower" : "floor 최대치";
+  const scopedRecords = buttonRecords
+    .map((row) => {
+      const floorLabel = getFloorLabel(row);
+      const xLabel = metric.xMode === "maxDjpower" ? djpowerGroupKey(row.maxDjpower) : floorLabel;
+      return {
+        ...row,
+        floorLabel,
+        xLabel,
+        metricValue: metric.value(row, floorLabel, button),
+        floorMaxValue: metric.floorMaxValue ? metric.floorMaxValue(row, floorLabel, button) : NaN,
+      };
+    })
+    .filter((row) => xRange.labels.includes(row.xLabel) && Number.isFinite(row.metricValue));
+  const floorMaxByFloor = buildFloorMaxByFloor(xRange.labels, scopedRecords, metric, button);
+  const yRange = getMetricRange(scopedRecords, metric);
+  if (yRange && yMinAutoInput.checked) yMinInput.value = formatAxisValue(yRange.min);
+  yMaxInput.value = yRange ? formatAxisValue(yRange.max) : "";
+  storeCurrentChartRange();
+
+  if (!yRange) {
+    chartEl.innerHTML = `<div class="empty">표시할 기록이 없습니다.</div>`;
+    return;
+  }
+
+  const records = scopedRecords.filter((row) => row.metricValue >= yRange.min && row.metricValue <= yRange.max);
+
+  const xFor = (label, jitter = 0) => {
+    const index = xRange.labels.indexOf(label);
+    if (xRange.labels.length === 1) return pad.left + plotW / 2 + jitter * Math.min(48, plotW * 0.1);
+    const denominator = Math.max(1, xRange.labels.length - 1);
+    return pad.left + ((index + jitter) / denominator) * plotW;
+  };
+  const yFor = (value) => pad.top + (1 - (value - yRange.min) / (yRange.max - yRange.min)) * plotH;
+
+  const grouped = groupMetricsByFloor(records);
+  const minByFloor = buildMinByFloor(scopedRecords);
+  const averagePoints = buildSeriesPoints(xRange.labels, grouped, xFor, yFor, "avg");
+  const maxPoints = buildSeriesPoints(xRange.labels, grouped, xFor, yFor, "max");
+  const minPoints = buildSeriesPoints(xRange.labels, grouped, xFor, yFor, "min");
+  const floorMaxPoints = buildFloorMaxSeriesPoints(xRange.labels, floorMaxByFloor, xFor, yFor);
+  const grid = buildGrid(xRange, yRange, pad, plotW, plotH, xFor, yFor);
+  const dots = records.map((row) => {
+    const jitter = stableJitter(`${row.name}-${row.pattern}-${row.level}`) * 0.42;
+    const cx = xFor(row.xLabel, jitter).toFixed(2);
+    const cy = yFor(row.metricValue).toFixed(2);
+    const isBelowNextFloorMin = metric.xMode !== "maxDjpower" && belowNextFloorMin(row, minByFloor);
+    const className = [
+      "chartDot",
+      row.maxCombo === true ? "comboDot" : "",
+      isBelowNextFloorMin ? "belowNextDot" : "",
+    ].filter(Boolean).join(" ");
+    const info = encodeURIComponent(JSON.stringify({
+      name: row.name || "",
+      pattern: row.pattern || "",
+      level: row.level ?? "",
+      floor: row.floorLabel,
+      metricKey: metric.key,
+      metricLabel: metric.label,
+      metricValue: row.metricValue,
+      score: Number(row.score),
+      logPower: scoreToPoint(Number(row.score)) * difficultyConstantForFloor(row.floorLabel, button),
+      rating: row.rating ?? "",
+      djpower: row.djpower ?? "",
+      maxDjpower: row.maxDjpower ?? "",
+      maxCombo: row.maxCombo === true,
+      belowNextFloorMin: isBelowNextFloorMin,
+      updatedAt: row.updatedAt || "",
+    }));
+    return `<circle class="${className}" cx="${cx}" cy="${cy}" r="${row.maxCombo === true ? 4.8 : 3.9}" data-info="${info}" tabindex="0"></circle>`;
+  }).join("");
+
+  chartEl.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(metric.title)} scatter chart">
+      <defs><clipPath id="chartPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs>
+      <rect class="chartBg" x="0" y="0" width="${width}" height="${height}"></rect>
+      ${grid}
+      <g clip-path="url(#chartPlotClip)">
+        ${floorMaxPoints ? `<polyline class="floorMaxLine" points="${floorMaxPoints}"></polyline>` : ""}
+        ${maxPoints ? `<polyline class="maxLine" points="${maxPoints}"></polyline>` : ""}
+        ${averagePoints ? `<polyline class="avgLine" points="${averagePoints}"></polyline>` : ""}
+        ${minPoints ? `<polyline class="minLine" points="${minPoints}"></polyline>` : ""}
+        ${dots}
+      </g>
+      <text class="axisTitle" x="16" y="18">${escapeHtml(metric.label)}</text>
+      <text class="axisTitle" x="${width - 170}" y="${height - 16}">${escapeHtml(xRange.axisTitle)}</text>
+      ${records.length ? "" : `<text class="emptyText" x="${width / 2}" y="${height / 2}">표시할 기록이 없습니다.</text>`}
+    </svg>`;
+  bindChartTooltips();
+}
+
+function bindChartTooltips() {
+  chartEl.querySelectorAll(".chartDot").forEach((dot) => {
+    dot.addEventListener("mousemove", (event) => showTooltip(event, dot.dataset.info));
+    dot.addEventListener("mouseenter", (event) => showTooltip(event, dot.dataset.info));
+    dot.addEventListener("focus", (event) => showTooltip(event, dot.dataset.info));
+    dot.addEventListener("mouseleave", hideTooltip);
+    dot.addEventListener("blur", hideTooltip);
+  });
+}
+
+function showTooltip(event, encodedInfo) {
+  if (!encodedInfo) return;
+  const info = JSON.parse(decodeURIComponent(encodedInfo));
+  chartTooltip.innerHTML = `
+    <strong>${escapeHtml(info.name)}</strong>
+    <span>${escapeHtml(info.pattern)} · Lv.${escapeHtml(info.level)} · floor ${escapeHtml(info.floor)}</span>
+    <span>${escapeHtml(info.metricLabel)} ${escapeHtml(formatChartMetric(info.metricValue, info.metricKey))}${info.maxCombo ? " · MAX COMBO" : ""}${info.belowNextFloorMin ? " · 상위 floor 최저 미만" : ""}</span>
+    <span>score ${escapeHtml(formatChartMetric(info.score, "score"))} · logPower ${escapeHtml(formatChartMetric(info.logPower, "logPower"))}</span>
+    <span>point ${escapeHtml(formatValue(info.rating, "rating"))} · djpower ${escapeHtml(formatValue(info.djpower, "djpower"))} · maxDJPower ${escapeHtml(formatValue(info.maxDjpower, "djpower"))}</span>
+    <span>${escapeHtml(formatDate(info.updatedAt))}</span>`;
+  chartTooltip.hidden = false;
+  const x = event.clientX + 14;
+  const y = event.clientY + 14;
+  chartTooltip.style.left = `${Math.min(x, window.innerWidth - chartTooltip.offsetWidth - 12)}px`;
+  chartTooltip.style.top = `${Math.min(y, window.innerHeight - chartTooltip.offsetHeight - 12)}px`;
+}
+
+function hideTooltip() {
+  chartTooltip.hidden = true;
+}
+
+async function exportChartImage() {
+  const svg = chartEl.querySelector("svg");
+  if (!svg || !state.payload) return;
+  chartImageButton.disabled = true;
+  setBusy(true, "산포도 이미지 생성 중");
+  try {
+    const canvas = await drawChartImage(svg);
+    const nickname = state.payload.nickname || getCurrentNickname() || "user";
+    const metric = chartMetricSelect.value;
+    const safeNickname = nickname.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-");
+    const copied = await saveCanvasImage(canvas, `v-archive-${safeNickname}-${chartButtonFilter.value}B-${metric}.png`);
+    statusText.textContent = `산포도 이미지를 다운로드했습니다.${copied ? " 클립보드에도 복사했습니다." : ""}`;
+  } catch (error) {
+    statusText.textContent = `산포도 이미지 생성 오류: ${error.message}`;
+  } finally {
+    setBusy(false);
+    chartImageButton.disabled = false;
+  }
+}
+
+async function drawChartImage(svg) {
+  const sourceImage = await loadChartSvgImage(svg);
+  const margin = 40;
+  const width = 1440;
+  const chartWidth = width - margin * 2;
+  const viewBox = svg.viewBox.baseVal;
+  const sourceWidth = viewBox?.width || 1000;
+  const sourceHeight = viewBox?.height || 430;
+  const chartHeight = Math.round(chartWidth * sourceHeight / sourceWidth);
+  const headerHeight = 116;
+  const footerHeight = 92;
+  const height = margin + headerHeight + chartHeight + footerHeight + margin;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  const metric = getChartMetric();
+  const nickname = state.payload.nickname || getCurrentNickname();
+
+  ctx.fillStyle = "#f4f6f8";
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "#171a1f";
+  ctx.font = "700 30px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText(`${nickname} · ${metric.title} · ${chartButtonFilter.value}B`, margin, margin + 34);
+  ctx.fillStyle = "#687282";
+  ctx.font = "16px Segoe UI, Malgun Gothic, Arial";
+  const yMinMode = yMinAutoInput.checked ? "자동" : "수동";
+  const yMaxMode = metric.fixedMax ? "고정" : yMaxAutoInput.checked ? "자동" : "수동";
+  const xName = metric.xMode === "maxDjpower" ? "DJ group" : "floor";
+  const xStart = xMinSelect.selectedOptions[0]?.textContent || xMinSelect.value;
+  const xEnd = xMaxSelect.selectedOptions[0]?.textContent || xMaxSelect.value;
+  ctx.fillText(`${xName} ${xStart} - ${xEnd}  |  Y ${yMinInput.value} - ${yMaxInput.value}  |  최소 ${yMinMode} · 최대 ${yMaxMode}`, margin, margin + 66);
+  const version = document.querySelector('meta[name="v-archive-version"]')?.content || "local";
+  ctx.textAlign = "right";
+  ctx.fillText(`v${version} · ${formatDate(new Date().toISOString())}`, width - margin, margin + 66);
+  ctx.textAlign = "left";
+
+  ctx.drawImage(sourceImage, margin, margin + headerHeight, chartWidth, chartHeight);
+  drawChartImageLegend(ctx, margin, margin + headerHeight + chartHeight + 38, metric);
+  return canvas;
+}
+
+function loadChartSvgImage(svg) {
+  const clone = svg.cloneNode(true);
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
+  style.textContent = `
+    .chartBg{fill:#fff;stroke:#d9dee7}.gridLine{stroke:#e3e7ee;stroke-width:1}.axisLine{stroke:#9aa4b2;stroke-width:1.2}
+    .tickLabel{fill:#687282;font:12px Segoe UI,Malgun Gothic,Arial}.axisTitle{fill:#394150;font:13px Segoe UI,Malgun Gothic,Arial}
+    .avgLine,.maxLine,.minLine,.floorMaxLine{fill:none;stroke-width:2.4;stroke-linejoin:round;stroke-linecap:round}
+    .avgLine{stroke:#c03535}.maxLine{stroke:#23845f}.minLine{stroke:#7b61c9}.floorMaxLine{stroke:#1268b3;stroke-dasharray:7 5}
+    .chartDot{fill:rgba(18,104,179,.58);stroke:rgba(18,104,179,.88);stroke-width:1}.comboDot{fill:#4eeeaf;stroke:#159b72}
+    .belowNextDot{fill:#e03b3b;stroke:#9f1f1f}.emptyText{fill:#687282;font:14px Segoe UI,Malgun Gothic,Arial;text-anchor:middle}`;
+  clone.insertBefore(style, clone.firstChild);
+  const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("그래프를 이미지로 변환할 수 없습니다."));
+    };
+    image.src = url;
+  });
+}
+
+function drawChartImageLegend(ctx, x, y, metric) {
+  const groupName = metric.xMode === "maxDjpower" ? "그룹" : "floor";
+  const entries = [
+    ["dot", "#1268b3", "기록"], ["dot", "#4eeeaf", "MAX COMBO"],
+  ];
+  if (metric.xMode !== "maxDjpower") entries.push(["dot", "#e03b3b", "상위 floor 최저 미만"]);
+  entries.push(
+    ["line", "#23845f", `${groupName} 최고`], ["line", "#c03535", `${groupName} 평균`], ["line", "#7b61c9", `${groupName} 최저`],
+  );
+  if (metric.floorMaxValue) entries.push(["dash", "#1268b3", metric.xMode === "maxDjpower" ? "maxDJPower" : "floor 최대치"]);
+  ctx.font = "15px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillStyle = "#687282";
+  for (const [kind, color, label] of entries) {
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    if (kind === "dot") {
+      ctx.beginPath();
+      ctx.arc(x + 6, y - 5, 5, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.setLineDash(kind === "dash" ? [7, 5] : []);
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x, y - 5);
+      ctx.lineTo(x + 24, y - 5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.fillStyle = "#687282";
+    ctx.fillText(label, x + 32, y);
+    x += 52 + ctx.measureText(label).width;
+  }
+}
+
+function configureChartXAxis(metric, records) {
+  const mode = metric.xMode || "floor";
+  const groups = mode === "maxDjpower"
+    ? buildDjpowerGroups(records)
+    : floorLabels.map((label) => ({ key: label, label }));
+  if (!groups.length) return null;
+
+  const saved = state.chartXRangeByMode[mode] || {};
+  const currentMode = xMinSelect.dataset.mode;
+  const currentMin = currentMode === mode ? xMinSelect.value : saved.min;
+  const currentMax = currentMode === mode ? xMaxSelect.value : saved.max;
+  const options = groups.map((group) => `<option value="${escapeHtml(group.key)}">${escapeHtml(group.label)}</option>`).join("");
+  xMinSelect.innerHTML = options;
+  xMaxSelect.innerHTML = options;
+  xMinSelect.dataset.mode = mode;
+  xMaxSelect.dataset.mode = mode;
+  const groupKeys = groups.map((group) => group.key);
+  xMinSelect.value = groupKeys.includes(currentMin) ? currentMin : groups[0].key;
+  xMaxSelect.value = groupKeys.includes(currentMax) ? currentMax : groups.at(-1).key;
+  state.chartXMode = mode;
+  xMinLabel.textContent = mode === "maxDjpower" ? "DJ 그룹 시작" : "Floor 시작";
+  xMaxLabel.textContent = mode === "maxDjpower" ? "DJ 그룹 끝" : "Floor 끝";
+
+  const keys = groupKeys;
+  let start = keys.indexOf(xMinSelect.value);
+  let end = keys.indexOf(xMaxSelect.value);
+  if (mode === "maxDjpower" && start > end) {
+    [xMinSelect.value, xMaxSelect.value] = [xMaxSelect.value, xMinSelect.value];
+    [start, end] = [end, start];
+  }
+  if (start < 0 || end < 0 || start > end) return null;
+  state.chartXRangeByMode[mode] = { min: xMinSelect.value, max: xMaxSelect.value };
+  return {
+    mode,
+    labels: keys.slice(start, end + 1),
+    displayLabels: new Map(groups.map((group) => [group.key, group.axisLabel || group.label])),
+    axisTitle: mode === "maxDjpower" ? "maxDJPower group" : "floorName (n.m)",
+  };
+}
+
+function buildDjpowerGroups(records) {
+  const groups = new Map();
+  for (const row of records) {
+    const maxDjpower = Number(row.maxDjpower);
+    if (!Number.isFinite(maxDjpower)) continue;
+    const key = djpowerGroupKey(maxDjpower);
+    if (!groups.has(key)) groups.set(key, { key, maxDjpower, categories: new Map(), rank: Infinity });
+    const group = groups.get(key);
+    const category = djpowerCategory(row);
+    if (category) {
+      group.categories.set(category.label, category.rank);
+      group.rank = Math.min(group.rank, category.rank);
+    }
+  }
+  return [...groups.values()]
+    .sort((a, b) => b.rank - a.rank || a.maxDjpower - b.maxDjpower)
+    .map((group) => {
+      const labels = [...group.categories.entries()]
+        .sort((a, b) => a[1] - b[1] || Number(b[0].startsWith("SC")) - Number(a[0].startsWith("SC")))
+        .map(([label]) => label);
+      const categoryLabel = djpowerRankLabel(group.rank) || labels.join(" = ") || formatAxisValue(group.maxDjpower);
+      return {
+        key: group.key,
+        label: `${categoryLabel} (${formatAxisValue(group.maxDjpower)})`,
+        axisLabel: categoryLabel,
+      };
+    });
+}
+
+function djpowerCategory(row) {
+  const level = Number.parseInt(row.level, 10);
+  if (!Number.isFinite(level) || level < 1 || level > 15) return null;
+  const isSc = String(row.pattern || "").toUpperCase() === "SC";
+  if (isSc) return { label: `SC${level}`, rank: 15 - level };
+  const rank = level >= 12 ? 37 - level * 2 : 26 - level;
+  return { label: `non-SC${level}`, rank };
+}
+
+function djpowerRankLabel(rank) {
+  if (!Number.isFinite(rank) || rank < 0 || rank > 25) return "";
+  if (rank === 7) return "SC8 = non-SC15";
+  if (rank === 9) return "SC6 = non-SC14";
+  if (rank === 11) return "SC4 = non-SC13";
+  if (rank === 13) return "SC2 = non-SC12";
+  if (rank <= 14) return `SC${15 - rank}`;
+  return `non-SC${26 - rank}`;
+}
+
+function djpowerGroupKey(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? String(Number(number.toFixed(6))) : "";
+}
+
+function getChartMetric() {
+  const key = chartMetricSelect.value;
+  if (key === "scorePoint") {
+    return {
+      key,
+      label: "scorePoint",
+      title: "Floor × scorePoint",
+      value: (row) => scoreToPoint(Number(row.score)),
+      floorMaxValue: () => 10,
+      floorMaxForFloor: () => 10,
+      fixedMax: 10,
+    };
+  }
+  if (key === "logPower") {
+    return {
+      key,
+      label: "logPower",
+      title: "Floor × logPower",
+      value: (row, floorLabel, button) => scoreToPoint(Number(row.score)) * difficultyConstantForFloor(floorLabel, button),
+      floorMaxValue: (row, floorLabel, button) => 10 * difficultyConstantForFloor(floorLabel, button),
+      floorMaxForFloor: (floorLabel, button) => 10 * difficultyConstantForFloor(floorLabel, button),
+    };
+  }
+  if (key === "point") {
+    return {
+      key,
+      label: "Point",
+      title: "Floor × Point",
+      value: (row) => row.rating === null || row.rating === undefined || row.rating === "" ? NaN : Number(row.rating),
+      floorMaxValue: (row) => row.maxRating === null || row.maxRating === undefined || row.maxRating === "" ? NaN : Number(row.maxRating),
+    };
+  }
+  if (key === "djpower") {
+    return {
+      key,
+      label: "DJPower",
+      title: "MaxDJPower × DJPower",
+      xMode: "maxDjpower",
+      value: (row) => row.djpower === null || row.djpower === undefined || row.djpower === "" ? NaN : Number(row.djpower),
+      floorMaxValue: (row) => row.maxDjpower === null || row.maxDjpower === undefined || row.maxDjpower === "" ? NaN : Number(row.maxDjpower),
+    };
+  }
+  return { key: "score", label: "Score", title: "Floor × Score", value: (row) => Number(row.score), fixedMax: 100 };
+}
+
+function getMetricRange(records, metric) {
+  const values = records.map((row) => row.metricValue).filter(Number.isFinite);
+  if (!values.length) return null;
+  const dataMin = Math.min(...values);
+  const dataMax = Math.max(...values);
+  const dataSpan = Math.max(dataMax - dataMin, Math.abs(dataMax) * 0.01, 0.1);
+  const rangePadding = Math.max(dataSpan * 0.02, 0.01);
+  const autoMin = metric.fixedMax && dataMin >= metric.fixedMax
+    ? metric.fixedMax - 0.5
+    : Math.max(0, dataMin - rangePadding);
+  const manualMin = Number(yMinInput.value);
+  const min = yMinAutoInput.checked || !Number.isFinite(manualMin) ? autoMin : manualMin;
+  if (metric.fixedMax) {
+    if (min >= metric.fixedMax) return { min: metric.fixedMax - 0.5, max: metric.fixedMax };
+    return { min, max: metric.fixedMax };
+  }
+  const step = niceStep(dataSpan / 5);
+  const autoMax = dataMax + rangePadding;
+  const manualMax = Number(yMaxInput.value);
+  const useAutoMax = yMaxAutoInput.checked || !Number.isFinite(manualMax);
+  const requestedMax = useAutoMax ? autoMax : manualMax;
+  if (requestedMax > min) return { min, max: requestedMax };
+  return useAutoMax ? { min: min - step, max: requestedMax } : { min, max: min + step };
+}
+
+function buildFloorMaxByFloor(labels, records, metric, button) {
+  const values = new Map();
+  if (!metric.floorMaxValue) return values;
+  if (metric.floorMaxForFloor) {
+    for (const label of labels) {
+      const value = metric.floorMaxForFloor(label, button);
+      if (Number.isFinite(value)) values.set(label, value);
+    }
+    return values;
+  }
+  for (const row of records) {
+    if (!Number.isFinite(row.floorMaxValue)) continue;
+    const current = values.get(row.xLabel);
+    if (current === undefined || row.floorMaxValue > current) values.set(row.xLabel, row.floorMaxValue);
+  }
+  return values;
+}
+
+function buildFloorMaxSeriesPoints(labels, floorMaxByFloor, xFor, yFor) {
+  return labels
+    .filter((label) => floorMaxByFloor.has(label))
+    .map((label) => `${xFor(label).toFixed(2)},${yFor(floorMaxByFloor.get(label)).toFixed(2)}`)
+    .join(" ");
+}
+
+function formatChartMetric(value, key) {
+  if (!Number.isFinite(Number(value))) return "";
+  if (key === "score") return Number(value).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+  return Number(value).toFixed(2);
+}
+
+function formatAxisValue(value) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function buildGrid(xRange, yRange, pad, plotW, plotH, xFor, yFor) {
+  const labels = xRange.labels;
+  const yStep = niceStep((yRange.max - yRange.min) / 5);
+  const yStart = Math.ceil(yRange.min / yStep) * yStep;
+  const yLines = [];
+  for (let y = yStart; y <= yRange.max + 0.0001; y += yStep) {
+    const py = yFor(y).toFixed(2);
+    yLines.push(`<line class="gridLine" x1="${pad.left}" x2="${pad.left + plotW}" y1="${py}" y2="${py}"></line>`);
+    yLines.push(`<text class="tickLabel" x="18" y="${Number(py) + 4}">${formatTick(y)}</text>`);
+  }
+
+  const tickLabels = xRange.mode === "maxDjpower"
+    ? labels.filter((label, index) => index % Math.max(1, Math.ceil(labels.length / 16)) === 0 || index === labels.length - 1)
+    : labels.filter((label) => label.endsWith(".2"));
+  const xLines = tickLabels
+    .map((label) => {
+      const px = xFor(label).toFixed(2);
+      const text = xRange.mode === "maxDjpower" ? xRange.displayLabels.get(label) : label.split(".")[0];
+      return `<line class="gridLine" x1="${px}" x2="${px}" y1="${pad.top}" y2="${pad.top + plotH}"></line>
+        <text class="tickLabel" x="${Number(px) - 8}" y="${pad.top + plotH + 26}" transform="rotate(-40 ${Number(px) - 8} ${pad.top + plotH + 26})">${escapeHtml(text)}</text>`;
+    })
+    .join("");
+
+  return `
+    ${yLines.join("")}
+    ${xLines}
+    <line class="axisLine" x1="${pad.left}" x2="${pad.left}" y1="${pad.top}" y2="${pad.top + plotH}"></line>
+    <line class="axisLine" x1="${pad.left}" x2="${pad.left + plotW}" y1="${pad.top + plotH}" y2="${pad.top + plotH}"></line>`;
+}
+
+function niceStep(value) {
+  if (value <= 0) return 1;
+  const power = 10 ** Math.floor(Math.log10(value));
+  const scaled = value / power;
+  if (scaled <= 1) return power;
+  if (scaled <= 2) return 2 * power;
+  if (scaled <= 5) return 5 * power;
+  return 10 * power;
+}
+
+function formatTick(value) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function groupMetricsByFloor(records) {
+  const grouped = new Map();
+  for (const row of records) {
+    if (!grouped.has(row.xLabel)) grouped.set(row.xLabel, []);
+    grouped.get(row.xLabel).push(row.metricValue);
+  }
+  return grouped;
+}
+
+function buildMinByFloor(records) {
+  const minByFloor = new Map();
+  for (const row of records) {
+    if (!row.floorLabel || !Number.isFinite(row.metricValue)) continue;
+    const current = minByFloor.get(row.floorLabel);
+    if (current === undefined || row.metricValue < current) minByFloor.set(row.floorLabel, row.metricValue);
+  }
+  return minByFloor;
+}
+
+function belowNextFloorMin(row, minByFloor) {
+  const index = floorLabels.indexOf(row.floorLabel);
+  if (index < 0 || index >= floorLabels.length - 1) return false;
+  const nextMin = minByFloor.get(floorLabels[index + 1]);
+  return Number.isFinite(nextMin) && row.metricValue < nextMin;
+}
+
+function buildSeriesPoints(labels, grouped, xFor, yFor, kind) {
+  return labels
+    .filter((label) => grouped.has(label))
+    .map((label) => {
+      const values = grouped.get(label);
+      let score;
+      if (kind === "max") score = Math.max(...values);
+      else if (kind === "min") score = Math.min(...values);
+      else score = values.reduce((sum, value) => sum + value, 0) / values.length;
+      return `${xFor(label).toFixed(2)},${yFor(score).toFixed(2)}`;
+    })
+    .join(" ");
+}
+
+function getFloorLabel(row) {
+  const name = String(row.floorName || "").trim();
+  if (/^\d{1,2}\.[1-3]$/.test(name)) return name;
+  const floor = String(row.floor || "").replace(/\D/g, "");
+  if (floor.length >= 2) return `${Number(floor.slice(0, -1))}.${floor.slice(-1)}`;
+  return "";
+}
+
+function stableJitter(text) {
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  return (hash % 1000) / 1000 - 0.5;
+}
+
+function renderTable() {
+  const view = viewSelect.value;
+  const baseRows = getRowsForView(view);
+  const rows = filterRows(baseRows);
+  sortRows(rows);
+  renderTableSummary(view, ["compare", "floorMinScore"].includes(view) ? rows : baseRows);
+  const limit = view === "history" ? 0 : Number(limitSelect.value);
+  const visibleRows = limit > 0 ? rows.slice(0, limit) : rows;
+  const colDefs = columns[view] || [];
+
+  if (!visibleRows.length) {
+    tableEl.innerHTML = `<tbody><tr><td class="empty">표시할 데이터가 없습니다.</td></tr></tbody>`;
+    return;
+  }
+
+  const header = `<thead><tr>${colDefs
+    .map(([key, label]) => `<th data-key="${key}">${escapeHtml(label)}${state.sortKey === key ? (state.sortDir === "asc" ? " ▲" : " ▼") : ""}</th>`)
+    .join("")}</tr></thead>`;
+  const body = `<tbody>${visibleRows
+    .map((row) => `<tr>${colDefs.map(([key]) => renderCell(row, key)).join("")}</tr>`)
+    .join("")}</tbody>`;
+  tableEl.innerHTML = header + body;
+  tableEl.querySelectorAll("th").forEach((th) => {
+    th.addEventListener("click", () => toggleSort(th.dataset.key));
+  });
+}
+
+function renderTableSummary(view, rows) {
+  if (view === "compare") {
+    renderCompareSummary(rows);
+    return;
+  }
+  if (view === "floorMinScore") {
+    renderFloorMinScoreSummary(rows);
+    return;
+  }
+  if (view !== "top100") {
+    tableSummary.hidden = true;
+    tableSummary.innerHTML = "";
+    return;
+  }
+  const buttons = buttonFilter.value ? [buttonFilter.value] : ["4", "5", "6", "8"];
+  const cards = buttons.map((button) => renderTop100Metric(button, rows));
+  tableSummary.innerHTML = cards.join("");
+  tableSummary.querySelectorAll("[data-top-image-button]").forEach((button) => {
+    button.addEventListener("click", () => generateTopImage(button.dataset.topImageButton));
+  });
+  tableSummary.hidden = false;
+}
+
+function renderFloorMinScoreSummary(rows) {
+  state.floorMinImageRows = rows;
+  state.floorMinImageRecords = filterRecordsForFloorImage(state.payload?.records || []);
+  const settings = loadSettings();
+  const availableFloors = getAvailableFloorLabels(state.floorMinImageRecords);
+  const fallbackStart = availableFloors[availableFloors.length - 1] || floorLabels[floorLabels.length - 1];
+  const fallbackEnd = availableFloors[0] || floorLabels[0];
+  const start = availableFloors.includes(settings.floorMinImageStartFloor) ? settings.floorMinImageStartFloor : fallbackStart;
+  const end = availableFloors.includes(settings.floorMinImageEndFloor) ? settings.floorMinImageEndFloor : fallbackEnd;
+  tableSummary.innerHTML = `
+    <div class="tableMetric tableMetricAction wideMetric">
+      <span>Floor별 최고/최저 이미지</span>
+      <strong>${availableFloors.length} floors</strong>
+      <div class="rangeControls">
+        <label>시작 ${renderFloorSelect("floorMinImageStart", availableFloors, start)}</label>
+        <label>끝 ${renderFloorSelect("floorMinImageEnd", availableFloors, end)}</label>
+        <button id="floorMinImageButton" class="smallActionButton" type="button">이미지 다운로드</button>
+      </div>
+    </div>`;
+  const startInput = tableSummary.querySelector("#floorMinImageStart");
+  const endInput = tableSummary.querySelector("#floorMinImageEnd");
+  const saveRange = () => {
+    const next = loadSettings();
+    next.floorMinImageStartFloor = startInput.value;
+    next.floorMinImageEndFloor = endInput.value;
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+  };
+  startInput.addEventListener("change", saveRange);
+  endInput.addEventListener("change", saveRange);
+  tableSummary.querySelector("#floorMinImageButton").addEventListener("click", () => {
+    saveRange();
+    generateFloorMinScoreImage(startInput.value, endInput.value);
+  });
+  tableSummary.hidden = false;
+}
+
+function renderFloorSelect(id, floors, selected) {
+  const options = (floors.length ? floors : floorLabels)
+    .map((floor) => `<option value="${escapeHtml(floor)}"${floor === selected ? " selected" : ""}>${escapeHtml(floor)}</option>`)
+    .join("");
+  return `<select id="${id}" class="compactSelect">${options}</select>`;
+}
+
+function getAvailableFloorLabels(rows) {
+  return [...new Set(rows.map(getFloorLabel).filter(Boolean))]
+    .sort((a, b) => floorIndex(a) - floorIndex(b));
+}
+
+function filterRecordsForFloorImage(records) {
+  const button = buttonFilter.value;
+  const pattern = patternFilter.value;
+  const query = searchInput.value.trim().toLowerCase();
+  return records.filter((row) => {
+    if (button && String(row.button) !== button) return false;
+    if (pattern && String(row.pattern || "") !== pattern) return false;
+    if (!getFloorLabel(row)) return false;
+    if (!query) return true;
+    return JSON.stringify(row).toLowerCase().includes(query);
+  });
+}
+
+function getCatalogPatternCount(floorLabel) {
+  if (!state.floorPatternCounts) return null;
+  const selectedButtons = buttonFilter.value ? [String(buttonFilter.value)] : BUTTONS.map(String);
+  const selectedPattern = patternFilter.value;
+  let total = 0;
+  for (const button of selectedButtons) {
+    const patterns = state.floorPatternCounts[button] || {};
+    for (const [patternName, floors] of Object.entries(patterns)) {
+      if (selectedPattern && patternName !== selectedPattern) continue;
+      total += Number(floors?.[floorLabel] || 0);
+    }
+  }
+  return total;
+}
+
+function getCatalogButtonsForFloor(floorLabel) {
+  if (!state.floorPatternCounts) return [];
+  const selectedButtons = buttonFilter.value ? [String(buttonFilter.value)] : BUTTONS.map(String);
+  const selectedPattern = patternFilter.value;
+  return selectedButtons.filter((button) => {
+    const patterns = state.floorPatternCounts[button] || {};
+    return Object.entries(patterns).some(([patternName, floors]) => {
+      if (selectedPattern && patternName !== selectedPattern) return false;
+      return Number(floors?.[floorLabel] || 0) > 0;
+    });
+  });
+}
+
+function renderTop100Metric(button, rows) {
+  const sum = rows
+    .filter((row) => String(row.button) === button && row.rank <= 50)
+    .reduce((total, row) => total + Number(row.logPower || 0), 0);
+  return `<div class="tableMetric tableMetricAction">
+    <span>${button}B Top50 logPower</span>
+    <strong>${sum.toFixed(2)}</strong>
+    <button class="smallActionButton" type="button" data-top-image-button="${escapeHtml(button)}">Top30 이미지</button>
+  </div>`;
+}
+
+function renderCompareSummary(rows) {
+  const both = rows.filter((row) => row.mineScore !== null && row.otherScore !== null);
+  const zBoth = both.filter((row) => Number.isFinite(row.zDiff));
+  const scoreMine = both.filter((row) => row.scoreDiff > 0).length;
+  const scoreOther = both.filter((row) => row.scoreDiff < 0).length;
+  const zMine = zBoth.filter((row) => row.zDiff > 0).length;
+  const zOther = zBoth.filter((row) => row.zDiff < 0).length;
+  const reversals = both.filter((row) => row.isReversal).length;
+  const avgZDiff = zBoth.length ? zBoth.reduce((sum, row) => sum + row.zDiff, 0) / zBoth.length : 0;
+  const cards = [
+    ["비교 대상", state.comparePayload?.nickname || "-"],
+    ["공통 기록", both.length],
+    ["score 내가 우위", scoreMine],
+    ["score 상대 우위", scoreOther],
+    ["z 내가 우위", zMine],
+    ["z 상대 우위", zOther],
+    ["역전", reversals],
+    ["평균 z 차이", avgZDiff.toFixed(2)],
+  ];
+  tableSummary.innerHTML = cards
+    .map(([label, value]) => `<div class="tableMetric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
+    .join("");
+  tableSummary.hidden = false;
+}
+
+function applyNameWidth() {
+  document.documentElement.style.setProperty("--name-col-width", `${nameWidthInput.value}px`);
+}
+
+function getRowsForView(view) {
+  if (view === "compare") return buildCompareRows();
+  if (view === "top100") return buildTop100Rows(state.payload.records || []);
+  if (view === "history") return [...state.historyRows];
+  return [...(state.payload[view] || [])];
+}
+
+function buildTop100Rows(records) {
+  const selectedButton = buttonFilter.value;
+  const buttons = selectedButton ? [selectedButton] : ["4", "5", "6", "8"];
+  return buttons.flatMap((button) => buildTopRowsForButton(records, button, 100));
+}
+
+function buildTopRowsForButton(records, button, limit = 100) {
+  return records
+    .filter((row) => String(row.button) === String(button))
+    .map((row) => {
+      const scorePoint = scoreToPoint(Number(row.score));
+      const floorLabel = getFloorLabel(row);
+      const difficultyConstant = difficultyConstantForFloor(floorLabel, button);
+      const logPower = scorePoint * difficultyConstant;
+      const floorMaxPoint = 10 * difficultyConstant;
+      return {
+        ...row,
+        floorName: floorLabel || row.floorName,
+        scorePoint,
+        difficultyConstant,
+        floorMaxPoint,
+        logPower,
+      };
+    })
+    .filter((row) => Number.isFinite(row.logPower))
+    .sort((a, b) => b.logPower - a.logPower || b.scorePoint - a.scorePoint || compare(a.name, b.name))
+    .slice(0, limit)
+    .map((row, index) => ({ ...row, rank: index + 1 }));
+}
+
+async function generateTopImage(button) {
+  if (!state.payload) return;
+  setBusy(true, `${button}B Top30 이미지 생성 중`);
+  try {
+    const topRows = buildTopRowsForButton(state.payload.records || [], button, 100);
+    const top50Sum = topRows
+      .filter((row) => row.rank <= 50)
+      .reduce((sum, row) => sum + Number(row.logPower || 0), 0);
+    const canvas = await drawTopImage({
+      button,
+      nickname: state.payload.nickname || getCurrentNickname(),
+      top50Sum,
+      rows: topRows.slice(0, TOP_IMAGE_COUNT),
+    });
+    const copied = await saveCanvasImage(canvas, `v-archive-${state.payload.nickname || "user"}-${button}B-top30.png`);
+    statusText.textContent = `${button}B Top30 이미지를 다운로드했습니다.${copied ? " 클립보드에도 복사했습니다." : ""}`;
+  } catch (error) {
+    statusText.textContent = `이미지 생성 오류: ${error.message}`;
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function generateFloorMinScoreImage(startFloor, endFloor) {
+  const records = state.floorMinImageRecords?.length ? state.floorMinImageRecords : filterRecordsForFloorImage(state.payload?.records || []);
+  if (!records.length) return;
+  const startIndex = floorIndex(startFloor);
+  const endIndex = floorIndex(endFloor);
+  const descending = startIndex > endIndex;
+  const rangeStart = Math.min(startIndex, endIndex);
+  const rangeEnd = Math.max(startIndex, endIndex);
+  const floors = buildFloorImageSummaries(records, rangeStart, rangeEnd, descending);
+  if (!floors.length) {
+    statusText.textContent = `선택한 floor 범위에 표시할 기록이 없습니다.`;
+    return;
+  }
+  const start = floorLabels[startIndex] || startFloor;
+  const end = floorLabels[endIndex] || endFloor;
+  setBusy(true, `FloorMinScore 이미지 생성 중`);
+  try {
+    const canvas = await drawFloorMinScoreImage({
+      nickname: state.payload?.nickname || getCurrentNickname(),
+      floors,
+      start,
+      end,
+    });
+    const copied = await saveCanvasImage(canvas, `v-archive-${state.payload?.nickname || "user"}-floor-min-${start}-${end}.png`);
+    statusText.textContent = `FloorMinScore 이미지를 다운로드했습니다.${copied ? " 클립보드에도 복사했습니다." : ""}`;
+  } catch (error) {
+    statusText.textContent = `이미지 생성 오류: ${error.message}`;
+  } finally {
+    setBusy(false);
+  }
+}
+
+function buildFloorImageSummaries(records, startIndex, endIndex, descending = false) {
+  const grouped = new Map();
+  for (const record of records) {
+    const floorLabel = getFloorLabel(record);
+    const index = floorIndex(floorLabel);
+    if (index < 0) continue;
+    if (!grouped.has(floorLabel)) grouped.set(floorLabel, []);
+    grouped.get(floorLabel).push(record);
+  }
+  const summaries = new Map([...grouped.entries()].map(([floorLabel, floorRecords]) => {
+    const scored = floorRecords
+      .filter((record) => record.score !== null && record.score !== undefined && record.score !== "")
+      .map((record) => {
+        const scoreValue = Number(record.score);
+        const difficultyConstant = difficultyConstantForFloor(floorLabel, record.button);
+        return {
+          ...record,
+          scoreValue,
+          logPower: scoreToPoint(scoreValue) * difficultyConstant,
+          floorMaxPoint: 10 * difficultyConstant,
+        };
+      })
+      .filter((record) => Number.isFinite(record.scoreValue));
+    const patternKeys = new Set(floorRecords.map((record) => recordKey(record)));
+    const scoredPatternCount = new Set(scored.map((record) => recordKey(record))).size;
+    const catalogPatternCount = getCatalogPatternCount(floorLabel);
+    const totalPatternCount = catalogPatternCount === null ? patternKeys.size : Math.max(patternKeys.size, catalogPatternCount);
+    const scores = scored.map((record) => record.scoreValue);
+    const avg = scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : null;
+    const variance = scores.length ? scores.reduce((sum, score) => sum + (score - avg) ** 2, 0) / scores.length : null;
+    const sorted = scored.sort((a, b) => b.scoreValue - a.scoreValue || compare(a.name, b.name));
+    const catalogButtons = getCatalogButtonsForFloor(floorLabel);
+    const floorButtons = catalogButtons.length ? catalogButtons : [...new Set(floorRecords.map((record) => String(record.button)))];
+    const floorMaxPoints = floorButtons
+      .map((button) => 10 * difficultyConstantForFloor(floorLabel, button))
+      .filter(Number.isFinite);
+    return [floorLabel, {
+      floorLabel,
+      buttons: [...new Set(floorRecords.map((record) => `${record.button}B`))].sort((a, b) => compare(a, b)).join(" / "),
+      recordCount: scoredPatternCount,
+      totalPatternCount,
+      completionRate: totalPatternCount ? (scoredPatternCount / totalPatternCount) * 100 : null,
+      avg,
+      std: variance === null ? null : Math.sqrt(variance),
+      floorMaxMin: floorMaxPoints.length ? Math.min(...floorMaxPoints) : null,
+      floorMaxMax: floorMaxPoints.length ? Math.max(...floorMaxPoints) : null,
+      max: sorted[0] || null,
+      min: sorted[sorted.length - 1] || null,
+    }];
+  }));
+
+  return [...summaries.values()]
+    .filter(({ floorLabel }) => {
+      const index = floorIndex(floorLabel);
+      return index >= startIndex && index <= endIndex;
+    })
+    .sort((a, b) => (floorIndex(a.floorLabel) - floorIndex(b.floorLabel)) * (descending ? -1 : 1))
+    .map((summary) => {
+      const upper = summaries.get(floorLabels[floorIndex(summary.floorLabel) + 1]);
+      const upperMin = upper?.min?.scoreValue;
+      const currentMin = summary.min?.scoreValue;
+      return {
+        ...summary,
+        upperFloorLabel: upper?.floorLabel || null,
+        upperMin: Number.isFinite(upperMin) ? upperMin : null,
+        upperMinGap: Number.isFinite(upperMin) && Number.isFinite(currentMin) ? upperMin - currentMin : null,
+      };
+    });
+}
+
+async function drawFloorMinScoreImage({ nickname, floors, start, end }) {
+  const margin = 24;
+  const headerH = 150;
+  const rowH = 142;
+  const gap = 8;
+  const width = 1420;
+  const height = margin * 2 + headerH + floors.length * rowH + Math.max(0, floors.length - 1) * gap;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+
+  ctx.fillStyle = "#f4f6f8";
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "#151922";
+  ctx.font = "800 42px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText("V-ARCHIVE FloorMinScore", margin, 58);
+  ctx.font = "500 24px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillStyle = "#4d5868";
+  ctx.fillText(`${nickname} · floor ${start}-${end} · ${formatDate(new Date().toISOString())}`, margin, 96);
+  ctx.font = "800 26px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillStyle = "#1268b3";
+  ctx.fillText(`${floors.length} floor summaries`, margin, 128);
+
+  const tableW = width - margin * 2;
+  const recordW = 472;
+  const centerW = tableW - recordW * 2 - 24;
+  const labelY = margin + headerH - 14;
+  ctx.font = "900 18px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillStyle = "#159b72";
+  ctx.fillText("최고점", margin + 14, labelY);
+  ctx.fillStyle = "#1268b3";
+  ctx.textAlign = "center";
+  ctx.fillText("floor 정보", margin + recordW + 12 + centerW / 2, labelY);
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#c03535";
+  ctx.fillText("최저점", width - margin - 14, labelY);
+  ctx.textAlign = "left";
+
+  for (let index = 0; index < floors.length; index += 1) {
+    const y = margin + headerH + index * (rowH + gap);
+    await drawFloorSummaryCard(ctx, floors[index], margin, y, width - margin * 2, rowH);
+  }
+
+  return canvas;
+}
+
+async function drawFloorSummaryCard(ctx, floor, x, y, w, h) {
+  drawRoundRect(ctx, x, y, w, h, 8, "#ffffff", "#d9dee7");
+  const recordW = 472;
+  const centerW = w - recordW * 2 - 24;
+  await drawFloorRecordPanel(ctx, floor.max, x + 10, y + 10, recordW - 10, h - 20, "#159b72");
+  drawFloorInfoPanel(ctx, floor, x + recordW + 12, y + 10, centerW, h - 20);
+  await drawFloorRecordPanel(ctx, floor.min, x + recordW + centerW + 22, y + 10, recordW - 10, h - 20, "#c03535");
+}
+
+async function drawFloorRecordPanel(ctx, row, x, y, w, h, color) {
+  drawRoundRect(ctx, x, y, w, h, 8, "#f7f9fc", "#e2e7ef");
+  if (!row) {
+    ctx.fillStyle = "#687282";
+    ctx.font = "700 16px Segoe UI, Malgun Gothic, Arial";
+    ctx.fillText("기록 없음", x + 12, y + 62);
+    return;
+  }
+
+  const jacketSize = 88;
+  const jacketX = x + 10;
+  const jacketY = y + 12;
+  const image = await loadImage(getJacketUrl(row));
+  if (image) {
+    ctx.save();
+    roundedClip(ctx, jacketX, jacketY, jacketSize, jacketSize, 7);
+    ctx.drawImage(image, jacketX, jacketY, jacketSize, jacketSize);
+    ctx.restore();
+  } else {
+    drawRoundRect(ctx, jacketX, jacketY, jacketSize, jacketSize, 7, "#e8edf3", "#d3dae5");
+    ctx.fillStyle = "#677386";
+    ctx.font = "700 13px Segoe UI, Malgun Gothic, Arial";
+    drawTextFit(ctx, "NO JACKET", jacketX + 8, jacketY + 50, jacketSize - 16);
+  }
+
+  const textX = jacketX + jacketSize + 12;
+  const scoreW = 126;
+  ctx.fillStyle = "#171a1f";
+  ctx.font = "800 18px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, row.name || "", textX, y + 35, w - jacketSize - scoreW - 40);
+  ctx.fillStyle = "#586274";
+  ctx.font = "700 14px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, `${row.pattern || ""} · Lv.${row.level ?? ""} · ${row.button}B`, textX, y + 59, w - jacketSize - scoreW - 40);
+  ctx.fillStyle = "#687282";
+  ctx.font = "700 13px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, `${row.maxCombo === true ? "MAX COMBO · " : ""}${formatDate(row.updatedAt) || "-"}`, textX, y + 83, w - jacketSize - scoreW - 40);
+  ctx.fillStyle = row.maxCombo === true ? "#159b72" : color;
+  ctx.font = "900 24px Segoe UI, Malgun Gothic, Arial";
+  ctx.textAlign = "right";
+  ctx.fillText(formatValue(row.scoreValue ?? row.score, "score"), x + w - 14, y + 57);
+  ctx.fillStyle = "#1268b3";
+  ctx.font = "800 14px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText(`logPower ${formatValue(row.logPower, "logPower")}`, x + w - 14, y + 84);
+  ctx.textAlign = "left";
+}
+
+function drawFloorInfoPanel(ctx, floor, x, y, w, h) {
+  drawRoundRect(ctx, x, y, w, h, 8, "#ffffff", null);
+  const completionRatio = Math.min(1, Math.max(0, Number(floor.completionRate || 0) / 100));
+  if (completionRatio > 0) {
+    const fillW = w * completionRatio;
+    ctx.save();
+    roundedClip(ctx, x, y, w, h, 8);
+    ctx.fillStyle = completionRatio >= 1 ? "#aee6cc" : "#d5f1e5";
+    ctx.fillRect(x, y, fillW, h);
+    ctx.restore();
+  }
+  drawRoundRect(ctx, x, y, w, h, 8, null, "#d9dee7");
+  ctx.fillStyle = "#1268b3";
+  ctx.font = "900 30px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText(floor.floorLabel, x + 12, y + 35);
+  ctx.fillStyle = "#687282";
+  ctx.font = "800 13px Segoe UI, Malgun Gothic, Arial";
+  ctx.textAlign = "right";
+  ctx.fillText(floor.buttons || "전체 버튼", x + w - 12, y + 32);
+  ctx.textAlign = "left";
+
+  const gridY = y + 44;
+  const gridH = h - 52;
+  const cellW = w / 3;
+  const cellH = gridH / 2;
+  const gapText = formatUpperFloorGap(floor.upperMinGap);
+  const cells = [
+    ["기록", `${floor.recordCount}/${floor.totalPatternCount} (${formatPercent(floor.completionRate)})`],
+    ["평균", formatFloorStat(floor.avg)],
+    ["표준편차", formatFloorStat(floor.std)],
+    ["floorMax", formatFloorMaxRange(floor.floorMaxMin, floor.floorMaxMax)],
+    [`상위 ${floor.upperFloorLabel || "floor"} 최저`, formatFloorStat(floor.upperMin)],
+    ["상위 최저 대비", gapText],
+  ];
+
+  for (let index = 0; index < cells.length; index += 1) {
+    const column = index % 3;
+    const row = Math.floor(index / 3);
+    const cellX = x + column * cellW;
+    const cellY = gridY + row * cellH;
+    ctx.strokeStyle = "#d9dee7";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(cellX, cellY, cellW, cellH);
+    ctx.fillStyle = "#687282";
+    ctx.font = "700 11px Segoe UI, Malgun Gothic, Arial";
+    drawTextFit(ctx, cells[index][0], cellX + 8, cellY + 14, cellW - 16);
+    ctx.fillStyle = index === 5 && Number(floor.upperMinGap) > 0 ? "#c03535" : "#171a1f";
+    ctx.font = "900 15px Segoe UI, Malgun Gothic, Arial";
+    drawTextFit(ctx, cells[index][1], cellX + 8, cellY + 34, cellW - 16);
+  }
+}
+
+function formatPercent(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  if (!Number.isFinite(Number(value))) return "-";
+  return `${Number(value).toFixed(1).replace(/\.0$/, "")}%`;
+}
+
+function formatUpperFloorGap(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  if (!Number.isFinite(Number(value))) return "-";
+  const amount = formatFloorStat(Math.abs(Number(value)));
+  if (Number(value) > 0) return `${amount} 낮음`;
+  if (Number(value) < 0) return `${amount} 높음`;
+  return "동일";
+}
+
+function formatFloorMaxRange(min, max) {
+  if (!Number.isFinite(Number(min)) || !Number.isFinite(Number(max))) return "-";
+  const minText = formatValue(min, "floorMaxPoint");
+  const maxText = formatValue(max, "floorMaxPoint");
+  return Math.abs(Number(max) - Number(min)) < 0.005 ? minText : `${minText} - ${maxText}`;
+}
+
+async function drawTopImage({ button, nickname, top50Sum, rows }) {
+  const margin = 34;
+  const gap = 18;
+  const headerH = 150;
+  const cardW = 260;
+  const cardH = 365;
+  const width = margin * 2 + TOP_IMAGE_COLUMNS * cardW + (TOP_IMAGE_COLUMNS - 1) * gap;
+  const height = margin * 2 + headerH + TOP_IMAGE_ROWS * cardH + (TOP_IMAGE_ROWS - 1) * gap;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+
+  ctx.fillStyle = "#f4f6f8";
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "#151922";
+  ctx.font = "700 42px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText(`V-ARCHIVE ${button}B Top30`, margin, 58);
+  ctx.font = "500 24px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillStyle = "#4d5868";
+  ctx.fillText(`${nickname} · ${formatDate(new Date().toISOString())}`, margin, 94);
+  ctx.font = "900 40px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillStyle = "#1268b3";
+  ctx.fillText(`Top50 logPower ${top50Sum.toFixed(2)}`, margin, 136);
+
+  for (let index = 0; index < TOP_IMAGE_COUNT; index += 1) {
+    const row = rows[index];
+    const col = index % TOP_IMAGE_COLUMNS;
+    const rowIndex = Math.floor(index / TOP_IMAGE_COLUMNS);
+    const x = margin + col * (cardW + gap);
+    const y = margin + headerH + rowIndex * (cardH + gap);
+    await drawTopCard(ctx, row, x, y, cardW, cardH);
+  }
+
+  return canvas;
+}
+
+async function drawTopCard(ctx, row, x, y, w, h) {
+  drawRoundRect(ctx, x, y, w, h, 12, "#ffffff", "#d9dee7");
+  if (!row) {
+    ctx.fillStyle = "#8a94a4";
+    ctx.font = "600 20px Segoe UI, Malgun Gothic, Arial";
+    ctx.fillText("-", x + 22, y + 54);
+    return;
+  }
+
+  const jacketSize = 220;
+  const jacketX = x + (w - jacketSize) / 2;
+  const jacketY = y + 18;
+  const image = await loadImage(getJacketUrl(row));
+  if (image) {
+    ctx.save();
+    roundedClip(ctx, jacketX, jacketY, jacketSize, jacketSize, 10);
+    ctx.drawImage(image, jacketX, jacketY, jacketSize, jacketSize);
+    ctx.restore();
+  } else {
+    drawRoundRect(ctx, jacketX, jacketY, jacketSize, jacketSize, 10, "#e8edf3", "#d3dae5");
+    ctx.fillStyle = "#677386";
+    ctx.font = "700 22px Segoe UI, Malgun Gothic, Arial";
+    drawTextFit(ctx, row.name || "NO JACKET", jacketX + 16, jacketY + 106, jacketSize - 32);
+  }
+
+  ctx.fillStyle = "rgba(21, 25, 34, 0.82)";
+  ctx.fillRect(jacketX, jacketY + jacketSize - 36, jacketSize, 36);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "800 22px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText(`#${row.rank}`, jacketX + 12, jacketY + jacketSize - 11);
+  if (row.maxCombo === true) {
+    ctx.fillStyle = "#4EEEAF";
+    ctx.font = "800 15px Segoe UI, Malgun Gothic, Arial";
+    ctx.fillText("MAX COMBO", jacketX + 96, jacketY + jacketSize - 13);
+  }
+
+  const textX = x + 16;
+  let textY = y + 266;
+  ctx.fillStyle = "#171a1f";
+  ctx.font = "700 18px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, row.name || "", textX, textY, w - 32);
+  textY += 25;
+  ctx.fillStyle = "#586274";
+  ctx.font = "600 15px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, `${row.pattern || ""} · Lv.${row.level ?? ""} · floor ${row.floorName || ""}`, textX, textY, w - 32);
+  textY += 24;
+  ctx.fillStyle = "#171a1f";
+  ctx.font = "700 16px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, `score ${formatValue(row.score, "score")}`, textX, textY, w - 32);
+  textY += 23;
+  ctx.fillStyle = "#1268b3";
+  ctx.font = "800 17px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, `${formatValue(row.logPower, "logPower")} / ${formatValue(row.floorMaxPoint, "floorMaxPoint")}`, textX, textY, w - 32);
+}
+
+function getJacketUrl(row) {
+  return `https://djmax.gg/images/jackets/128/${encodeURIComponent(row.title)}.webp`;
+}
+
+function loadImage(src) {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = src;
+  });
+}
+
+async function saveCanvasImage(canvas, fileName) {
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob((result) => (result ? resolve(result) : reject(new Error("이미지를 만들 수 없습니다."))), "image/png");
+  });
+  let copied = false;
+  if (navigator.clipboard?.write && window.ClipboardItem) {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      copied = true;
+    } catch {
+      copied = false;
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return copied;
+}
+
+function drawRoundRect(ctx, x, y, w, h, r, fill, stroke) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+  if (fill) {
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+  if (stroke) {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+}
+
+function roundedClip(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+  ctx.clip();
+}
+
+function drawTextFit(ctx, text, x, y, maxWidth) {
+  const value = String(text || "");
+  if (ctx.measureText(value).width <= maxWidth) {
+    ctx.fillText(value, x, y);
+    return;
+  }
+  let clipped = value;
+  while (clipped.length > 1 && ctx.measureText(`${clipped}…`).width > maxWidth) clipped = clipped.slice(0, -1);
+  ctx.fillText(`${clipped}…`, x, y);
+}
+
+function buildCompareRows() {
+  if (!state.payload || !state.comparePayload) return [];
+  const mineRecords = state.payload.records || [];
+  const otherRecords = state.comparePayload.records || [];
+  const mineStats = buildFloorStats(mineRecords);
+  const otherStats = buildFloorStats(otherRecords);
+  const mineMap = new Map(mineRecords.map((record) => [recordKey(record), record]));
+  const otherMap = new Map(otherRecords.map((record) => [recordKey(record), record]));
+  const keys = [...mineMap.keys()].filter((key) => otherMap.has(key));
+  const minStd = Number(compareStdFloorSelect.value) || 0.05;
+
+  return keys.map((key) => {
+    const mine = mineMap.get(key) || null;
+    const other = otherMap.get(key) || null;
+    const base = mine || other || {};
+    const mineScore = mine && Number.isFinite(Number(mine.score)) ? Number(mine.score) : null;
+    const otherScore = other && Number.isFinite(Number(other.score)) ? Number(other.score) : null;
+    const mineFloor = mine ? getFloorLabel(mine) : getFloorLabel(other || {});
+    const otherFloor = other ? getFloorLabel(other) : getFloorLabel(mine || {});
+    const mineZ = mineScore === null ? null : zScore(mineScore, mineStats.get(mineFloor), minStd);
+    const otherZ = otherScore === null ? null : zScore(otherScore, otherStats.get(otherFloor), minStd);
+    const scoreDiff = mineScore === null || otherScore === null ? null : mineScore - otherScore;
+    const zDiff = mineZ === null || otherZ === null ? null : mineZ - otherZ;
+    const isReversal = scoreDiff !== null && zDiff !== null && Math.sign(scoreDiff) !== 0 && Math.sign(zDiff) !== 0 && Math.sign(scoreDiff) !== Math.sign(zDiff);
+    return {
+      button: base.button,
+      title: base.title,
+      name: base.name,
+      pattern: base.pattern,
+      level: base.level,
+      floor: base.floor,
+      floorName: getFloorLabel(base),
+      mineScore,
+      otherScore,
+      scoreDiff,
+      mineZ,
+      otherZ,
+      zDiff,
+      absScoreDiff: scoreDiff === null ? null : Math.abs(scoreDiff),
+      absZDiff: zDiff === null ? null : Math.abs(zDiff),
+      isReversal,
+      result: compareResult(scoreDiff, zDiff, mineScore, otherScore),
+      mineMaxCombo: mine?.maxCombo === true,
+      otherMaxCombo: other?.maxCombo === true,
+      mineUpdatedAt: mine?.updatedAt || "",
+      otherUpdatedAt: other?.updatedAt || "",
+    };
+  });
+}
+
+function buildFloorStats(records) {
+  const grouped = new Map();
+  for (const record of records) {
+    const floorLabel = getFloorLabel(record);
+    const score = Number(record.score);
+    if (!floorLabel || !Number.isFinite(score)) continue;
+    if (!grouped.has(floorLabel)) grouped.set(floorLabel, []);
+    grouped.get(floorLabel).push(score);
+  }
+  const stats = new Map();
+  for (const [floorLabel, scores] of grouped) {
+    const avg = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+    const variance = scores.reduce((sum, score) => sum + (score - avg) ** 2, 0) / scores.length;
+    stats.set(floorLabel, { avg, std: Math.sqrt(variance), count: scores.length });
+  }
+  return stats;
+}
+
+function zScore(score, stats, minStd) {
+  if (!stats || !Number.isFinite(score)) return null;
+  const std = Math.max(stats.std || 0, minStd);
+  return (score - stats.avg) / std;
+}
+
+function compareResult(scoreDiff, zDiff, mineScore, otherScore) {
+  const scoreWinner = scoreDiff > 0 ? "score 나" : scoreDiff < 0 ? "score 상대" : "score 동점";
+  const zWinner = zDiff > 0 ? "z 나" : zDiff < 0 ? "z 상대" : "z 동점";
+  return `${scoreWinner} / ${zWinner}`;
+}
+
+function scoreToPoint(score) {
+  if (!Number.isFinite(score)) return NaN;
+  const capped = Math.min(score, 99.9);
+  if (capped <= 97) return 0;
+  const point = -Math.log((100 - capped) / 3) / Math.log(SCORE_BASE);
+  return Math.max(0, Math.min(10, point));
+}
+
+function difficultyConstantForFloor(floorLabel, button) {
+  const baseDifficultyConstant = baseDifficultyConstantForFloor(floorLabel);
+  if (!Number.isFinite(baseDifficultyConstant)) return NaN;
+  const baseMaxByButton = state.buttonTop50BaseMax || FALLBACK_BUTTON_TOP50_BASE_MAX;
+  const baseTop50Max = Number(baseMaxByButton[String(button)]);
+  const buttonMultiplier = Number.isFinite(baseTop50Max) && baseTop50Max > 0 ? TARGET_TOP50_MAX / baseTop50Max : 1;
+  return baseDifficultyConstant * buttonMultiplier;
+}
+
+function baseDifficultyConstantForFloor(floorLabel) {
+  const index = floorLabels.indexOf(floorLabel);
+  const anchorIndex = floorLabels.indexOf(ANCHOR_FLOOR_LABEL);
+  if (index < 0 || anchorIndex < 0) return NaN;
+  return ANCHOR_DIFFICULTY_CONSTANT * Math.pow(FLOOR_STEP_RATIO, index - anchorIndex);
+}
+
+function filterRows(rows) {
+  const button = buttonFilter.value;
+  const pattern = patternFilter.value;
+  const query = searchInput.value.trim().toLowerCase();
+  return rows.filter((row) => {
+    if (button && String(row.button) !== button) return false;
+    if (pattern && String(row.pattern || "") !== pattern) return false;
+    if (viewSelect.value === "compare") {
+      const mode = compareModeSelect.value;
+      const minZ = Number(compareMinZSelect.value) || 0;
+      if (!isFloorInCompareRange(row.floorName)) return false;
+      if (minZ > 0 && (!Number.isFinite(row.absZDiff) || row.absZDiff < minZ)) return false;
+      if (mode === "scoreMine" && !(row.scoreDiff > 0)) return false;
+      if (mode === "scoreOther" && !(row.scoreDiff < 0)) return false;
+      if (mode === "zMine" && !(row.zDiff > 0)) return false;
+      if (mode === "zOther" && !(row.zDiff < 0)) return false;
+      if (mode === "reversal" && !row.isReversal) return false;
+    }
+    if (!query) return true;
+    return JSON.stringify(row).toLowerCase().includes(query);
+  });
+}
+
+function isFloorInCompareRange(floorLabel) {
+  const floorIndex = floorLabels.indexOf(floorLabel);
+  let start = floorLabels.indexOf(compareFloorMinSelect.value);
+  let end = floorLabels.indexOf(compareFloorMaxSelect.value);
+  if (floorIndex < 0 || start < 0 || end < 0) return true;
+  if (start > end) [start, end] = [end, start];
+  return floorIndex >= start && floorIndex <= end;
+}
+
+function sortRows(rows) {
+  if (viewSelect.value === "compare" && !state.sortKey) {
+    const sort = compareSortSelect.value || "absZDiff";
+    const key = sort.replace(/Asc|Desc$/, "");
+    const dir = sort.endsWith("Asc") ? 1 : -1;
+    rows.sort((a, b) => compareForSort(a[key], b[key]) * dir || compare(a.button, b.button) || compare(a.floor, b.floor) || compare(a.name, b.name));
+    return;
+  }
+  if (viewSelect.value === "history" && !state.sortKey) {
+    rows.sort((a, b) => compareForSort(b.updatedAt, a.updatedAt));
+    return;
+  }
+  if (!state.sortKey) return;
+  const key = state.sortKey;
+  const dir = state.sortDir === "asc" ? 1 : -1;
+  rows.sort((a, b) => compareForSort(a[key], b[key]) * dir);
+}
+
+function toggleSort(key) {
+  if (state.sortKey === key) state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+  else {
+    state.sortKey = key;
+    state.sortDir = "asc";
+  }
+  renderTable();
+}
+
+function renderCell(row, key) {
+  const value = row[key];
+  const classes = [];
+  if (key === "name") classes.push("nameCell");
+  if (key === "name" && isRecentRecord(row.updatedAt)) classes.push("recentName");
+  if (["button", "rank", "floor", "score", "mineScore", "otherScore", "scoreDiff", "mineZ", "otherZ", "zDiff", "scorePoint", "difficultyConstant", "floorMaxPoint", "logPower", "rating", "maxRating", "djpower", "maxDjpower", "top50sum", "tierPoint", "nextRating", "djPowerSum", "djPowerConversion", "maxDjPower"].includes(key)) classes.push("num");
+  if (key === "pattern") classes.push("pattern");
+  if (key === "level") classes.push("level");
+  if (key === "score" && row.maxCombo === true) classes.push("comboScore");
+  if (["scoreDiff", "zDiff"].includes(key) && Number(value) > 0) classes.push("positiveDiff");
+  if (["scoreDiff", "zDiff"].includes(key) && Number(value) < 0) classes.push("negativeDiff");
+  if (key === "result" && row.isReversal) classes.push("reversalCell");
+  if (key === "mineScore" && row.mineMaxCombo === true) classes.push("comboScore");
+  if (key === "otherScore" && row.otherMaxCombo === true) classes.push("comboScore");
+  return `<td class="${classes.join(" ")}">${escapeHtml(formatValue(value, key))}</td>`;
+}
+
+function compare(a, b) {
+  const na = Number(a);
+  const nb = Number(b);
+  if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+  return String(a ?? "").localeCompare(String(b ?? ""), "ko");
+}
+
+function compareForSort(a, b) {
+  const aMissing = a === null || a === undefined || a === "";
+  const bMissing = b === null || b === undefined || b === "";
+  if (aMissing && bMissing) return 0;
+  if (aMissing) return -1;
+  if (bMissing) return 1;
+  return compare(a, b);
+}
+
+function floorIndex(label) {
+  const normalized = String(label || "").trim();
+  const index = floorLabels.indexOf(normalized);
+  if (index >= 0) return index;
+  const match = normalized.match(/^(\d{1,2})\.([1-3])$/);
+  if (!match) return -1;
+  const n = Number(match[1]);
+  const m = Number(match[2]);
+  if (n < 1 || n > 17) return -1;
+  return (n - 1) * 3 + (m - 1);
+}
+
+function clampInt(value, min, max) {
+  const number = Number.parseInt(value, 10);
+  if (!Number.isFinite(number)) return min;
+  return Math.min(max, Math.max(min, number));
+}
+
+function formatValue(value, key = "") {
+  if (value === null || value === undefined) return "";
+  if (["mineScore", "otherScore", "scoreDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+  if (["mineZ", "otherZ", "zDiff", "absZDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
+  if (["scorePoint", "difficultyConstant", "floorMaxPoint", "logPower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
+  if (["rating", "djpower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
+  if (key === "updatedAt" || key === "generatedAt") return formatDate(value);
+  return value;
+}
+
+function formatFloorStat(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  return Number.isFinite(Number(value)) ? Number(value).toFixed(3).replace(/0+$/, "").replace(/\.$/, "") : "-";
+}
+
+function formatDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (part) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function isRecentRecord(value) {
+  if (!value) return false;
+  const updatedAt = new Date(value);
+  if (Number.isNaN(updatedAt.getTime())) return false;
+  const threeDays = 3 * 24 * 60 * 60 * 1000;
+  return Date.now() - updatedAt.getTime() <= threeDays;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}

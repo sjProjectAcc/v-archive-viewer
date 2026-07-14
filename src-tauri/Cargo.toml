@@ -1,0 +1,22 @@
+[package]
+name = "v-archive-viewer"
+version = "0.1.1"
+description = "V-ARCHIVE record viewer"
+authors = ["V-ARCHIVE Viewer"]
+edition = "2024"
+
+[lib]
+name = "v_archive_viewer_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["cookies", "json", "rustls-tls"] }
+rfd = "0.15"
+semver = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tauri = { version = "2", features = [] }

@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>V-ARCHIVE Viewer</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="titleRow">
+        <h1>V-ARCHIVE Viewer</h1>
+        <span id="appVersion" class="appVersion">local</span>
+      </div>
+      <p id="statusText">준비 중</p>
+    </div>
+    <div class="actions">
+      <div class="nicknameBox">
+        <div class="nicknameInputRow">
+          <input id="nicknameInput" type="text" value="lemoncube7" autocomplete="off" spellcheck="false" aria-label="nickname">
+          <button id="nicknameApplyButton" type="button">적용</button>
+        </div>
+        <div id="recentNicknames" class="recentNicknames" aria-label="recent nicknames"></div>
+      </div>
+      <a class="downloadButton webOnly" href="/downloads/v-archive-viewer-windows-x64.zip" download>Windows ZIP</a>
+      <button id="desktopUpdateButton" type="button" hidden>업데이트</button>
+      <button id="refreshButton" type="button">새로고침</button>
+      <button id="fullRefreshButton" type="button">전체 새로고침</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="summary" id="summary"></section>
+
+    <section class="filters">
+      <label>
+        보기
+        <select id="viewSelect">
+          <option value="chart">산포도</option>
+          <option value="compare">Compare</option>
+          <option value="top100">Top100</option>
+          <option value="records">Records</option>
+          <option value="history" class="desktopOnly">History</option>
+          <option value="floorMinScore">FloorMinScore</option>
+          <option value="tiers">Tier</option>
+          <option value="djClasses">DJClass</option>
+          <option value="errors">Errors</option>
+          <option value="historyTest">History Test</option>
+        </select>
+      </label>
+      <label>
+        버튼
+        <select id="buttonFilter">
+          <option value="">전체</option>
+          <option value="4">4B</option>
+          <option value="5">5B</option>
+          <option value="6">6B</option>
+          <option value="8">8B</option>
+        </select>
+      </label>
+      <label>
+        패턴
+        <select id="patternFilter">
+          <option value="">전체</option>
+          <option value="NM">NM</option>
+          <option value="HD">HD</option>
+          <option value="MX">MX</option>
+          <option value="SC">SC</option>
+        </select>
+      </label>
+      <label>
+        검색
+        <input id="searchInput" type="search" placeholder="곡명, floor, tier">
+      </label>
+      <label>
+        최대 표시
+        <select id="limitSelect">
+          <option value="200">200</option>
+          <option value="500">500</option>
+          <option value="1000">1000</option>
+          <option value="0">전체</option>
+        </select>
+      </label>
+      <label>
+        name 폭
+        <input id="nameWidthInput" type="range" min="180" max="620" step="20" value="320">
+      </label>
+      <label class="compareOnly">
+        비교 닉네임
+        <input id="compareNicknameInput" type="text" autocomplete="off" spellcheck="false" placeholder="상대 닉네임">
+      </label>
+      <button id="compareLoadButton" class="compareOnly" type="button">비교 불러오기</button>
+      <label class="compareOnly">
+        비교 필터
+        <select id="compareModeSelect">
+          <option value="">전체</option>
+          <option value="scoreMine">내 score 우위</option>
+          <option value="scoreOther">상대 score 우위</option>
+          <option value="zMine">내 분포 우위</option>
+          <option value="zOther">상대 분포 우위</option>
+          <option value="reversal">역전만</option>
+        </select>
+      </label>
+      <label class="compareOnly">
+        비교 정렬
+        <select id="compareSortSelect">
+          <option value="absZDiff">z 차이 큰 순</option>
+          <option value="absScoreDiff">score 차이 큰 순</option>
+          <option value="zDiffDesc">내 z 우위 순</option>
+          <option value="zDiffAsc">상대 z 우위 순</option>
+          <option value="scoreDiffDesc">내 score 우위 순</option>
+          <option value="scoreDiffAsc">상대 score 우위 순</option>
+        </select>
+      </label>
+      <label class="compareOnly">
+        최소 |z차이|
+        <select id="compareMinZSelect">
+          <option value="0">0</option>
+          <option value="0.5">0.5</option>
+          <option value="1">1.0</option>
+          <option value="2">2.0</option>
+        </select>
+      </label>
+      <label class="compareOnly">
+        floor 시작
+        <select id="compareFloorMinSelect"></select>
+      </label>
+      <label class="compareOnly">
+        floor 끝
+        <select id="compareFloorMaxSelect"></select>
+      </label>
+      <label class="compareOnly">
+        표준편차 최소
+        <select id="compareStdFloorSelect">
+          <option value="0.05">0.05</option>
+          <option value="0.1">0.10</option>
+          <option value="0.2">0.20</option>
+        </select>
+      </label>
+    </section>
+
+    <section class="chartPanel" id="chartPanel">
+      <div class="chartHeader">
+        <div>
+          <h2 id="chartTitle">Floor × Score</h2>
+          <p id="chartDescription">점은 개별 기록, 선은 floor별 최고/평균/최저 Score입니다.</p>
+        </div>
+        <div class="chartControls">
+          <label>
+            그래프
+            <select id="chartMetricSelect">
+              <option value="score">Floor × Score</option>
+              <option value="scorePoint">Floor × scorePoint</option>
+              <option value="logPower">Floor × logPower</option>
+              <option value="point">Floor × Point</option>
+              <option value="djpower">MaxDJPower × DJPower</option>
+            </select>
+          </label>
+          <label>
+            버튼
+            <select id="chartButtonFilter">
+              <option value="4">4B</option>
+              <option value="5">5B</option>
+              <option value="6">6B</option>
+              <option value="8">8B</option>
+            </select>
+          </label>
+          <label>
+            <span id="xMinLabel">Floor 시작</span>
+            <select id="xMinSelect"></select>
+          </label>
+          <label>
+            <span id="xMaxLabel">Floor 끝</span>
+            <select id="xMaxSelect"></select>
+          </label>
+          <label>
+            Y 최소
+            <input id="yMinInput" type="number" min="0" step="0.1" value="">
+          </label>
+          <label class="checkLabel">
+            Y 최소 자동
+            <input id="yMinAutoInput" type="checkbox" checked>
+          </label>
+          <label>
+            Y 최대
+            <input id="yMaxInput" type="number" min="0" step="0.1" value="100">
+          </label>
+          <label class="checkLabel">
+            Y 최대 자동
+            <input id="yMaxAutoInput" type="checkbox" checked>
+          </label>
+          <button id="chartImageButton" type="button">이미지 저장</button>
+        </div>
+      </div>
+      <div id="floorScoreChart" class="svgChart"></div>
+      <div id="chartTooltip" class="chartTooltip" hidden></div>
+      <div class="legend">
+        <span><i class="dot"></i>기록</span>
+        <span><i class="dot combo"></i>MAX COMBO</span>
+        <span id="chartBelowLegend"><i class="dot below"></i>상위 floor 최저 미만</span>
+        <span><i class="line max"></i><b id="chartMaxLegend">floor 최고</b></span>
+        <span><i class="line avg"></i><b id="chartAvgLegend">floor 평균</b></span>
+        <span><i class="line min"></i><b id="chartMinLegend">floor 최저</b></span>
+        <span id="chartFloorMaxLegend" hidden><i class="line floorMax"></i><b id="chartFloorMaxLegendText">floor 최대치</b></span>
+      </div>
+    </section>
+
+    <section class="historyPanel" id="historyPanel" hidden>
+      <div class="historyHeader">
+        <div>
+          <h2>logPower History</h2>
+          <p id="historyStatus">수집된 히스토리가 없습니다.</p>
+        </div>
+        <div class="historyActions">
+          <button id="historyCollectButton" class="nativeOnly" type="button" hidden>히스토리 수집</button>
+          <button id="historyStopButton" class="nativeOnly" type="button" hidden disabled>중지</button>
+        </div>
+      </div>
+      <div id="historyProgress" class="historyProgress" hidden>
+        <span id="historyProgressBar"></span>
+      </div>
+      <div id="historyLogPowerChart" class="svgChart historyChart"></div>
+      <div class="historyLegend" id="historyLegend"></div>
+    </section>
+
+    <section class="historyTestPanel" id="historyTestPanel" hidden>
+      <div class="historyTestHeader">
+        <div>
+          <h2>Record History API Test</h2>
+        </div>
+        <div class="historyTestControls">
+          <label>
+            title
+            <input id="historyTestTitle" type="number" min="1" step="1" value="733">
+          </label>
+          <label>
+            button
+            <select id="historyTestButton">
+              <option value="4" selected>4B</option>
+              <option value="5">5B</option>
+              <option value="6">6B</option>
+              <option value="8">8B</option>
+            </select>
+          </label>
+          <label>
+            pattern
+            <select id="historyTestPattern">
+              <option value="NM">NM</option>
+              <option value="HD">HD</option>
+              <option value="MX">MX</option>
+              <option value="SC" selected>SC</option>
+            </select>
+          </label>
+          <button id="historyTestRunButton" type="button">요청 테스트</button>
+          <a id="historyTestOpenLink" class="buttonLink" href="https://v-archive.net/api/v3/archive/record-history?title=733&amp;button=4&amp;pattern=SC" target="_blank" rel="noopener">새 탭에서 열기</a>
+          <label class="nativeOnly" hidden>
+            no
+            <input id="historyTestUserNo" type="text" inputmode="numeric" autocomplete="off" placeholder="회원 번호">
+          </label>
+          <label class="nativeOnly" hidden>
+            token
+            <input id="historyTestToken" type="password" autocomplete="off" placeholder="로그인 토큰">
+          </label>
+          <button id="historyTestNativeRunButton" class="nativeOnly" type="button" hidden>데스크톱 요청</button>
+          <button id="historyTestAccountFileButton" class="nativeOnly" type="button" hidden>account.txt 선택</button>
+          <span id="historyTestAccountFileStatus" class="nativeOnly accountFileStatus" hidden>account.txt 미설정</span>
+        </div>
+      </div>
+      <pre id="historyTestOutput" class="historyTestOutput">아직 요청하지 않았습니다.</pre>
+    </section>
+
+    <section class="tableWrap" id="tableSection" hidden>
+      <div id="tableSummary" class="tableSummary" hidden></div>
+      <table id="dataTable"></table>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

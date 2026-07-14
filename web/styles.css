@@ -1,0 +1,805 @@
+:root {
+  color-scheme: light;
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --text: #171a1f;
+  --muted: #687282;
+  --line: #d9dee7;
+  --accent: #1268b3;
+  --accent-soft: #e7f2fb;
+  --combo: #4eeeaf;
+  --danger: #c03535;
+  --max: #23845f;
+  --min: #7b61c9;
+  --below: #e03b3b;
+  --name-col-width: 320px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Malgun Gothic", Arial, sans-serif;
+  font-size: 14px;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 18px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+h1,
+h2 {
+  margin: 0;
+}
+
+h1 {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.appVersion {
+  color: var(--muted);
+  font-family: Consolas, monospace;
+  font-size: 10px;
+}
+
+h2 {
+  font-size: 16px;
+}
+
+#statusText,
+.chartHeader p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.nicknameBox {
+  display: grid;
+  gap: 6px;
+  min-width: 260px;
+}
+
+.nicknameInputRow {
+  display: flex;
+  gap: 6px;
+}
+
+#nicknameInput {
+  min-width: 150px;
+  width: 180px;
+}
+
+#nicknameApplyButton {
+  min-width: 58px;
+  padding: 0 10px;
+}
+
+.recentNicknames {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-width: 360px;
+  min-height: 24px;
+}
+
+.nicknameChip {
+  height: 24px;
+  max-width: 120px;
+  padding: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: #eef3f8;
+  border-color: #d7e0ea;
+  color: var(--text);
+  font-size: 12px;
+}
+
+button,
+select,
+input {
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+}
+
+button {
+  padding: 0 12px;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.downloadButton {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+button:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+input[readonly],
+input:disabled {
+  background: #f3f5f8;
+  color: var(--muted);
+}
+
+.checkLabel input {
+  min-width: auto;
+}
+
+#fullRefreshButton {
+  background: #fff;
+  color: var(--accent);
+}
+
+main {
+  padding: 16px 18px 24px;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.metric,
+.chartPanel,
+.historyPanel,
+.historyTestPanel,
+.filters,
+.tableWrap {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.metric {
+  padding: 10px 12px;
+}
+
+.metric span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.metric strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 18px;
+}
+
+.chartPanel {
+  margin-bottom: 12px;
+  padding: 12px;
+  position: relative;
+}
+
+.historyTestPanel {
+  margin-bottom: 12px;
+  padding: 12px;
+}
+
+.historyPanel {
+  margin-bottom: 12px;
+  padding: 12px;
+}
+
+.historyHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.historyHeader h2,
+.historyHeader p {
+  margin: 0;
+}
+
+.historyHeader p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.historyActions {
+  display: flex;
+  gap: 8px;
+}
+
+.historyProgress {
+  height: 5px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  background: #e8edf3;
+}
+
+.historyProgress span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--combo);
+  transition: width 160ms ease;
+}
+
+.historyChart {
+  min-height: 360px;
+}
+
+.historyChart svg {
+  height: 360px;
+}
+
+.historyLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-height: 18px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.historyLegend i {
+  display: inline-block;
+  width: 18px;
+  height: 3px;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+.historyTestHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.historyTestHeader h2 {
+  margin: 0;
+}
+
+.historyTestControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.historyTestControls input,
+.historyTestControls select {
+  min-width: 86px;
+  width: 86px;
+}
+
+#historyTestUserNo {
+  width: 110px;
+}
+
+#historyTestToken {
+  width: min(280px, 45vw);
+}
+
+.accountFileStatus {
+  align-self: center;
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.buttonLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.historyTestOutput {
+  min-height: 280px;
+  max-height: 58vh;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  border-radius: 6px;
+  background: #171a1f;
+  color: #f0f3f7;
+  font: 13px/1.55 Consolas, "Courier New", monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chartHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.chartControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+  justify-content: flex-end;
+}
+
+.chartControls input,
+.chartControls select {
+  min-width: 80px;
+}
+
+.svgChart {
+  width: 100%;
+  min-height: 430px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.svgChart svg {
+  display: block;
+  width: 100%;
+  height: 430px;
+}
+
+.chartBg {
+  fill: #fff;
+  stroke: var(--line);
+}
+
+.gridLine {
+  stroke: #e3e7ee;
+  stroke-width: 1;
+}
+
+.axisLine {
+  stroke: #9aa4b2;
+  stroke-width: 1.2;
+}
+
+.tickLabel {
+  fill: var(--muted);
+  font-size: 12px;
+}
+
+.axisTitle {
+  fill: #394150;
+  font-size: 13px;
+}
+
+.avgLine,
+.maxLine,
+.minLine,
+.floorMaxLine {
+  fill: none;
+  stroke-width: 2.4;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.avgLine {
+  stroke: var(--danger);
+}
+
+.maxLine {
+  stroke: var(--max);
+}
+
+.minLine {
+  stroke: var(--min);
+}
+
+.floorMaxLine {
+  stroke: var(--accent);
+  stroke-dasharray: 7 5;
+}
+
+.chartDot {
+  fill: rgba(18, 104, 179, 0.58);
+  stroke: rgba(18, 104, 179, 0.88);
+  stroke-width: 1;
+}
+
+.comboDot {
+  fill: var(--combo);
+  stroke: #159b72;
+}
+
+.belowNextDot {
+  fill: var(--below);
+  stroke: #9f1f1f;
+}
+
+.chartDot {
+  cursor: crosshair;
+}
+
+.chartDot:hover,
+.chartDot:focus {
+  stroke-width: 2.2;
+  outline: none;
+}
+
+.chartTooltip {
+  position: fixed;
+  z-index: 30;
+  min-width: 220px;
+  max-width: 320px;
+  padding: 9px 10px;
+  background: rgba(23, 26, 31, 0.94);
+  color: #fff;
+  border-radius: 7px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.chartTooltip strong,
+.chartTooltip span {
+  display: block;
+}
+
+.chartTooltip strong {
+  margin-bottom: 3px;
+  font-size: 13px;
+}
+
+.emptyText {
+  fill: var(--muted);
+  font-size: 14px;
+  text-anchor: middle;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend b {
+  font-weight: 400;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.65;
+}
+
+.dot.combo {
+  background: var(--combo);
+  opacity: 1;
+}
+
+.dot.below {
+  background: var(--below);
+  opacity: 1;
+}
+
+.line {
+  width: 22px;
+  height: 0;
+  border-top: 2px solid var(--danger);
+}
+
+.line.max {
+  border-color: var(--max);
+}
+
+.line.avg {
+  border-color: var(--danger);
+}
+
+.line.min {
+  border-color: var(--min);
+}
+
+.line.floorMax {
+  border-color: var(--accent);
+  border-top-style: dashed;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.compareOnly[hidden] {
+  display: none;
+}
+
+label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+select,
+input {
+  min-width: 120px;
+  padding: 0 9px;
+}
+
+#searchInput {
+  min-width: 240px;
+}
+
+#nameWidthInput {
+  min-width: 160px;
+  padding: 0;
+}
+
+.tableWrap {
+  overflow-x: auto;
+  overflow-y: visible;
+  max-height: none;
+  min-height: 0;
+}
+
+.tableSummary {
+  position: static;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+}
+
+.tableMetric {
+  min-width: 140px;
+  padding: 8px 10px;
+  background: #f7f9fc;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.tableMetric span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tableMetric strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 16px;
+}
+
+.tableMetricAction {
+  display: grid;
+  gap: 6px;
+}
+
+.tableMetricAction strong {
+  font-size: 20px;
+}
+
+.smallActionButton {
+  height: 28px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.wideMetric {
+  min-width: 440px;
+}
+
+.rangeControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+}
+
+.rangeControls label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.rangeControls input {
+  min-width: 76px;
+  width: 76px;
+}
+
+.rangeControls .compactSelect {
+  min-width: 86px;
+  width: 86px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+
+th,
+td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+th {
+  position: static;
+  background: #f0f3f7;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+tr:hover td {
+  background: var(--accent-soft);
+}
+
+td.num,
+td.pattern {
+  text-align: right;
+}
+
+td.level {
+  text-align: left;
+}
+
+td.nameCell {
+  max-width: var(--name-col-width);
+  width: var(--name-col-width);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+td.recentName {
+  background: #fff3a3;
+}
+
+tr:hover td.recentName {
+  background: #ffe87a;
+}
+
+td.comboScore {
+  background: var(--combo);
+}
+
+td.positiveDiff {
+  color: #14764f;
+  font-weight: 700;
+}
+
+td.negativeDiff {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+td.reversalCell {
+  background: #fff0bd;
+  color: #7a4c00;
+  font-weight: 700;
+}
+
+tr:hover td.reversalCell {
+  background: #ffe390;
+}
+
+.empty {
+  padding: 28px;
+  text-align: center;
+  color: var(--muted);
+}
+
+@media (max-width: 900px) {
+  .topbar,
+  .chartHeader,
+  .historyHeader,
+  .historyTestHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .chartControls,
+  .historyTestControls {
+    justify-content: flex-start;
+  }
+
+  .summary {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+
+  .actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .actions > button {
+    flex: 1;
+  }
+
+  .nicknameBox {
+    width: 100%;
+  }
+
+  .nicknameInputRow {
+    width: 100%;
+  }
+
+  #nicknameInput {
+    flex: 1;
+    width: auto;
+  }
+
+  .recentNicknames {
+    max-width: none;
+  }
+
+}
