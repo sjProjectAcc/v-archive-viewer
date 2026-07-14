@@ -13,6 +13,8 @@ const state = {
   chartYMaxAutoByMetric: {},
   chartXRangeByMode: {},
   chartXMode: "floor",
+  compareChartMetric: "score",
+  compareChartRanges: {},
   historyEntries: [],
   historyRows: [],
   historyCollecting: false,
@@ -154,6 +156,9 @@ const compareChartPanel = document.querySelector("#compareChartPanel");
 const compareChartTitle = document.querySelector("#compareChartTitle");
 const compareChartDescription = document.querySelector("#compareChartDescription");
 const compareChartMetricSelect = document.querySelector("#compareChartMetricSelect");
+const compareChartMinInput = document.querySelector("#compareChartMinInput");
+const compareChartMaxInput = document.querySelector("#compareChartMaxInput");
+const compareChartAutoInput = document.querySelector("#compareChartAutoInput");
 const compareScatterChart = document.querySelector("#compareScatterChart");
 const compareChartTooltip = document.querySelector("#compareChartTooltip");
 const historyPanel = document.querySelector("#historyPanel");
@@ -345,6 +350,24 @@ function wireEvents() {
     renderChart();
   });
   compareChartMetricSelect.addEventListener("change", () => {
+    storeCompareChartRange(state.compareChartMetric);
+    state.compareChartMetric = compareChartMetricSelect.value;
+    restoreCompareChartRange(state.compareChartMetric);
+    saveSettings();
+    renderCompareChart();
+  });
+  [compareChartMinInput, compareChartMaxInput].forEach((input) => {
+    input.addEventListener("input", () => {
+      compareChartAutoInput.checked = false;
+      updateCompareChartRangeControls();
+      storeCompareChartRange();
+      saveSettings();
+      renderCompareChart();
+    });
+  });
+  compareChartAutoInput.addEventListener("change", () => {
+    updateCompareChartRangeControls();
+    storeCompareChartRange();
     saveSettings();
     renderCompareChart();
   });
@@ -413,6 +436,9 @@ function applySavedSettings() {
   setIfOptionExists(compareFloorMaxSelect, settings.compareFloorMax || "17.3");
   setIfOptionExists(compareStdFloorSelect, settings.compareStdFloor || "0.05");
   setIfOptionExists(compareChartMetricSelect, settings.compareChartMetric || "score");
+  state.compareChartMetric = compareChartMetricSelect.value;
+  state.compareChartRanges = settings.compareChartRanges || {};
+  restoreCompareChartRange(state.compareChartMetric);
   state.view = viewSelect.value;
   applyNameWidth();
   updateCompareControls();
@@ -421,6 +447,7 @@ function applySavedSettings() {
 function saveSettings() {
   storeCurrentChartRange();
   storeCurrentChartXRange();
+  storeCompareChartRange();
   const settings = {
     view: viewSelect.value,
     buttonFilter: buttonFilter.value,
@@ -435,6 +462,7 @@ function saveSettings() {
     compareFloorMax: compareFloorMaxSelect.value,
     compareStdFloor: compareStdFloorSelect.value,
     compareChartMetric: compareChartMetricSelect.value,
+    compareChartRanges: state.compareChartRanges,
     limitSelect: limitSelect.value,
     nameWidth: nameWidthInput.value,
     chartMetric: chartMetricSelect.value,
@@ -1045,9 +1073,10 @@ function renderCompareChart() {
   compareChartTitle.textContent = `${metric.label} 계정 비교`;
   compareChartDescription.textContent = `X축 ${mineName} · Y축 ${otherName} · 공통 기록 ${rows.length}개`;
 
-  const width = Math.max(760, compareScatterChart.clientWidth || 1000);
-  const height = 520;
-  const pad = { left: 78, right: 30, top: 24, bottom: 72 };
+  const size = Math.max(560, Math.min(860, compareScatterChart.clientWidth || 760));
+  const width = size;
+  const height = size;
+  const pad = { left: 78, right: 30, top: 30, bottom: 78 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
   if (!rows.length) {
@@ -1056,7 +1085,16 @@ function renderCompareChart() {
   }
 
   const values = rows.flatMap((row) => [row.xValue, row.yValue]);
-  const range = getCompareChartRange(values, metric.key);
+  const autoRange = getCompareChartRange(values, metric.key);
+  let range = autoRange;
+  if (compareChartAutoInput.checked) {
+    compareChartMinInput.value = formatCompareRangeInput(autoRange.min);
+    compareChartMaxInput.value = formatCompareRangeInput(autoRange.max);
+  } else {
+    const manualMin = Number(compareChartMinInput.value);
+    const manualMax = Number(compareChartMaxInput.value);
+    if (Number.isFinite(manualMin) && Number.isFinite(manualMax) && manualMax > manualMin) range = { min: manualMin, max: manualMax };
+  }
   const xFor = (value) => pad.left + ((value - range.min) / (range.max - range.min)) * plotW;
   const yFor = (value) => pad.top + (1 - (value - range.min) / (range.max - range.min)) * plotH;
   const ticks = Array.from({ length: 6 }, (_, index) => range.min + ((range.max - range.min) * index) / 5);
@@ -1111,8 +1149,8 @@ function getCompareChartRange(values, metricKey) {
   const rawMin = Math.min(...values);
   const rawMax = Math.max(...values);
   const baseSpan = rawMax - rawMin;
-  const fallbackSpan = metricKey === "score" ? 1 : Math.max(Math.abs(rawMax) * 0.02, 0.1);
-  const padding = Math.max(baseSpan * 0.06, fallbackSpan);
+  const fallbackSpan = metricKey === "score" ? 0.1 : Math.max(Math.abs(rawMax) * 0.005, 0.02);
+  const padding = Math.max(baseSpan * 0.02, fallbackSpan);
   let min = rawMin - padding;
   let max = rawMax + padding;
   if (metricKey === "score") {
@@ -1122,6 +1160,32 @@ function getCompareChartRange(values, metricKey) {
   }
   if (!(max > min)) max = min + fallbackSpan * 2;
   return { min, max };
+}
+
+function storeCompareChartRange(metricKey = state.compareChartMetric || compareChartMetricSelect.value) {
+  if (!metricKey) return;
+  state.compareChartRanges[metricKey] = {
+    min: compareChartMinInput.value,
+    max: compareChartMaxInput.value,
+    auto: compareChartAutoInput.checked,
+  };
+}
+
+function restoreCompareChartRange(metricKey) {
+  const saved = state.compareChartRanges[metricKey] || {};
+  compareChartMinInput.value = saved.min ?? "";
+  compareChartMaxInput.value = saved.max ?? "";
+  compareChartAutoInput.checked = saved.auto !== false;
+  updateCompareChartRangeControls();
+}
+
+function updateCompareChartRangeControls() {
+  compareChartMinInput.disabled = compareChartAutoInput.checked;
+  compareChartMaxInput.disabled = compareChartAutoInput.checked;
+}
+
+function formatCompareRangeInput(value) {
+  return Number(value.toFixed(4)).toString();
 }
 
 function formatCompareChartAxis(value, metricKey) {

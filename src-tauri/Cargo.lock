@@ -4391,7 +4391,7 @@ dependencies = [
 
 [[package]]
 name = "v-archive-viewer"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "reqwest 0.12.28",
  "rfd",

@@ -231,9 +231,21 @@
               <option value="point">Point</option>
             </select>
           </label>
+          <label>
+            범위 최소
+            <input id="compareChartMinInput" type="number" step="0.01">
+          </label>
+          <label>
+            범위 최대
+            <input id="compareChartMaxInput" type="number" step="0.01">
+          </label>
+          <label class="checkLabel">
+            범위 자동
+            <input id="compareChartAutoInput" type="checkbox" checked>
+          </label>
         </div>
       </div>
-      <div id="compareScatterChart" class="svgChart"></div>
+      <div id="compareScatterChart" class="svgChart compareChartSquare"></div>
       <div id="compareChartTooltip" class="chartTooltip" hidden></div>
       <div class="legend">
         <span><i class="dot compareMineDot"></i>내 우위</span>
