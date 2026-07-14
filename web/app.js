@@ -209,7 +209,6 @@ const compareOnlyEls = document.querySelectorAll(".compareOnly");
 const chartMetricSelect = document.querySelector("#chartMetricSelect");
 const chartTitle = document.querySelector("#chartTitle");
 const chartDescription = document.querySelector("#chartDescription");
-const chartButtonFilter = document.querySelector("#chartButtonFilter");
 const xMinLabel = document.querySelector("#xMinLabel");
 const xMaxLabel = document.querySelector("#xMaxLabel");
 const xMinSelect = document.querySelector("#xMinSelect");
@@ -374,7 +373,7 @@ function wireEvents() {
     renderCompareChart();
   });
   compareChartImageButton.addEventListener("click", exportCompareChartImage);
-  [chartButtonFilter, xMinSelect, xMaxSelect, yMinInput, yMinAutoInput, yMaxInput, yMaxAutoInput].forEach((el) => {
+  [xMinSelect, xMaxSelect, yMinInput, yMinAutoInput, yMaxInput, yMaxAutoInput].forEach((el) => {
     el.addEventListener("input", () => {
       yMinInput.disabled = yMinAutoInput.checked;
       yMaxInput.disabled = ["score", "scorePoint"].includes(chartMetricSelect.value) || yMaxAutoInput.checked;
@@ -412,7 +411,6 @@ function applySavedSettings() {
   setIfOptionExists(patternFilter, settings.patternFilter || "");
   setIfOptionExists(limitSelect, settings.limitSelect || "200");
   setIfOptionExists(chartMetricSelect, settings.chartMetric || "score");
-  setIfOptionExists(chartButtonFilter, settings.chartButtonFilter || "4");
   setIfOptionExists(xMinSelect, settings.xMin || "1.1");
   setIfOptionExists(xMaxSelect, settings.xMax || "17.3");
   state.chartMetric = chartMetricSelect.value;
@@ -467,7 +465,6 @@ function saveSettings() {
     limitSelect: limitSelect.value,
     nameWidth: nameWidthInput.value,
     chartMetric: chartMetricSelect.value,
-    chartButtonFilter: chartButtonFilter.value,
     xMin: xMinSelect.value,
     xMax: xMaxSelect.value,
     yMin: yMinInput.value,
@@ -1861,9 +1858,11 @@ function renderChart() {
   const pad = { left: 58, right: 24, top: 22, bottom: 62 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
-  const button = chartButtonFilter.value;
+  const button = buttonFilter.value;
   const metric = getChartMetric();
-  const buttonRecords = (state.payload.records || []).filter((row) => String(row.button) === button);
+  const buttonRecords = button
+    ? (state.payload.records || []).filter((row) => String(row.button) === button)
+    : (state.payload.records || []);
   const xRange = configureChartXAxis(metric, buttonRecords);
   if (!xRange) {
     chartEl.innerHTML = `<div class="empty">축 범위를 확인해주세요.</div>`;
@@ -1887,8 +1886,8 @@ function renderChart() {
         ...row,
         floorLabel,
         xLabel,
-        metricValue: metric.value(row, floorLabel, button),
-        floorMaxValue: metric.floorMaxValue ? metric.floorMaxValue(row, floorLabel, button) : NaN,
+        metricValue: metric.value(row, floorLabel, button || String(row.button)),
+        floorMaxValue: metric.floorMaxValue ? metric.floorMaxValue(row, floorLabel, button || String(row.button)) : NaN,
       };
     })
     .filter((row) => xRange.labels.includes(row.xLabel) && Number.isFinite(row.metricValue));
@@ -1939,7 +1938,7 @@ function renderChart() {
       metricLabel: metric.label,
       metricValue: row.metricValue,
       score: Number(row.score),
-      logPower: scoreToPoint(Number(row.score)) * difficultyConstantForFloor(row.floorLabel, button),
+      logPower: scoreToPoint(Number(row.score)) * difficultyConstantForFloor(row.floorLabel, row.button),
       rating: row.rating ?? "",
       djpower: row.djpower ?? "",
       maxDjpower: row.maxDjpower ?? "",
@@ -2010,7 +2009,8 @@ async function exportChartImage() {
     const nickname = state.payload.nickname || getCurrentNickname() || "user";
     const metric = chartMetricSelect.value;
     const safeNickname = nickname.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-");
-    const copied = await saveCanvasImage(canvas, `v-archive-${safeNickname}-${chartButtonFilter.value}B-${metric}.png`);
+    const buttonName = buttonFilter.value ? `${buttonFilter.value}B` : "all-buttons";
+    const copied = await saveCanvasImage(canvas, `v-archive-${safeNickname}-${buttonName}-${metric}.png`);
     statusText.textContent = `산포도 이미지를 다운로드했습니다.${copied ? " 클립보드에도 복사했습니다." : ""}`;
   } catch (error) {
     statusText.textContent = `산포도 이미지 생성 오류: ${error.message}`;
@@ -2043,7 +2043,8 @@ async function drawChartImage(svg) {
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = "#171a1f";
   ctx.font = "700 30px Segoe UI, Malgun Gothic, Arial";
-  ctx.fillText(`${nickname} · ${metric.title} · ${chartButtonFilter.value}B`, margin, margin + 34);
+  const buttonName = buttonFilter.value ? `${buttonFilter.value}B` : "전체 버튼";
+  ctx.fillText(`${nickname} · ${metric.title} · ${buttonName}`, margin, margin + 34);
   ctx.fillStyle = "#687282";
   ctx.font = "16px Segoe UI, Malgun Gothic, Arial";
   const yMinMode = yMinAutoInput.checked ? "자동" : "수동";
@@ -2295,7 +2296,7 @@ function getMetricRange(records, metric) {
 function buildFloorMaxByFloor(labels, records, metric, button) {
   const values = new Map();
   if (!metric.floorMaxValue) return values;
-  if (metric.floorMaxForFloor) {
+  if (metric.floorMaxForFloor && button) {
     for (const label of labels) {
       const value = metric.floorMaxForFloor(label, button);
       if (Number.isFinite(value)) values.set(label, value);
