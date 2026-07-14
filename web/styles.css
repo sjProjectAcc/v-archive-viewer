@@ -274,6 +274,20 @@ main {
   height: 360px;
 }
 
+.historyPoint {
+  stroke: #fff;
+  stroke-width: 2;
+  cursor: pointer;
+  transition: r 100ms ease, stroke-width 100ms ease;
+}
+
+.historyPoint:hover,
+.historyPoint:focus {
+  r: 6px;
+  stroke-width: 3;
+  outline: none;
+}
+
 .historyLegend {
   display: flex;
   flex-wrap: wrap;

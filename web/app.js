@@ -151,6 +151,7 @@ const historyStopButton = document.querySelector("#historyStopButton");
 const historyProgress = document.querySelector("#historyProgress");
 const historyProgressBar = document.querySelector("#historyProgressBar");
 const historyLogPowerChart = document.querySelector("#historyLogPowerChart");
+const historyTooltip = document.querySelector("#historyTooltip");
 const historyLegend = document.querySelector("#historyLegend");
 const historyTestPanel = document.querySelector("#historyTestPanel");
 const historyTestTitle = document.querySelector("#historyTestTitle");
@@ -997,6 +998,7 @@ function renderActiveView() {
   tableSection.hidden = isChart || isHistoryTest;
   updateCompareControls();
   hideTooltip();
+  hideHistoryTooltip();
   if (isChart) renderChart();
   else if (isHistory) renderHistoryView();
   else if (isHistoryTest) updateHistoryTestUrl();
@@ -1359,6 +1361,7 @@ function buildLogPowerHistorySeries(entries) {
 }
 
 function renderLogPowerHistoryChart(entries) {
+  hideHistoryTooltip();
   const series = buildLogPowerHistorySeries(entries);
   const allPoints = [...series.values()].flat();
   const colors = { 4: "#1268b3", 5: "#23845f", 6: "#7b61c9", 8: "#c03535" };
@@ -1399,12 +1402,46 @@ function renderLogPowerHistoryChart(entries) {
     const coordinates = points.map((point) => `${xFor(point.time).toFixed(2)},${yFor(point.value).toFixed(2)}`).join(" ");
     return `<polyline points="${coordinates}" fill="none" stroke="${colors[button]}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></polyline>`;
   }).join("");
+  const pointDots = [...series.entries()].map(([button, points]) => points.map((point) => {
+    const info = encodeURIComponent(JSON.stringify({ button, time: point.time, value: point.value }));
+    return `<circle class="historyPoint" cx="${xFor(point.time).toFixed(2)}" cy="${yFor(point.value).toFixed(2)}" r="4" fill="${colors[button]}" tabindex="0" data-info="${info}"></circle>`;
+  }).join("")).join("");
 
-  historyLogPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top50 logPower history"><defs><clipPath id="historyPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" width="${width}" height="${height}"></rect>${yGrid}${xGrid}<g clip-path="url(#historyPlotClip)">${lines}</g><text class="axisTitle" x="16" y="18">Top50 logPower</text></svg>`;
+  historyLogPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top50 logPower history"><defs><clipPath id="historyPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" width="${width}" height="${height}"></rect>${yGrid}${xGrid}<g clip-path="url(#historyPlotClip)">${lines}${pointDots}</g><text class="axisTitle" x="16" y="18">Top50 logPower</text></svg>`;
   historyLegend.innerHTML = [...series.entries()]
     .filter(([, points]) => points.length)
     .map(([button, points]) => `<span><i style="background:${colors[button]}"></i>${button}B ${points[points.length - 1].value.toFixed(2)}</span>`)
     .join("");
+  bindHistoryTooltips();
+}
+
+function bindHistoryTooltips() {
+  historyLogPowerChart.querySelectorAll(".historyPoint").forEach((point) => {
+    point.addEventListener("pointermove", (event) => showHistoryTooltip(event, point.dataset.info));
+    point.addEventListener("pointerenter", (event) => showHistoryTooltip(event, point.dataset.info));
+    point.addEventListener("focus", (event) => showHistoryTooltip(event, point.dataset.info));
+    point.addEventListener("click", (event) => showHistoryTooltip(event, point.dataset.info));
+    point.addEventListener("pointerleave", hideHistoryTooltip);
+    point.addEventListener("blur", hideHistoryTooltip);
+  });
+}
+
+function showHistoryTooltip(event, encodedInfo) {
+  if (!encodedInfo) return;
+  const info = JSON.parse(decodeURIComponent(encodedInfo));
+  historyTooltip.innerHTML = `
+    <strong>${escapeHtml(info.button)}B Top50 logPower</strong>
+    <span>${escapeHtml(Number(info.value).toFixed(2))}</span>
+    <span>${escapeHtml(formatDate(new Date(info.time).toISOString()))}</span>`;
+  historyTooltip.hidden = false;
+  const x = (event.clientX || window.innerWidth / 2) + 14;
+  const y = (event.clientY || window.innerHeight / 2) + 14;
+  historyTooltip.style.left = `${Math.max(12, Math.min(x, window.innerWidth - historyTooltip.offsetWidth - 12))}px`;
+  historyTooltip.style.top = `${Math.max(12, Math.min(y, window.innerHeight - historyTooltip.offsetHeight - 12))}px`;
+}
+
+function hideHistoryTooltip() {
+  historyTooltip.hidden = true;
 }
 
 function updateCompareControls() {
