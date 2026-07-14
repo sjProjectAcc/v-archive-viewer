@@ -160,6 +160,7 @@ const compareChartMetricSelect = document.querySelector("#compareChartMetricSele
 const compareChartMinInput = document.querySelector("#compareChartMinInput");
 const compareChartMaxInput = document.querySelector("#compareChartMaxInput");
 const compareChartAutoInput = document.querySelector("#compareChartAutoInput");
+const compareChartImageButton = document.querySelector("#compareChartImageButton");
 const compareScatterChart = document.querySelector("#compareScatterChart");
 const compareChartTooltip = document.querySelector("#compareChartTooltip");
 const historyPanel = document.querySelector("#historyPanel");
@@ -376,6 +377,7 @@ function wireEvents() {
     saveSettings();
     renderCompareChart();
   });
+  compareChartImageButton.addEventListener("click", exportCompareChartImage);
   [chartButtonFilter, xMinSelect, xMaxSelect, yMinInput, yMinAutoInput, yMaxInput, yMaxAutoInput].forEach((el) => {
     el.addEventListener("input", () => {
       yMinInput.disabled = yMinAutoInput.checked;
@@ -1313,6 +1315,88 @@ function hideCompareChartTooltip() {
   compareChartTooltip.hidden = true;
 }
 
+async function exportCompareChartImage() {
+  const svg = compareScatterChart.querySelector("svg");
+  if (!svg || !state.payload || !state.comparePayload) return;
+  compareChartImageButton.disabled = true;
+  setBusy(true, "비교 이미지 생성 중");
+  try {
+    hideCompareChartTooltip();
+    const canvas = await drawCompareChartImage(svg);
+    const mineName = state.payload.nickname || "mine";
+    const otherName = state.comparePayload.nickname || "other";
+    const safeNames = `${mineName}-${otherName}`.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-");
+    const metric = compareChartMetricSelect.value;
+    const mode = compareChartModeSelect.value;
+    const copied = await saveCanvasImage(canvas, `v-archive-${safeNames}-${metric}-${mode}.png`);
+    statusText.textContent = `비교 이미지를 다운로드했습니다.${copied ? " 클립보드에도 복사했습니다." : ""}`;
+  } catch (error) {
+    statusText.textContent = `비교 이미지 생성 오류: ${error.message || error}`;
+  } finally {
+    setBusy(false);
+    compareChartImageButton.disabled = false;
+  }
+}
+
+async function drawCompareChartImage(svg) {
+  const sourceImage = await loadChartSvgImage(svg);
+  const margin = 40;
+  const width = 1440;
+  const chartWidth = width - margin * 2;
+  const viewBox = svg.viewBox.baseVal;
+  const sourceWidth = viewBox?.width || 760;
+  const sourceHeight = viewBox?.height || 760;
+  const chartHeight = Math.round(chartWidth * sourceHeight / sourceWidth);
+  const headerHeight = 112;
+  const footerHeight = 86;
+  const height = margin + headerHeight + chartHeight + footerHeight + margin;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  const mineName = state.payload.nickname || "내 계정";
+  const otherName = state.comparePayload.nickname || "비교 계정";
+  const metric = getCompareChartMetric();
+  const modeLabel = compareChartModeSelect.value === "vector" ? "차이-합 벡터" : "일반 XY";
+
+  ctx.fillStyle = "#f4f6f8";
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "#171a1f";
+  ctx.font = "700 30px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText(`${mineName} vs ${otherName} · ${metric.label}`, margin, margin + 34);
+  ctx.fillStyle = "#687282";
+  ctx.font = "16px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText(`${modeLabel} · 범위 ${compareChartMinInput.value} - ${compareChartMaxInput.value}`, margin, margin + 66);
+  const version = document.querySelector('meta[name="v-archive-version"]')?.content || "local";
+  ctx.textAlign = "right";
+  ctx.fillText(`v${version} · ${formatDate(new Date().toISOString())}`, width - margin, margin + 66);
+  ctx.textAlign = "left";
+
+  ctx.drawImage(sourceImage, margin, margin + headerHeight, chartWidth, chartHeight);
+  const legendY = margin + headerHeight + chartHeight + 42;
+  drawCompareImageLegend(ctx, margin, legendY);
+  return canvas;
+}
+
+function drawCompareImageLegend(ctx, x, y) {
+  const entries = [
+    ["#173f67", "내 우위"],
+    ["#c03535", "상대 우위"],
+    ["#687282", "동일 수치"],
+  ];
+  ctx.font = "15px Segoe UI, Malgun Gothic, Arial";
+  let cursor = x;
+  for (const [color, label] of entries) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(cursor + 6, y - 5, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#687282";
+    ctx.fillText(label, cursor + 20, y);
+    cursor += ctx.measureText(label).width + 58;
+  }
+}
+
 function getHistoryTestUrl() {
   const params = new URLSearchParams({
     title: historyTestTitle.value.trim(),
@@ -2075,7 +2159,12 @@ function loadChartSvgImage(svg) {
     .avgLine,.maxLine,.minLine,.floorMaxLine{fill:none;stroke-width:2.4;stroke-linejoin:round;stroke-linecap:round}
     .avgLine{stroke:#c03535}.maxLine{stroke:#23845f}.minLine{stroke:#7b61c9}.floorMaxLine{stroke:#1268b3;stroke-dasharray:7 5}
     .chartDot{fill:rgba(18,104,179,.58);stroke:rgba(18,104,179,.88);stroke-width:1}.comboDot{fill:#4eeeaf;stroke:#159b72}
-    .belowNextDot{fill:#e03b3b;stroke:#9f1f1f}.historyPoint{stroke:#fff;stroke-width:2}.emptyText{fill:#687282;font:14px Segoe UI,Malgun Gothic,Arial;text-anchor:middle}`;
+    .belowNextDot{fill:#e03b3b;stroke:#9f1f1f}.historyPoint{stroke:#fff;stroke-width:2}
+    .compareMinePoint{fill:rgba(23,63,103,.72);stroke:#0b2942}.compareOtherPoint{fill:rgba(192,53,53,.58);stroke:#8f2929}
+    .compareTiePoint{fill:rgba(104,114,130,.58);stroke:#4d5664}.compareEqual{stroke:#687282;stroke-width:1.6;stroke-dasharray:7 5}
+    .compareVectorBoundary{fill:rgba(18,104,179,.025);stroke:#9aa4b2;stroke-width:1.4}.compareVectorMineAxis{stroke:#23845f;stroke-width:2.4}
+    .compareVectorOtherAxis{stroke:#c03535;stroke-width:2.4}.compareVectorLabel{fill:#687282;font:12px Segoe UI,Malgun Gothic,Arial}
+    .emptyText{fill:#687282;font:14px Segoe UI,Malgun Gothic,Arial;text-anchor:middle}`;
   clone.insertBefore(style, clone.firstChild);
   const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -3173,6 +3262,7 @@ function buildCompareRows() {
     const otherPoint = other && Number.isFinite(Number(other.rating)) ? Number(other.rating) : null;
     const pointDiff = minePoint === null || otherPoint === null ? null : minePoint - otherPoint;
     const isReversal = scoreDiff !== null && zDiff !== null && Math.sign(scoreDiff) !== 0 && Math.sign(zDiff) !== 0 && Math.sign(scoreDiff) !== Math.sign(zDiff);
+    const floorName = getFloorLabel(base) || mineFloor || otherFloor;
     return {
       button: base.button,
       title: base.title,
@@ -3180,7 +3270,7 @@ function buildCompareRows() {
       pattern: base.pattern,
       level: base.level,
       floor: base.floor,
-      floorName: getFloorLabel(base),
+      floorName,
       mineScore,
       otherScore,
       scoreDiff,
@@ -3204,7 +3294,7 @@ function buildCompareRows() {
       mineUpdatedAt: mine?.updatedAt || "",
       otherUpdatedAt: other?.updatedAt || "",
     };
-  });
+  }).filter((row) => floorIndex(row.floorName) >= 0);
 }
 
 function buildFloorStats(records) {

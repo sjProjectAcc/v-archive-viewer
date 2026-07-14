@@ -515,7 +515,7 @@ main {
 }
 
 .compareMineDot {
-  background: #23845f;
+  background: #173f67;
 }
 
 .compareOtherDot {
@@ -528,8 +528,8 @@ main {
 }
 
 .compareMinePoint {
-  fill: rgba(35, 132, 95, 0.62);
-  stroke: #176847;
+  fill: rgba(23, 63, 103, 0.72);
+  stroke: #0b2942;
 }
 
 .compareOtherPoint {
