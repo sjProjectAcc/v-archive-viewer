@@ -150,6 +150,12 @@ const tableSummary = document.querySelector("#tableSummary");
 const tableEl = document.querySelector("#dataTable");
 const chartPanel = document.querySelector("#chartPanel");
 const chartTooltip = document.querySelector("#chartTooltip");
+const compareChartPanel = document.querySelector("#compareChartPanel");
+const compareChartTitle = document.querySelector("#compareChartTitle");
+const compareChartDescription = document.querySelector("#compareChartDescription");
+const compareChartMetricSelect = document.querySelector("#compareChartMetricSelect");
+const compareScatterChart = document.querySelector("#compareScatterChart");
+const compareChartTooltip = document.querySelector("#compareChartTooltip");
 const historyPanel = document.querySelector("#historyPanel");
 const historyStatus = document.querySelector("#historyStatus");
 const historyCollectButton = document.querySelector("#historyCollectButton");
@@ -338,6 +344,10 @@ function wireEvents() {
     saveSettings();
     renderChart();
   });
+  compareChartMetricSelect.addEventListener("change", () => {
+    saveSettings();
+    renderCompareChart();
+  });
   [chartButtonFilter, xMinSelect, xMaxSelect, yMinInput, yMinAutoInput, yMaxInput, yMaxAutoInput].forEach((el) => {
     el.addEventListener("input", () => {
       yMinInput.disabled = yMinAutoInput.checked;
@@ -365,7 +375,10 @@ function wireEvents() {
   historyTestTitle.addEventListener("keydown", (event) => {
     if (event.key === "Enter") runHistoryApiTest();
   });
-  window.addEventListener("resize", renderChart);
+  window.addEventListener("resize", () => {
+    renderChart();
+    renderCompareChart();
+  });
 }
 
 function applySavedSettings() {
@@ -399,6 +412,7 @@ function applySavedSettings() {
   setIfOptionExists(compareFloorMinSelect, settings.compareFloorMin || "1.1");
   setIfOptionExists(compareFloorMaxSelect, settings.compareFloorMax || "17.3");
   setIfOptionExists(compareStdFloorSelect, settings.compareStdFloor || "0.05");
+  setIfOptionExists(compareChartMetricSelect, settings.compareChartMetric || "score");
   state.view = viewSelect.value;
   applyNameWidth();
   updateCompareControls();
@@ -420,6 +434,7 @@ function saveSettings() {
     compareFloorMin: compareFloorMinSelect.value,
     compareFloorMax: compareFloorMaxSelect.value,
     compareStdFloor: compareStdFloorSelect.value,
+    compareChartMetric: compareChartMetricSelect.value,
     limitSelect: limitSelect.value,
     nameWidth: nameWidthInput.value,
     chartMetric: chartMetricSelect.value,
@@ -998,19 +1013,158 @@ function render() {
 
 function renderActiveView() {
   const isChart = viewSelect.value === "chart";
+  const isCompare = viewSelect.value === "compare";
   const isHistory = viewSelect.value === "history";
   const isHistoryTest = viewSelect.value === "historyTest";
   chartPanel.hidden = !isChart;
+  compareChartPanel.hidden = !isCompare;
   historyPanel.hidden = !isHistory;
   historyTestPanel.hidden = !isHistoryTest;
   tableSection.hidden = isChart || isHistoryTest;
   updateCompareControls();
   hideTooltip();
+  hideCompareChartTooltip();
   hideHistoryTooltip();
   if (isChart) renderChart();
   else if (isHistory) renderHistoryView();
   else if (isHistoryTest) updateHistoryTestUrl();
-  else renderTable();
+  else {
+    if (isCompare) renderCompareChart();
+    renderTable();
+  }
+}
+
+function renderCompareChart() {
+  if (!state.payload || viewSelect.value !== "compare") return;
+  const metric = getCompareChartMetric();
+  const rows = filterRows(buildCompareRows())
+    .map((row) => ({ ...row, xValue: row[metric.mineKey], yValue: row[metric.otherKey] }))
+    .filter((row) => Number.isFinite(row.xValue) && Number.isFinite(row.yValue));
+  const mineName = state.payload.nickname || "내 계정";
+  const otherName = state.comparePayload?.nickname || "비교 계정";
+  compareChartTitle.textContent = `${metric.label} 계정 비교`;
+  compareChartDescription.textContent = `X축 ${mineName} · Y축 ${otherName} · 공통 기록 ${rows.length}개`;
+
+  const width = Math.max(760, compareScatterChart.clientWidth || 1000);
+  const height = 520;
+  const pad = { left: 78, right: 30, top: 24, bottom: 72 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  if (!rows.length) {
+    compareScatterChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="계정 비교 산포도"><rect class="chartBg" width="${width}" height="${height}"></rect><text class="emptyText" x="${width / 2}" y="${height / 2}">표시할 공통 기록이 없습니다.</text></svg>`;
+    return;
+  }
+
+  const values = rows.flatMap((row) => [row.xValue, row.yValue]);
+  const range = getCompareChartRange(values, metric.key);
+  const xFor = (value) => pad.left + ((value - range.min) / (range.max - range.min)) * plotW;
+  const yFor = (value) => pad.top + (1 - (value - range.min) / (range.max - range.min)) * plotH;
+  const ticks = Array.from({ length: 6 }, (_, index) => range.min + ((range.max - range.min) * index) / 5);
+  const grid = ticks.map((value) => {
+    const x = xFor(value);
+    const y = yFor(value);
+    const label = formatCompareChartAxis(value, metric.key);
+    return `<line class="gridLine" x1="${x}" y1="${pad.top}" x2="${x}" y2="${pad.top + plotH}"></line>
+      <line class="gridLine" x1="${pad.left}" y1="${y}" x2="${pad.left + plotW}" y2="${y}"></line>
+      <text class="tickLabel" x="${x}" y="${height - 42}" text-anchor="middle">${label}</text>
+      <text class="tickLabel" x="${pad.left - 12}" y="${y + 4}" text-anchor="end">${label}</text>`;
+  }).join("");
+  const points = rows.map((row) => {
+    const diff = row.xValue - row.yValue;
+    const className = Math.abs(diff) < 1e-9 ? "compareTiePoint" : diff > 0 ? "compareMinePoint" : "compareOtherPoint";
+    const info = encodeURIComponent(JSON.stringify({
+      name: row.name,
+      pattern: row.pattern,
+      level: row.level,
+      floor: row.floorName,
+      metric: metric.label,
+      metricKey: metric.key,
+      mineName,
+      otherName,
+      mineValue: row.xValue,
+      otherValue: row.yValue,
+      diff,
+    }));
+    return `<circle class="chartDot compareChartPoint ${className}" cx="${xFor(row.xValue).toFixed(2)}" cy="${yFor(row.yValue).toFixed(2)}" r="4.2" data-info="${info}" tabindex="0"></circle>`;
+  }).join("");
+  compareScatterChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(metric.label)} 계정 비교 산포도">
+    <defs><clipPath id="comparePlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs>
+    <rect class="chartBg" width="${width}" height="${height}"></rect>
+    ${grid}
+    <g clip-path="url(#comparePlotClip)">
+      <line class="compareEqual" x1="${xFor(range.min)}" y1="${yFor(range.min)}" x2="${xFor(range.max)}" y2="${yFor(range.max)}"></line>
+      ${points}
+    </g>
+    <text class="axisTitle" x="16" y="18">${escapeHtml(otherName)} · ${escapeHtml(metric.label)}</text>
+    <text class="axisTitle" x="${width - 210}" y="${height - 14}">${escapeHtml(mineName)} · ${escapeHtml(metric.label)}</text>
+  </svg>`;
+  bindCompareChartTooltips();
+}
+
+function getCompareChartMetric() {
+  if (compareChartMetricSelect.value === "logPower") return { key: "logPower", label: "logPower", mineKey: "mineLogPower", otherKey: "otherLogPower" };
+  if (compareChartMetricSelect.value === "point") return { key: "point", label: "Point", mineKey: "minePoint", otherKey: "otherPoint" };
+  return { key: "score", label: "Score", mineKey: "mineScore", otherKey: "otherScore" };
+}
+
+function getCompareChartRange(values, metricKey) {
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const baseSpan = rawMax - rawMin;
+  const fallbackSpan = metricKey === "score" ? 1 : Math.max(Math.abs(rawMax) * 0.02, 0.1);
+  const padding = Math.max(baseSpan * 0.06, fallbackSpan);
+  let min = rawMin - padding;
+  let max = rawMax + padding;
+  if (metricKey === "score") {
+    min = Math.max(0, min);
+  } else {
+    min = Math.max(0, min);
+  }
+  if (!(max > min)) max = min + fallbackSpan * 2;
+  return { min, max };
+}
+
+function formatCompareChartAxis(value, metricKey) {
+  return metricKey === "score" ? value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "") : formatAxisValue(value);
+}
+
+function bindCompareChartTooltips() {
+  compareScatterChart.querySelectorAll(".compareChartPoint").forEach((point) => {
+    point.addEventListener("pointermove", (event) => showCompareChartTooltip(event, point.dataset.info));
+    point.addEventListener("pointerenter", (event) => showCompareChartTooltip(event, point.dataset.info));
+    point.addEventListener("focus", (event) => showCompareChartTooltip(event, point.dataset.info));
+    point.addEventListener("pointerleave", hideCompareChartTooltip);
+    point.addEventListener("blur", hideCompareChartTooltip);
+  });
+}
+
+function showCompareChartTooltip(event, encodedInfo) {
+  if (!encodedInfo) return;
+  const info = JSON.parse(decodeURIComponent(encodedInfo));
+  compareChartTooltip.innerHTML = `<strong>${escapeHtml(info.name)}</strong>
+    <span>${escapeHtml(info.pattern)} · Lv.${escapeHtml(info.level)} · floor ${escapeHtml(info.floor)}</span>
+    <span>${escapeHtml(info.mineName)} ${escapeHtml(formatCompareMetricValue(info.mineValue, info.metricKey))}</span>
+    <span>${escapeHtml(info.otherName)} ${escapeHtml(formatCompareMetricValue(info.otherValue, info.metricKey))}</span>
+    <span>차이 ${escapeHtml(formatSignedCompareMetric(info.diff, info.metricKey))}</span>`;
+  compareChartTooltip.hidden = false;
+  const x = (event.clientX || window.innerWidth / 2) + 14;
+  const y = (event.clientY || window.innerHeight / 2) + 14;
+  compareChartTooltip.style.left = `${Math.max(12, Math.min(x, window.innerWidth - compareChartTooltip.offsetWidth - 12))}px`;
+  compareChartTooltip.style.top = `${Math.max(12, Math.min(y, window.innerHeight - compareChartTooltip.offsetHeight - 12))}px`;
+}
+
+function formatCompareMetricValue(value, metricKey) {
+  const digits = metricKey === "score" ? 4 : 2;
+  return Number(value).toFixed(digits).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function formatSignedCompareMetric(value, metricKey) {
+  const formatted = formatCompareMetricValue(value, metricKey);
+  return Number(value) > 0 ? `+${formatted}` : formatted;
+}
+
+function hideCompareChartTooltip() {
+  compareChartTooltip.hidden = true;
 }
 
 function getHistoryTestUrl() {

@@ -216,6 +216,32 @@
       </div>
     </section>
 
+    <section class="chartPanel" id="compareChartPanel" hidden>
+      <div class="chartHeader">
+        <div>
+          <h2 id="compareChartTitle">계정 비교 산포도</h2>
+          <p id="compareChartDescription">X축은 내 계정, Y축은 비교 계정입니다.</p>
+        </div>
+        <div class="chartControls">
+          <label>
+            수치
+            <select id="compareChartMetricSelect">
+              <option value="score">Score</option>
+              <option value="logPower">logPower</option>
+              <option value="point">Point</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div id="compareScatterChart" class="svgChart"></div>
+      <div id="compareChartTooltip" class="chartTooltip" hidden></div>
+      <div class="legend">
+        <span><i class="dot compareMineDot"></i>내 우위</span>
+        <span><i class="dot compareOtherDot"></i>상대 우위</span>
+        <span><i class="line compareEqualLine"></i>동일 수치</span>
+      </div>
+    </section>
+
     <section class="historyPanel" id="historyPanel" hidden>
       <div class="historyHeader">
         <div>

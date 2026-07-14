@@ -514,6 +514,40 @@ main {
   font-size: 13px;
 }
 
+.compareMineDot {
+  background: #23845f;
+}
+
+.compareOtherDot {
+  background: #c03535;
+}
+
+.compareEqualLine {
+  border-color: #687282;
+  border-top-style: dashed;
+}
+
+.compareMinePoint {
+  fill: rgba(35, 132, 95, 0.62);
+  stroke: #176847;
+}
+
+.compareOtherPoint {
+  fill: rgba(192, 53, 53, 0.58);
+  stroke: #8f2929;
+}
+
+.compareTiePoint {
+  fill: rgba(104, 114, 130, 0.58);
+  stroke: #4d5664;
+}
+
+.compareEqual {
+  stroke: #687282;
+  stroke-width: 1.6;
+  stroke-dasharray: 7 5;
+}
+
 .emptyText {
   fill: var(--muted);
   font-size: 14px;
