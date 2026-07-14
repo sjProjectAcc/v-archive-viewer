@@ -560,6 +560,39 @@ main {
   height: 100%;
 }
 
+.compareChartVector {
+  width: 100%;
+  aspect-ratio: auto;
+  margin: 0;
+}
+
+.compareChartVector svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.compareVectorBoundary {
+  fill: rgba(18, 104, 179, 0.025);
+  stroke: #9aa4b2;
+  stroke-width: 1.4;
+}
+
+.compareVectorMineAxis {
+  stroke: #23845f;
+  stroke-width: 2.4;
+}
+
+.compareVectorOtherAxis {
+  stroke: #c03535;
+  stroke-width: 2.4;
+}
+
+.compareVectorLabel {
+  fill: #687282;
+  font-size: 12px;
+}
+
 .emptyText {
   fill: var(--muted);
   font-size: 14px;

@@ -155,6 +155,7 @@ const chartTooltip = document.querySelector("#chartTooltip");
 const compareChartPanel = document.querySelector("#compareChartPanel");
 const compareChartTitle = document.querySelector("#compareChartTitle");
 const compareChartDescription = document.querySelector("#compareChartDescription");
+const compareChartModeSelect = document.querySelector("#compareChartModeSelect");
 const compareChartMetricSelect = document.querySelector("#compareChartMetricSelect");
 const compareChartMinInput = document.querySelector("#compareChartMinInput");
 const compareChartMaxInput = document.querySelector("#compareChartMaxInput");
@@ -356,6 +357,10 @@ function wireEvents() {
     saveSettings();
     renderCompareChart();
   });
+  compareChartModeSelect.addEventListener("change", () => {
+    saveSettings();
+    renderCompareChart();
+  });
   [compareChartMinInput, compareChartMaxInput].forEach((input) => {
     input.addEventListener("input", () => {
       compareChartAutoInput.checked = false;
@@ -436,6 +441,7 @@ function applySavedSettings() {
   setIfOptionExists(compareFloorMaxSelect, settings.compareFloorMax || "17.3");
   setIfOptionExists(compareStdFloorSelect, settings.compareStdFloor || "0.05");
   setIfOptionExists(compareChartMetricSelect, settings.compareChartMetric || "score");
+  setIfOptionExists(compareChartModeSelect, settings.compareChartMode || "vector");
   state.compareChartMetric = compareChartMetricSelect.value;
   state.compareChartRanges = settings.compareChartRanges || {};
   restoreCompareChartRange(state.compareChartMetric);
@@ -462,6 +468,7 @@ function saveSettings() {
     compareFloorMax: compareFloorMaxSelect.value,
     compareStdFloor: compareStdFloorSelect.value,
     compareChartMetric: compareChartMetricSelect.value,
+    compareChartMode: compareChartModeSelect.value,
     compareChartRanges: state.compareChartRanges,
     limitSelect: limitSelect.value,
     nameWidth: nameWidthInput.value,
@@ -1070,13 +1077,19 @@ function renderCompareChart() {
     .filter((row) => Number.isFinite(row.xValue) && Number.isFinite(row.yValue));
   const mineName = state.payload.nickname || "내 계정";
   const otherName = state.comparePayload?.nickname || "비교 계정";
-  compareChartTitle.textContent = `${metric.label} 계정 비교`;
-  compareChartDescription.textContent = `X축 ${mineName} · Y축 ${otherName} · 공통 기록 ${rows.length}개`;
+  const vectorMode = compareChartModeSelect.value === "vector";
+  compareScatterChart.classList.toggle("compareChartSquare", !vectorMode);
+  compareScatterChart.classList.toggle("compareChartVector", vectorMode);
+  compareChartTitle.textContent = `${metric.label} ${vectorMode ? "차이-합 벡터" : "계정 비교"}`;
+  compareChartDescription.textContent = vectorMode
+    ? `오른쪽 ${mineName} 우위 · 왼쪽 ${otherName} 우위 · 위쪽 합산 수준 · 공통 기록 ${rows.length}개`
+    : `X축 ${mineName} · Y축 ${otherName} · 공통 기록 ${rows.length}개`;
 
-  const size = Math.max(560, Math.min(860, compareScatterChart.clientWidth || 760));
-  const width = size;
-  const height = size;
-  const pad = { left: 78, right: 30, top: 30, bottom: 78 };
+  const clientWidth = compareScatterChart.clientWidth || 760;
+  const size = Math.max(560, Math.min(860, clientWidth));
+  const width = vectorMode ? Math.max(760, clientWidth) : size;
+  const height = vectorMode ? Math.max(480, Math.min(680, Math.round(width * 0.62))) : size;
+  const pad = vectorMode ? { left: 74, right: 74, top: 36, bottom: 62 } : { left: 78, right: 30, top: 30, bottom: 78 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
   if (!rows.length) {
@@ -1094,6 +1107,10 @@ function renderCompareChart() {
     const manualMin = Number(compareChartMinInput.value);
     const manualMax = Number(compareChartMaxInput.value);
     if (Number.isFinite(manualMin) && Number.isFinite(manualMax) && manualMax > manualMin) range = { min: manualMin, max: manualMax };
+  }
+  if (vectorMode) {
+    renderCompareVectorChart({ rows, metric, mineName, otherName, range, width, height, pad, plotW, plotH });
+    return;
   }
   const xFor = (value) => pad.left + ((value - range.min) / (range.max - range.min)) * plotW;
   const yFor = (value) => pad.top + (1 - (value - range.min) / (range.max - range.min)) * plotH;
@@ -1135,6 +1152,71 @@ function renderCompareChart() {
     </g>
     <text class="axisTitle" x="16" y="18">${escapeHtml(otherName)} · ${escapeHtml(metric.label)}</text>
     <text class="axisTitle" x="${width - 210}" y="${height - 14}">${escapeHtml(mineName)} · ${escapeHtml(metric.label)}</text>
+  </svg>`;
+  bindCompareChartTooltips();
+}
+
+function renderCompareVectorChart({ rows, metric, mineName, otherName, range, width, height, pad, plotW, plotH }) {
+  const origin = { x: pad.left + plotW / 2, y: pad.top + plotH };
+  const a = plotW / 2;
+  const b = plotH / 2;
+  const span = range.max - range.min;
+  const normalized = (value) => (value - range.min) / span;
+  const pointFor = (mine, other) => ({
+    x: origin.x + a * (mine - other),
+    y: origin.y - b * (mine + other),
+  });
+  const bottom = pointFor(0, 0);
+  const right = pointFor(1, 0);
+  const top = pointFor(1, 1);
+  const left = pointFor(0, 1);
+  const ticks = Array.from({ length: 6 }, (_, index) => ({
+    ratio: index / 5,
+    value: range.min + (span * index) / 5,
+  }));
+  const grid = ticks.map(({ ratio, value }, index) => {
+    const mineStart = pointFor(ratio, 0);
+    const mineEnd = pointFor(ratio, 1);
+    const otherStart = pointFor(0, ratio);
+    const otherEnd = pointFor(1, ratio);
+    const label = formatCompareChartAxis(value, metric.key);
+    return `<line class="gridLine" x1="${mineStart.x}" y1="${mineStart.y}" x2="${mineEnd.x}" y2="${mineEnd.y}"></line>
+      <line class="gridLine" x1="${otherStart.x}" y1="${otherStart.y}" x2="${otherEnd.x}" y2="${otherEnd.y}"></line>
+      <text class="compareVectorLabel" x="${mineStart.x + 8}" y="${mineStart.y + 18}" text-anchor="start">${label}</text>
+      ${index === 0 ? "" : `<text class="compareVectorLabel" x="${otherStart.x - 8}" y="${otherStart.y + 18}" text-anchor="end">${label}</text>`}`;
+  }).join("");
+  const visibleRows = rows.filter((row) => row.xValue >= range.min && row.xValue <= range.max && row.yValue >= range.min && row.yValue <= range.max);
+  const points = visibleRows.map((row) => {
+    const point = pointFor(normalized(row.xValue), normalized(row.yValue));
+    const diff = row.xValue - row.yValue;
+    const className = Math.abs(diff) < 1e-9 ? "compareTiePoint" : diff > 0 ? "compareMinePoint" : "compareOtherPoint";
+    const info = encodeURIComponent(JSON.stringify({
+      name: row.name,
+      pattern: row.pattern,
+      level: row.level,
+      floor: row.floorName,
+      metric: metric.label,
+      metricKey: metric.key,
+      mineName,
+      otherName,
+      mineValue: row.xValue,
+      otherValue: row.yValue,
+      diff,
+    }));
+    return `<circle class="chartDot compareChartPoint ${className}" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4.2" data-info="${info}" tabindex="0"></circle>`;
+  }).join("");
+  compareScatterChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(metric.label)} 차이-합 벡터 비교">
+    <defs><clipPath id="compareVectorClip"><polygon points="${bottom.x},${bottom.y} ${right.x},${right.y} ${top.x},${top.y} ${left.x},${left.y}"></polygon></clipPath></defs>
+    <rect class="chartBg" width="${width}" height="${height}"></rect>
+    <polygon class="compareVectorBoundary" points="${bottom.x},${bottom.y} ${right.x},${right.y} ${top.x},${top.y} ${left.x},${left.y}"></polygon>
+    ${grid}
+    <line class="compareVectorMineAxis" x1="${bottom.x}" y1="${bottom.y}" x2="${right.x}" y2="${right.y}"></line>
+    <line class="compareVectorOtherAxis" x1="${bottom.x}" y1="${bottom.y}" x2="${left.x}" y2="${left.y}"></line>
+    <line class="compareEqual" x1="${bottom.x}" y1="${bottom.y}" x2="${top.x}" y2="${top.y}"></line>
+    <g clip-path="url(#compareVectorClip)">${points}</g>
+    <text class="axisTitle" x="${right.x - 4}" y="${right.y - 14}" text-anchor="end">${escapeHtml(mineName)}</text>
+    <text class="axisTitle" x="${left.x + 4}" y="${left.y - 14}" text-anchor="start">${escapeHtml(otherName)}</text>
+    <text class="axisTitle" x="${top.x}" y="${top.y - 14}" text-anchor="middle">합산 수준</text>
   </svg>`;
   bindCompareChartTooltips();
 }
