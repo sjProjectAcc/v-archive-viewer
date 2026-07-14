@@ -153,6 +153,7 @@ const historyProgressBar = document.querySelector("#historyProgressBar");
 const historyLogPowerChart = document.querySelector("#historyLogPowerChart");
 const historyTooltip = document.querySelector("#historyTooltip");
 const historyLegend = document.querySelector("#historyLegend");
+const historyImageButton = document.querySelector("#historyImageButton");
 const historyTestPanel = document.querySelector("#historyTestPanel");
 const historyTestTitle = document.querySelector("#historyTestTitle");
 const historyTestButton = document.querySelector("#historyTestButton");
@@ -347,6 +348,7 @@ function wireEvents() {
   historyTestNativeRunButton.addEventListener("click", runNativeHistoryApiTest);
   historyTestAccountFileButton.addEventListener("click", selectAccountFile);
   historyCollectButton.addEventListener("click", collectRecordHistories);
+  historyImageButton.addEventListener("click", exportHistoryImage);
   historyStopButton.addEventListener("click", () => {
     state.historyStopRequested = true;
     historyStatus.textContent = "현재 요청이 끝나면 중지합니다.";
@@ -1372,10 +1374,12 @@ function renderLogPowerHistoryChart(entries) {
   const plotH = height - pad.top - pad.bottom;
 
   if (!allPoints.length) {
+    historyImageButton.disabled = true;
     historyLogPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="logPower history"><rect class="chartBg" width="${width}" height="${height}"></rect><text class="emptyText" x="${width / 2}" y="${height / 2}">수집된 히스토리가 없습니다.</text></svg>`;
     historyLegend.innerHTML = "";
     return;
   }
+  historyImageButton.disabled = false;
 
   const minTime = Math.min(...allPoints.map((point) => point.time));
   const rawMaxTime = Math.max(...allPoints.map((point) => point.time));
@@ -1442,6 +1446,84 @@ function showHistoryTooltip(event, encodedInfo) {
 
 function hideHistoryTooltip() {
   historyTooltip.hidden = true;
+}
+
+async function exportHistoryImage() {
+  const svg = historyLogPowerChart.querySelector("svg");
+  if (!svg || !state.payload || !state.historyRows.length) return;
+  historyImageButton.disabled = true;
+  setBusy(true, "히스토리 이미지 생성 중");
+  try {
+    hideHistoryTooltip();
+    const canvas = await drawHistoryImage(svg);
+    const nickname = state.payload.nickname || getCurrentNickname() || "user";
+    const safeNickname = nickname.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-");
+    const copied = await saveCanvasImage(canvas, `v-archive-${safeNickname}-logpower-history.png`);
+    statusText.textContent = `히스토리 이미지를 다운로드했습니다.${copied ? " 클립보드에도 복사했습니다." : ""}`;
+  } catch (error) {
+    statusText.textContent = `히스토리 이미지 생성 오류: ${error.message || error}`;
+  } finally {
+    setBusy(false);
+    historyImageButton.disabled = false;
+  }
+}
+
+async function drawHistoryImage(svg) {
+  const sourceImage = await loadChartSvgImage(svg);
+  const margin = 40;
+  const width = 1440;
+  const chartWidth = width - margin * 2;
+  const viewBox = svg.viewBox.baseVal;
+  const sourceWidth = viewBox?.width || 1200;
+  const sourceHeight = viewBox?.height || 360;
+  const chartHeight = Math.round(chartWidth * sourceHeight / sourceWidth);
+  const headerHeight = 112;
+  const footerHeight = 78;
+  const height = margin + headerHeight + chartHeight + footerHeight + margin;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  const nickname = state.payload.nickname || getCurrentNickname();
+  const buttonLabel = buttonFilter.value ? `${buttonFilter.value}B` : "전체 버튼";
+  const patternLabel = patternFilter.value || "전체 패턴";
+  const series = buildLogPowerHistorySeries(state.historyEntries);
+  const times = [...series.values()].flat().map((point) => point.time).filter(Number.isFinite);
+  const rangeLabel = times.length
+    ? `${formatDate(new Date(Math.min(...times)).toISOString())} - ${formatDate(new Date(Math.max(...times)).toISOString())}`
+    : "기간 없음";
+
+  ctx.fillStyle = "#f4f6f8";
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "#171a1f";
+  ctx.font = "700 30px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText(`${nickname} · Top50 logPower History`, margin, margin + 34);
+  ctx.fillStyle = "#687282";
+  ctx.font = "16px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText(`${buttonLabel} · ${patternLabel} · ${rangeLabel}`, margin, margin + 66);
+  ctx.textAlign = "right";
+  ctx.fillText(`v${document.querySelector('meta[name="v-archive-version"]')?.content || "local"} · ${formatDate(new Date().toISOString())}`, width - margin, margin + 66);
+  ctx.textAlign = "left";
+  ctx.drawImage(sourceImage, margin, margin + headerHeight, chartWidth, chartHeight);
+
+  const colors = { 4: "#1268b3", 5: "#23845f", 6: "#7b61c9", 8: "#c03535" };
+  let legendX = margin;
+  const legendY = margin + headerHeight + chartHeight + 42;
+  ctx.font = "16px Segoe UI, Malgun Gothic, Arial";
+  for (const [button, points] of series) {
+    if (!points.length) continue;
+    const label = `${button}B ${points[points.length - 1].value.toFixed(2)}`;
+    ctx.strokeStyle = colors[button];
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(legendX, legendY - 6);
+    ctx.lineTo(legendX + 24, legendY - 6);
+    ctx.stroke();
+    ctx.fillStyle = "#687282";
+    ctx.fillText(label, legendX + 32, legendY);
+    legendX += 62 + ctx.measureText(label).width;
+  }
+  return canvas;
 }
 
 function updateCompareControls() {
@@ -1683,11 +1765,11 @@ function loadChartSvgImage(svg) {
   const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
   style.textContent = `
     .chartBg{fill:#fff;stroke:#d9dee7}.gridLine{stroke:#e3e7ee;stroke-width:1}.axisLine{stroke:#9aa4b2;stroke-width:1.2}
-    .tickLabel{fill:#687282;font:12px Segoe UI,Malgun Gothic,Arial}.axisTitle{fill:#394150;font:13px Segoe UI,Malgun Gothic,Arial}
+    .tickLabel,.axisLabel{fill:#687282;font:12px Segoe UI,Malgun Gothic,Arial}.axisTitle{fill:#394150;font:13px Segoe UI,Malgun Gothic,Arial}
     .avgLine,.maxLine,.minLine,.floorMaxLine{fill:none;stroke-width:2.4;stroke-linejoin:round;stroke-linecap:round}
     .avgLine{stroke:#c03535}.maxLine{stroke:#23845f}.minLine{stroke:#7b61c9}.floorMaxLine{stroke:#1268b3;stroke-dasharray:7 5}
     .chartDot{fill:rgba(18,104,179,.58);stroke:rgba(18,104,179,.88);stroke-width:1}.comboDot{fill:#4eeeaf;stroke:#159b72}
-    .belowNextDot{fill:#e03b3b;stroke:#9f1f1f}.emptyText{fill:#687282;font:14px Segoe UI,Malgun Gothic,Arial;text-anchor:middle}`;
+    .belowNextDot{fill:#e03b3b;stroke:#9f1f1f}.historyPoint{stroke:#fff;stroke-width:2}.emptyText{fill:#687282;font:14px Segoe UI,Malgun Gothic,Arial;text-anchor:middle}`;
   clone.insertBefore(style, clone.firstChild);
   const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml;charset=utf-8" });
   const url = URL.createObjectURL(blob);
