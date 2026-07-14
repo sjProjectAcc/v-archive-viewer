@@ -31,22 +31,18 @@
   </header>
 
   <main>
-    <section class="summary" id="summary"></section>
-
     <section class="filters">
       <label>
         보기
         <select id="viewSelect">
           <option value="chart">산포도</option>
           <option value="compare">Compare</option>
-          <option value="top100">Top100</option>
+          <option value="top100">LogPower</option>
           <option value="records">Records</option>
           <option value="history" class="desktopOnly">History</option>
-          <option value="floorMinScore">FloorMinScore</option>
-          <option value="tiers">Tier</option>
-          <option value="djClasses">DJClass</option>
+          <option value="floorMinScore">Floor_View</option>
+          <option value="summaryInfo">종합 정보</option>
           <option value="errors">Errors</option>
-          <option value="historyTest">History Test</option>
         </select>
       </label>
       <label>
@@ -274,6 +270,19 @@
           <button id="historyStopButton" class="nativeOnly" type="button" hidden disabled>중지</button>
         </div>
       </div>
+      <div class="historyAccount nativeOnly" hidden>
+        <label>
+          회원 번호
+          <input id="historyAccountUserNo" type="text" inputmode="numeric" autocomplete="off" placeholder="회원 번호">
+        </label>
+        <label>
+          로그인 토큰
+          <input id="historyAccountToken" type="password" autocomplete="off" placeholder="로그인 토큰">
+        </label>
+        <button id="historyAccountLoginButton" type="button">계정 로그인</button>
+        <button id="historyAccountFileButton" type="button">account.txt 선택</button>
+        <span id="historyAccountStatus" class="accountFileStatus">account.txt 미설정</span>
+      </div>
       <div id="historyProgress" class="historyProgress" hidden>
         <span id="historyProgressBar"></span>
       </div>
@@ -282,50 +291,18 @@
       <div class="historyLegend" id="historyLegend"></div>
     </section>
 
-    <section class="historyTestPanel" id="historyTestPanel" hidden>
-      <div class="historyTestHeader">
-        <div>
-          <h2>Record History API Test</h2>
-        </div>
-        <div class="historyTestControls">
-          <label>
-            title
-            <input id="historyTestTitle" type="number" min="1" step="1" value="733">
-          </label>
-          <label>
-            button
-            <select id="historyTestButton">
-              <option value="4" selected>4B</option>
-              <option value="5">5B</option>
-              <option value="6">6B</option>
-              <option value="8">8B</option>
-            </select>
-          </label>
-          <label>
-            pattern
-            <select id="historyTestPattern">
-              <option value="NM">NM</option>
-              <option value="HD">HD</option>
-              <option value="MX">MX</option>
-              <option value="SC" selected>SC</option>
-            </select>
-          </label>
-          <button id="historyTestRunButton" type="button">요청 테스트</button>
-          <a id="historyTestOpenLink" class="buttonLink" href="https://v-archive.net/api/v3/archive/record-history?title=733&amp;button=4&amp;pattern=SC" target="_blank" rel="noopener">새 탭에서 열기</a>
-          <label class="nativeOnly" hidden>
-            no
-            <input id="historyTestUserNo" type="text" inputmode="numeric" autocomplete="off" placeholder="회원 번호">
-          </label>
-          <label class="nativeOnly" hidden>
-            token
-            <input id="historyTestToken" type="password" autocomplete="off" placeholder="로그인 토큰">
-          </label>
-          <button id="historyTestNativeRunButton" class="nativeOnly" type="button" hidden>데스크톱 요청</button>
-          <button id="historyTestAccountFileButton" class="nativeOnly" type="button" hidden>account.txt 선택</button>
-          <span id="historyTestAccountFileStatus" class="nativeOnly accountFileStatus" hidden>account.txt 미설정</span>
-        </div>
+    <section class="overviewPanel" id="overviewPanel" hidden>
+      <div class="summary" id="summary"></div>
+      <div class="overviewTables">
+        <section class="overviewTableSection">
+          <h2>Tier</h2>
+          <div class="overviewTableWrap"><table id="overviewTierTable"></table></div>
+        </section>
+        <section class="overviewTableSection">
+          <h2>DJClass</h2>
+          <div class="overviewTableWrap"><table id="overviewDjClassTable"></table></div>
+        </section>
       </div>
-      <pre id="historyTestOutput" class="historyTestOutput">아직 요청하지 않았습니다.</pre>
     </section>
 
     <section class="tableWrap" id="tableSection" hidden>

@@ -187,7 +187,6 @@ main {
 .metric,
 .chartPanel,
 .historyPanel,
-.historyTestPanel,
 .filters,
 .tableWrap {
   background: var(--panel);
@@ -217,14 +216,29 @@ main {
   position: relative;
 }
 
-.historyTestPanel {
+.historyPanel {
   margin-bottom: 12px;
   padding: 12px;
 }
 
-.historyPanel {
+.historyAccount {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
   margin-bottom: 12px;
-  padding: 12px;
+  padding: 10px;
+  background: #f7f9fc;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.historyAccount input {
+  width: 150px;
+}
+
+#historyAccountToken {
+  width: min(280px, 45vw);
 }
 
 .historyHeader {
@@ -306,40 +320,6 @@ main {
   vertical-align: middle;
 }
 
-.historyTestHeader {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 12px;
-}
-
-.historyTestHeader h2 {
-  margin: 0;
-}
-
-.historyTestControls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.historyTestControls input,
-.historyTestControls select {
-  min-width: 86px;
-  width: 86px;
-}
-
-#historyTestUserNo {
-  width: 110px;
-}
-
-#historyTestToken {
-  width: min(280px, 45vw);
-}
-
 .accountFileStatus {
   align-self: center;
   max-width: 220px;
@@ -350,31 +330,35 @@ main {
   white-space: nowrap;
 }
 
-.buttonLink {
-  display: inline-flex;
-  align-items: center;
-  min-height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  color: var(--accent);
-  font-size: 13px;
-  font-weight: 700;
-  text-decoration: none;
+.overviewPanel {
+  margin-bottom: 12px;
 }
 
-.historyTestOutput {
-  min-height: 280px;
-  max-height: 58vh;
-  margin: 0;
-  padding: 14px;
-  overflow: auto;
-  border-radius: 6px;
-  background: #171a1f;
-  color: #f0f3f7;
-  font: 13px/1.55 Consolas, "Courier New", monospace;
-  white-space: pre-wrap;
-  word-break: break-word;
+.overviewTables {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.overviewTableSection h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.overviewTableSection {
+  min-width: 0;
+}
+
+.overviewTableWrap {
+  max-width: 100%;
+  overflow-x: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.overviewTableWrap table {
+  min-width: 560px;
 }
 
 .chartHeader {
@@ -854,19 +838,21 @@ tr:hover td.reversalCell {
 @media (max-width: 900px) {
   .topbar,
   .chartHeader,
-  .historyHeader,
-  .historyTestHeader {
+  .historyHeader {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .chartControls,
-  .historyTestControls {
+  .chartControls {
     justify-content: flex-start;
   }
 
   .summary {
     grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+
+  .overviewTables {
+    grid-template-columns: 1fr;
   }
 
   .actions {

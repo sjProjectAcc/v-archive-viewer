@@ -173,18 +173,14 @@ const historyLogPowerChart = document.querySelector("#historyLogPowerChart");
 const historyTooltip = document.querySelector("#historyTooltip");
 const historyLegend = document.querySelector("#historyLegend");
 const historyImageButton = document.querySelector("#historyImageButton");
-const historyTestPanel = document.querySelector("#historyTestPanel");
-const historyTestTitle = document.querySelector("#historyTestTitle");
-const historyTestButton = document.querySelector("#historyTestButton");
-const historyTestPattern = document.querySelector("#historyTestPattern");
-const historyTestRunButton = document.querySelector("#historyTestRunButton");
-const historyTestOpenLink = document.querySelector("#historyTestOpenLink");
-const historyTestOutput = document.querySelector("#historyTestOutput");
-const historyTestUserNo = document.querySelector("#historyTestUserNo");
-const historyTestToken = document.querySelector("#historyTestToken");
-const historyTestNativeRunButton = document.querySelector("#historyTestNativeRunButton");
-const historyTestAccountFileButton = document.querySelector("#historyTestAccountFileButton");
-const historyTestAccountFileStatus = document.querySelector("#historyTestAccountFileStatus");
+const historyAccountUserNo = document.querySelector("#historyAccountUserNo");
+const historyAccountToken = document.querySelector("#historyAccountToken");
+const historyAccountLoginButton = document.querySelector("#historyAccountLoginButton");
+const historyAccountFileButton = document.querySelector("#historyAccountFileButton");
+const historyAccountStatus = document.querySelector("#historyAccountStatus");
+const overviewPanel = document.querySelector("#overviewPanel");
+const overviewTierTable = document.querySelector("#overviewTierTable");
+const overviewDjClassTable = document.querySelector("#overviewDjClassTable");
 const nativeOnlyEls = document.querySelectorAll(".nativeOnly");
 const webOnlyEls = document.querySelectorAll(".webOnly");
 const desktopOnlyEls = document.querySelectorAll(".desktopOnly");
@@ -265,7 +261,7 @@ async function initDesktopBridge() {
     const account = await window.__TAURI__.core.invoke("login_from_account_file");
     renderAccountFileStatus(account);
   } catch {
-    historyTestAccountFileStatus.textContent = "account.txt 선택 필요";
+    historyAccountStatus.textContent = "account.txt 선택 필요";
   }
 }
 
@@ -300,10 +296,10 @@ async function installDesktopUpdate() {
 }
 
 function renderAccountFileStatus(account) {
-  historyTestAccountFileStatus.textContent = account?.fileName
+  historyAccountStatus.textContent = account?.fileName
     ? `${account.fileName} 연결됨`
     : "account.txt 미설정";
-  historyTestAccountFileStatus.title = account?.path || "";
+  historyAccountStatus.title = account?.path || "";
 }
 
 function initFloorSelectors() {
@@ -390,20 +386,16 @@ function wireEvents() {
   });
   chartImageButton.addEventListener("click", exportChartImage);
   desktopUpdateButton.addEventListener("click", installDesktopUpdate);
-  historyTestRunButton.addEventListener("click", runHistoryApiTest);
-  historyTestNativeRunButton.addEventListener("click", runNativeHistoryApiTest);
-  historyTestAccountFileButton.addEventListener("click", selectAccountFile);
+  historyAccountLoginButton.addEventListener("click", loginHistoryAccount);
+  historyAccountFileButton.addEventListener("click", selectAccountFile);
+  historyAccountToken.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") loginHistoryAccount();
+  });
   historyCollectButton.addEventListener("click", collectRecordHistories);
   historyImageButton.addEventListener("click", exportHistoryImage);
   historyStopButton.addEventListener("click", () => {
     state.historyStopRequested = true;
     historyStatus.textContent = "현재 요청이 끝나면 중지합니다.";
-  });
-  [historyTestTitle, historyTestButton, historyTestPattern].forEach((el) => {
-    el.addEventListener("input", updateHistoryTestUrl);
-  });
-  historyTestTitle.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") runHistoryApiTest();
   });
   window.addEventListener("resize", () => {
     renderChart();
@@ -1041,7 +1033,6 @@ function setBusy(isBusy, text = "") {
 
 function render() {
   if (!state.payload) return;
-  renderSummary();
   renderActiveView();
   const sync = state.payload.sync || {};
   const mode = sync.forceFullRefresh ? "전체" : sync.since === "full" ? "전체" : "증분";
@@ -1052,19 +1043,19 @@ function renderActiveView() {
   const isChart = viewSelect.value === "chart";
   const isCompare = viewSelect.value === "compare";
   const isHistory = viewSelect.value === "history";
-  const isHistoryTest = viewSelect.value === "historyTest";
+  const isOverview = viewSelect.value === "summaryInfo";
   chartPanel.hidden = !isChart;
   compareChartPanel.hidden = !isCompare;
   historyPanel.hidden = !isHistory;
-  historyTestPanel.hidden = !isHistoryTest;
-  tableSection.hidden = isChart || isHistoryTest;
+  overviewPanel.hidden = !isOverview;
+  tableSection.hidden = isChart || isOverview;
   updateCompareControls();
   hideTooltip();
   hideCompareChartTooltip();
   hideHistoryTooltip();
   if (isChart) renderChart();
   else if (isHistory) renderHistoryView();
-  else if (isHistoryTest) updateHistoryTestUrl();
+  else if (isOverview) renderOverview();
   else {
     if (isCompare) renderCompareChart();
     renderTable();
@@ -1397,129 +1388,28 @@ function drawCompareImageLegend(ctx, x, y) {
   }
 }
 
-function getHistoryTestUrl() {
-  const params = new URLSearchParams({
-    title: historyTestTitle.value.trim(),
-    button: historyTestButton.value,
-    pattern: historyTestPattern.value,
-  });
-  return `${API_BASE_URL}/api/v3/archive/record-history?${params}`;
-}
-
-function updateHistoryTestUrl() {
-  historyTestOpenLink.href = getHistoryTestUrl();
-}
-
-async function runHistoryApiTest() {
-  const title = historyTestTitle.value.trim();
-  if (!/^\d+$/.test(title) || Number(title) < 1) {
-    historyTestOutput.textContent = "title은 1 이상의 정수여야 합니다.";
-    return;
-  }
-
-  const url = getHistoryTestUrl();
-  updateHistoryTestUrl();
-  historyTestRunButton.disabled = true;
-  historyTestOutput.textContent = `GET ${url}\n\n요청 중...`;
-  const startedAt = performance.now();
-
-  try {
-    const response = await fetch(url, {
-      method: "GET",
-      credentials: "include",
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    const elapsed = Math.round(performance.now() - startedAt);
-    const rawBody = await response.text();
-    let body = rawBody || "(빈 응답)";
-    try {
-      body = JSON.stringify(JSON.parse(rawBody), null, 2);
-    } catch {
-      // Keep non-JSON responses intact for diagnosis.
-    }
-    const result = [
-      `GET ${url}`,
-      `HTTP ${response.status} ${response.statusText}`.trim(),
-      `소요 시간 ${elapsed}ms`,
-      `응답 형식 ${response.headers.get("content-type") || "알 수 없음"}`,
-      "",
-      body,
-    ];
-    historyTestOutput.textContent = result.join("\n");
-    statusText.textContent = response.ok
-      ? "Record History API 응답을 받았습니다."
-      : `Record History API가 HTTP ${response.status}로 응답했습니다.`;
-  } catch (error) {
-    const elapsed = Math.round(performance.now() - startedAt);
-    historyTestOutput.textContent = [
-      `GET ${url}`,
-      `요청 실패 (${elapsed}ms)`,
-      `${error.name}: ${error.message}`,
-      "",
-      "브라우저가 응답을 노출하지 않았습니다.",
-      "CORS 정책, 인증 쿠키의 SameSite 설정, 또는 네트워크 오류 중 하나일 수 있습니다.",
-      "위의 '새 탭에서 열기'로 같은 주소의 로그인 상태 응답을 비교할 수 있습니다.",
-    ].join("\n");
-    statusText.textContent = "Record History API 요청에 실패했습니다.";
-  } finally {
-    historyTestRunButton.disabled = false;
-  }
-}
-
-async function runNativeHistoryApiTest() {
+async function loginHistoryAccount() {
   const invoke = window.__TAURI__?.core?.invoke;
-  if (!invoke) {
-    historyTestOutput.textContent = "데스크톱 앱에서만 사용할 수 있습니다.";
+  if (!invoke) return;
+  const userNo = historyAccountUserNo.value.trim();
+  const token = historyAccountToken.value.trim();
+  if (!/^\d+$/.test(userNo) || !token) {
+    historyAccountStatus.textContent = "회원 번호와 토큰을 입력하세요";
     return;
   }
 
-  const userNo = historyTestUserNo.value.trim();
-  const token = historyTestToken.value.trim();
-  const title = historyTestTitle.value.trim();
-  if ((userNo && !token) || (!userNo && token)) {
-    historyTestOutput.textContent = "수동 로그인은 회원 번호와 토큰을 모두 입력해야 합니다.";
-    return;
-  }
-  if (!/^\d+$/.test(title) || Number(title) < 1) {
-    historyTestOutput.textContent = "title은 1 이상의 정수여야 합니다.";
-    return;
-  }
-
-  historyTestNativeRunButton.disabled = true;
-  historyTestOutput.textContent = "Rust 백엔드에서 로그인 및 요청 중...";
-  const startedAt = performance.now();
+  historyAccountLoginButton.disabled = true;
   try {
-    if (userNo && token) {
-      if (!/^\d+$/.test(userNo)) throw new Error("회원 번호는 숫자여야 합니다.");
-      await invoke("login_with_token", { userNo, token });
-      historyTestToken.value = "";
-    } else {
-      const account = await invoke("login_from_account_file");
-      renderAccountFileStatus(account);
-    }
-    const response = await invoke("fetch_record_history", {
-      title: Number(title),
-      button: Number(historyTestButton.value),
-      pattern: historyTestPattern.value,
-    });
-    const elapsed = Math.round(performance.now() - startedAt);
-    historyTestOutput.textContent = [
-      "Tauri Rust backend",
-      `응답 성공 (${elapsed}ms)`,
-      "",
-      JSON.stringify(response, null, 2),
-    ].join("\n");
-    statusText.textContent = "데스크톱 백엔드에서 Record History API 응답을 받았습니다.";
+    await invoke("login_with_token", { userNo, token });
+    historyAccountToken.value = "";
+    historyAccountStatus.textContent = `회원 ${userNo} 로그인됨`;
+    historyAccountStatus.title = "직접 입력한 계정으로 로그인했습니다.";
+    statusText.textContent = "히스토리 계정 로그인이 완료되었습니다.";
   } catch (error) {
-    const elapsed = Math.round(performance.now() - startedAt);
-    historyTestOutput.textContent = [
-      `데스크톱 요청 실패 (${elapsed}ms)`,
-      String(error),
-    ].join("\n");
-    statusText.textContent = "데스크톱 Record History API 요청에 실패했습니다.";
+    historyAccountStatus.textContent = "계정 로그인 실패";
+    statusText.textContent = `히스토리 계정 로그인 실패: ${String(error)}`;
   } finally {
-    historyTestNativeRunButton.disabled = false;
+    historyAccountLoginButton.disabled = false;
   }
 }
 
@@ -1527,7 +1417,7 @@ async function selectAccountFile() {
   const invoke = window.__TAURI__?.core?.invoke;
   if (!invoke) return;
 
-  historyTestAccountFileButton.disabled = true;
+  historyAccountFileButton.disabled = true;
   try {
     const selected = await invoke("select_account_file");
     if (!selected) return;
@@ -1535,10 +1425,10 @@ async function selectAccountFile() {
     renderAccountFileStatus(account);
     statusText.textContent = "account.txt를 연결하고 로그인했습니다.";
   } catch (error) {
-    historyTestAccountFileStatus.textContent = "account.txt 연결 실패";
-    historyTestOutput.textContent = String(error);
+    historyAccountStatus.textContent = "account.txt 연결 실패";
+    statusText.textContent = `account.txt 연결 실패: ${String(error)}`;
   } finally {
-    historyTestAccountFileButton.disabled = false;
+    historyAccountFileButton.disabled = false;
   }
 }
 
@@ -1938,6 +1828,29 @@ function renderSummary() {
   summaryEl.innerHTML = metrics
     .map(([label, value]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(formatValue(value))}</strong></div>`)
     .join("");
+}
+
+function renderOverview() {
+  renderSummary();
+  renderOverviewTable(overviewTierTable, "tiers", state.payload.tiers || []);
+  renderOverviewTable(overviewDjClassTable, "djClasses", state.payload.djClasses || []);
+}
+
+function renderOverviewTable(table, view, sourceRows) {
+  const button = buttonFilter.value;
+  const query = searchInput.value.trim().toLowerCase();
+  const rows = sourceRows
+    .filter((row) => !button || String(row.button) === button)
+    .filter((row) => !query || JSON.stringify(row).toLowerCase().includes(query))
+    .sort((a, b) => compare(a.button, b.button));
+  const colDefs = columns[view] || [];
+  if (!rows.length) {
+    table.innerHTML = `<tbody><tr><td class="empty">표시할 데이터가 없습니다.</td></tr></tbody>`;
+    return;
+  }
+  const header = `<thead><tr>${colDefs.map(([, label]) => `<th>${escapeHtml(label)}</th>`).join("")}</tr></thead>`;
+  const body = `<tbody>${rows.map((row) => `<tr>${colDefs.map(([key]) => renderCell(row, key)).join("")}</tr>`).join("")}</tbody>`;
+  table.innerHTML = header + body;
 }
 
 function renderChart() {
