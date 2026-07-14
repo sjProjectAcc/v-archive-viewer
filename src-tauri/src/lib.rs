@@ -303,6 +303,12 @@ fn powershell_quote(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', "''"))
 }
 
+fn encode_powershell_script(script: &str) -> Vec<u8> {
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(script.as_bytes());
+    bytes
+}
+
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
     let manifest = fetch_update_manifest().await?;
@@ -374,6 +380,7 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
     let stage_path = update_dir.join(format!("stage-{}", manifest.version));
     let script_path = update_dir.join("apply-update.ps1");
     let log_path = update_dir.join("update.log");
+    let _ = fs::remove_file(&log_path);
     fs::write(&zip_path, &bytes).map_err(|error| format!("업데이트 파일 저장 실패: {error}"))?;
 
     let zip = powershell_quote(&zip_path);
@@ -399,10 +406,11 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
         format!("  Remove-Item -LiteralPath {stage} -Recurse -Force -ErrorAction SilentlyContinue"),
         "} catch {".to_string(),
         "  $_ | Out-String | Set-Content -LiteralPath $log -Encoding UTF8".to_string(),
+        format!("  Start-Process -FilePath {target} -WorkingDirectory {working_dir} -ErrorAction SilentlyContinue"),
         "}".to_string(),
     ]
     .join("\r\n");
-    fs::write(&script_path, script)
+    fs::write(&script_path, encode_powershell_script(&script))
         .map_err(|error| format!("업데이트 실행 스크립트 생성 실패: {error}"))?;
 
     let mut command = Command::new("powershell.exe");
@@ -427,6 +435,20 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
         app.exit(0);
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::encode_powershell_script;
+
+    #[test]
+    fn powershell_script_has_utf8_bom_and_preserves_korean_paths() {
+        let script = "Copy-Item 'C:\\사용자\\새 폴더\\v-archive-viewer.exe'";
+        let encoded = encode_powershell_script(script);
+
+        assert_eq!(&encoded[..3], &[0xEF, 0xBB, 0xBF]);
+        assert_eq!(&encoded[3..], script.as_bytes());
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
