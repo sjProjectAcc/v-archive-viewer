@@ -436,6 +436,12 @@ main {
   opacity: 1;
 }
 
+.dot.top50,
+.chartLegend .dot.top50 {
+  background: #f0a83a;
+  opacity: 1;
+}
+
 .chartLegend .maxLineKey {
   border-color: var(--max);
 }
@@ -738,6 +744,12 @@ main {
   stroke-width: 1;
 }
 
+.top50Dot {
+  fill: #f0a83a;
+  stroke: #8a5300;
+  stroke-width: 1.2;
+}
+
 .comboDot {
   fill: var(--combo);
   stroke: #159b72;
@@ -746,6 +758,18 @@ main {
 .belowNextDot {
   fill: var(--below);
   stroke: #9f1f1f;
+}
+
+.top50Dot.comboDot {
+  fill: var(--combo);
+  stroke: #d08a18;
+  stroke-width: 2.2;
+}
+
+.top50Dot.belowNextDot {
+  fill: var(--below);
+  stroke: #f0a83a;
+  stroke-width: 2.2;
 }
 
 .chartDot {
@@ -816,6 +840,11 @@ main {
   stroke: #c4e9ff;
 }
 
+:root[data-theme="dark"] .top50Dot {
+  fill: #ffc35c;
+  stroke: #fff0bd;
+}
+
 :root[data-theme="dark"] .comboDot {
   fill: #62d9a7;
   stroke: #d0f8e8;
@@ -824,6 +853,16 @@ main {
 :root[data-theme="dark"] .belowNextDot {
   fill: #ff7373;
   stroke: #ffd0d0;
+}
+
+:root[data-theme="dark"] .top50Dot.comboDot {
+  fill: #62d9a7;
+  stroke: #ffc35c;
+}
+
+:root[data-theme="dark"] .top50Dot.belowNextDot {
+  fill: #ff7373;
+  stroke: #ffc35c;
 }
 
 :root[data-theme="dark"] .floorMaxLine.floorMaxButton4 {
