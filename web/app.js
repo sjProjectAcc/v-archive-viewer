@@ -20,6 +20,7 @@ const state = {
   historyCollecting: false,
   historyStopRequested: false,
   historyRenderToken: 0,
+  historyAccountNickname: "",
   sortKey: null,
   sortDir: "asc",
 };
@@ -27,6 +28,7 @@ const state = {
 const floorLabels = Array.from({ length: 17 }, (_, n) => [1, 2, 3].map((m) => `${n + 1}.${m}`)).flat();
 const SETTINGS_KEY = "vArchiveViewerSettings";
 const NICKNAME_HISTORY_KEY = "vArchiveNicknameHistory";
+const HISTORY_ACCOUNT_NICKNAME_KEY = "vArchiveHistoryAccountNickname";
 const DEFAULT_NICKNAME = "lemoncube7";
 const API_BASE_URL = "https://v-archive.net";
 const SONG_DB_URL = `${API_BASE_URL}/db/v2/songs.json`;
@@ -166,6 +168,8 @@ const compareChartTooltip = document.querySelector("#compareChartTooltip");
 const historyPanel = document.querySelector("#historyPanel");
 const historyStatus = document.querySelector("#historyStatus");
 const historyCollectButton = document.querySelector("#historyCollectButton");
+const historyFullCollectButton = document.querySelector("#historyFullCollectButton");
+const historyResetButton = document.querySelector("#historyResetButton");
 const historyStopButton = document.querySelector("#historyStopButton");
 const historyProgress = document.querySelector("#historyProgress");
 const historyProgressBar = document.querySelector("#historyProgressBar");
@@ -178,6 +182,9 @@ const historyAccountToken = document.querySelector("#historyAccountToken");
 const historyAccountLoginButton = document.querySelector("#historyAccountLoginButton");
 const historyAccountFileButton = document.querySelector("#historyAccountFileButton");
 const historyAccountStatus = document.querySelector("#historyAccountStatus");
+const historyStartDate = document.querySelector("#historyStartDate");
+const historyEndDate = document.querySelector("#historyEndDate");
+const historyRangeResetButton = document.querySelector("#historyRangeResetButton");
 const overviewPanel = document.querySelector("#overviewPanel");
 const overviewTierTable = document.querySelector("#overviewTierTable");
 const overviewDjClassTable = document.querySelector("#overviewDjClassTable");
@@ -186,6 +193,7 @@ const webOnlyEls = document.querySelectorAll(".webOnly");
 const desktopOnlyEls = document.querySelectorAll(".desktopOnly");
 const appVersionEl = document.querySelector("#appVersion");
 const desktopUpdateButton = document.querySelector("#desktopUpdateButton");
+const themeToggleButton = document.querySelector("#themeToggleButton");
 const nicknameInput = document.querySelector("#nicknameInput");
 const nicknameApplyButton = document.querySelector("#nicknameApplyButton");
 const recentNicknamesEl = document.querySelector("#recentNicknames");
@@ -256,9 +264,18 @@ async function initDesktopBridge() {
   if (!isDesktop) return;
   checkForDesktopUpdate();
 
+  const currentNickname = cacheKey(getCurrentNickname());
+  const linkedNickname = localStorage.getItem(HISTORY_ACCOUNT_NICKNAME_KEY) || "";
+  if (linkedNickname && linkedNickname !== currentNickname) {
+    historyAccountStatus.textContent = `${getCurrentNickname()} 계정 재연결 필요`;
+    historyAccountStatus.title = "마지막으로 연결한 닉네임과 현재 조회 닉네임이 다릅니다.";
+    return;
+  }
   try {
     const account = await window.__TAURI__.core.invoke("login_from_account_file");
-    renderAccountFileStatus(account);
+    state.historyAccountNickname = currentNickname;
+    localStorage.setItem(HISTORY_ACCOUNT_NICKNAME_KEY, currentNickname);
+    renderAccountFileStatus(account, getCurrentNickname());
   } catch {
     historyAccountStatus.textContent = "account.txt 선택 필요";
   }
@@ -294,9 +311,9 @@ async function installDesktopUpdate() {
   }
 }
 
-function renderAccountFileStatus(account) {
+function renderAccountFileStatus(account, nickname = getCurrentNickname()) {
   historyAccountStatus.textContent = account?.fileName
-    ? `${account.fileName} 연결됨`
+    ? `${account.fileName} · ${nickname} 연결됨`
     : "account.txt 미설정";
   historyAccountStatus.title = account?.path || "";
 }
@@ -391,7 +408,28 @@ function wireEvents() {
     if (event.key === "Enter") loginHistoryAccount();
   });
   historyCollectButton.addEventListener("click", collectRecordHistories);
+  historyFullCollectButton.addEventListener("click", () => {
+    if (confirm("현재 기록의 모든 패턴 히스토리를 다시 수집할까요?")) collectRecordHistories({ force: true });
+  });
+  historyResetButton.addEventListener("click", resetRecordHistories);
   historyImageButton.addEventListener("click", exportHistoryImage);
+  [historyStartDate, historyEndDate].forEach((input) => {
+    input.addEventListener("input", () => {
+      saveSettings();
+      renderHistoryView();
+    });
+  });
+  historyRangeResetButton.addEventListener("click", () => {
+    historyStartDate.value = "";
+    historyEndDate.value = "";
+    saveSettings();
+    renderHistoryView();
+  });
+  themeToggleButton.addEventListener("click", () => {
+    applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+    saveSettings();
+  });
+  document.addEventListener("wheel", handleWheelControl, { passive: false });
   historyStopButton.addEventListener("click", () => {
     state.historyStopRequested = true;
     historyStatus.textContent = "현재 요청이 끝나면 중지합니다.";
@@ -409,7 +447,7 @@ function applySavedSettings() {
   setIfOptionExists(viewSelect, settings.view || "chart");
   setIfOptionExists(buttonFilter, settings.buttonFilter || "");
   setIfOptionExists(patternFilter, settings.patternFilter || "");
-  setIfOptionExists(limitSelect, settings.limitSelect || "200");
+  setIfOptionExists(limitSelect, settings.limitSelect || "100");
   setIfOptionExists(chartMetricSelect, settings.chartMetric || "score");
   setIfOptionExists(xMinSelect, settings.xMin || "1.1");
   setIfOptionExists(xMaxSelect, settings.xMax || "17.3");
@@ -436,6 +474,9 @@ function applySavedSettings() {
   setIfOptionExists(compareChartModeSelect, settings.compareChartMode || "vector");
   state.compareChartMetric = compareChartMetricSelect.value;
   state.compareChartRanges = settings.compareChartRanges || {};
+  historyStartDate.value = settings.historyStartDate || "";
+  historyEndDate.value = settings.historyEndDate || "";
+  applyTheme(settings.theme || "light");
   restoreCompareChartRange(state.compareChartMetric);
   state.view = viewSelect.value;
   applyNameWidth();
@@ -474,6 +515,9 @@ function saveSettings() {
     chartYMaxByMetric: state.chartYMaxByMetric,
     chartYMaxAutoByMetric: state.chartYMaxAutoByMetric,
     chartXRangeByMode: state.chartXRangeByMode,
+    historyStartDate: historyStartDate.value,
+    historyEndDate: historyEndDate.value,
+    theme: document.documentElement.dataset.theme || "light",
   };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   applyNameWidth();
@@ -511,6 +555,35 @@ function loadSettings() {
   } catch {
     return {};
   }
+}
+
+function applyTheme(theme) {
+  const next = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = next;
+  themeToggleButton.textContent = next === "dark" ? "라이트 모드" : "다크 모드";
+  themeToggleButton.setAttribute("aria-pressed", String(next === "dark"));
+}
+
+function handleWheelControl(event) {
+  const control = event.target.closest("select, input[type='number'], input[type='range'], input[type='date']");
+  if (!control || control.disabled || control.readOnly || event.deltaY === 0) return;
+  event.preventDefault();
+  const direction = event.deltaY > 0 ? 1 : -1;
+  if (control instanceof HTMLSelectElement) {
+    let nextIndex = control.selectedIndex + direction;
+    while (nextIndex >= 0 && nextIndex < control.options.length && control.options[nextIndex].disabled) nextIndex += direction;
+    if (nextIndex < 0 || nextIndex >= control.options.length) return;
+    control.selectedIndex = nextIndex;
+  } else {
+    if (!control.value && control.type === "date") return;
+    try {
+      direction > 0 ? control.stepDown() : control.stepUp();
+    } catch {
+      return;
+    }
+  }
+  control.dispatchEvent(new Event("input", { bubbles: true }));
+  control.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 function loadTop50ScaleCache() {
@@ -618,7 +691,7 @@ function renderRecentNicknames() {
   });
 }
 
-function applyNickname() {
+async function applyNickname() {
   const nickname = getCurrentNickname();
   if (!nickname) {
     statusText.textContent = "닉네임을 입력해 주세요.";
@@ -626,7 +699,22 @@ function applyNickname() {
     return;
   }
   rememberNickname(nickname);
-  refresh(false);
+  await refresh(false);
+}
+
+async function disconnectHistoryAccountForNickname(nickname) {
+  const nextNickname = cacheKey(nickname);
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (!state.historyAccountNickname) {
+    if (invoke) historyAccountStatus.textContent = `${nickname} 계정 재연결 필요`;
+    return;
+  }
+  if (state.historyAccountNickname === nextNickname) return;
+  if (invoke) await invoke("logout_history_account");
+  state.historyAccountNickname = "";
+  historyAccountToken.value = "";
+  historyAccountStatus.textContent = `${nickname} 계정 재연결 필요`;
+  historyAccountStatus.title = "닉네임이 변경되어 기존 로그인 세션을 해제했습니다.";
 }
 
 function setIfOptionExists(select, value) {
@@ -670,6 +758,12 @@ async function refresh(full) {
   if (!nickname) {
     statusText.textContent = "닉네임을 입력해 주세요.";
     nicknameInput.focus();
+    return;
+  }
+  try {
+    await disconnectHistoryAccountForNickname(nickname);
+  } catch (error) {
+    statusText.textContent = `히스토리 계정 연결 해제 실패: ${String(error)}`;
     return;
   }
   rememberNickname(nickname);
@@ -982,6 +1076,24 @@ async function saveRecordHistory(entry) {
     const request = db.transaction(HISTORY_STORE, "readwrite").objectStore(HISTORY_STORE).put(entry);
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
+  });
+}
+
+async function deleteRecordHistories(nickname) {
+  const db = await openCacheDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(HISTORY_STORE, "readwrite");
+    const index = transaction.objectStore(HISTORY_STORE).index("nickname");
+    const request = index.openCursor(IDBKeyRange.only(cacheKey(nickname)));
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      cursor.delete();
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
   });
 }
 
@@ -1399,7 +1511,10 @@ async function loginHistoryAccount() {
   try {
     await invoke("login_with_token", { userNo, token });
     historyAccountToken.value = "";
-    historyAccountStatus.textContent = `회원 ${userNo} 로그인됨`;
+    const nickname = state.payload?.nickname || getCurrentNickname();
+    state.historyAccountNickname = cacheKey(nickname);
+    localStorage.setItem(HISTORY_ACCOUNT_NICKNAME_KEY, state.historyAccountNickname);
+    historyAccountStatus.textContent = `회원 ${userNo} · ${nickname} 연결됨`;
     historyAccountStatus.title = "직접 입력한 계정으로 로그인했습니다.";
     statusText.textContent = "히스토리 계정 로그인이 완료되었습니다.";
   } catch (error) {
@@ -1419,7 +1534,10 @@ async function selectAccountFile() {
     const selected = await invoke("select_account_file");
     if (!selected) return;
     const account = await invoke("login_from_account_file");
-    renderAccountFileStatus(account);
+    const nickname = state.payload?.nickname || getCurrentNickname();
+    state.historyAccountNickname = cacheKey(nickname);
+    localStorage.setItem(HISTORY_ACCOUNT_NICKNAME_KEY, state.historyAccountNickname);
+    renderAccountFileStatus(account, nickname);
     statusText.textContent = "account.txt를 연결하고 로그인했습니다.";
   } catch (error) {
     historyAccountStatus.textContent = "account.txt 연결 실패";
@@ -1485,29 +1603,33 @@ function setHistoryProgress(done, total) {
   historyProgressBar.style.width = `${(ratio * 100).toFixed(2)}%`;
 }
 
-async function collectRecordHistories() {
+async function collectRecordHistories(options = {}) {
   const invoke = window.__TAURI__?.core?.invoke;
   if (!invoke || state.historyCollecting || !state.payload) return;
 
   const nickname = state.payload.nickname || getCurrentNickname();
+  if (state.historyAccountNickname !== cacheKey(nickname)) {
+    historyStatus.textContent = `${nickname} 계정을 먼저 연결해주세요.`;
+    return;
+  }
   const targets = getHistoryTargets();
   state.historyCollecting = true;
   state.historyStopRequested = false;
   historyCollectButton.disabled = true;
+  historyFullCollectButton.disabled = true;
+  historyResetButton.disabled = true;
   historyStopButton.disabled = false;
   let completed = 0;
   let failed = 0;
 
   try {
-    const account = await invoke("login_from_account_file");
-    renderAccountFileStatus(account);
     const existing = await loadRecordHistories(nickname);
     const existingById = new Map(existing.map((entry) => [entry.id, entry]));
-    const queue = targets.filter((record) => {
+    const queue = options.force ? targets : targets.filter((record) => {
       const cached = existingById.get(historyCacheId(nickname, record));
       return !cached || (record.updatedAt && cached.sourceUpdatedAt !== record.updatedAt);
     });
-    const cachedCount = targets.length - queue.length;
+    const cachedCount = options.force ? 0 : targets.length - queue.length;
 
     if (!queue.length) {
       historyStatus.textContent = `${targets.length}개 패턴의 히스토리가 최신 상태입니다.`;
@@ -1557,7 +1679,31 @@ async function collectRecordHistories() {
     state.historyCollecting = false;
     state.historyStopRequested = false;
     historyCollectButton.disabled = false;
+    historyFullCollectButton.disabled = false;
+    historyResetButton.disabled = false;
     historyStopButton.disabled = true;
+  }
+}
+
+async function resetRecordHistories() {
+  if (!state.payload || state.historyCollecting) return;
+  const nickname = state.payload.nickname || getCurrentNickname();
+  if (!confirm(`${nickname}의 수집된 히스토리를 모두 초기화할까요?`)) return;
+  historyResetButton.disabled = true;
+  try {
+    await deleteRecordHistories(nickname);
+    state.historyEntries = [];
+    state.historyRows = [];
+    historyStartDate.value = "";
+    historyEndDate.value = "";
+    saveSettings();
+    historyStatus.textContent = `${nickname}의 히스토리를 초기화했습니다.`;
+    renderLogPowerHistoryChart([]);
+    renderTable();
+  } catch (error) {
+    historyStatus.textContent = `히스토리 초기화 오류: ${error.message || error}`;
+  } finally {
+    historyResetButton.disabled = false;
   }
 }
 
@@ -1570,7 +1716,8 @@ async function renderHistoryView(options = {}) {
     if (renderToken !== state.historyRenderToken || viewSelect.value !== "history") return;
     const targetIds = new Set(getHistoryTargets().map((record) => historyCacheId(nickname, record)));
     state.historyEntries = entries.filter((entry) => targetIds.has(entry.id));
-    state.historyRows = buildHistoryRows(state.historyEntries);
+    updateHistoryRangeBounds(state.historyEntries);
+    state.historyRows = buildHistoryRows(state.historyEntries, getHistoryTimeRange());
     if (!options.preserveStatus && !state.historyCollecting) {
       const eventCount = state.historyRows.length;
       historyStatus.textContent = `${state.historyEntries.length}/${targetIds.size}개 패턴 · ${eventCount}개 기록`;
@@ -1583,10 +1730,45 @@ async function renderHistoryView(options = {}) {
   }
 }
 
-function buildHistoryRows(entries) {
+function getHistoryTimeRange() {
+  let start = historyStartDate.value ? new Date(`${historyStartDate.value}T00:00:00`).getTime() : -Infinity;
+  let end = historyEndDate.value ? new Date(`${historyEndDate.value}T23:59:59.999`).getTime() : Infinity;
+  if (start > end) [start, end] = [end, start];
+  return { start, end };
+}
+
+function formatDateInput(time) {
+  const date = new Date(time);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function updateHistoryRangeBounds(entries) {
+  const times = entries.flatMap((entry) => (entry.history || []).map((event) => new Date(event.ymdt).getTime())).filter(Number.isFinite);
+  if (!times.length) {
+    historyStartDate.removeAttribute("min");
+    historyStartDate.removeAttribute("max");
+    historyEndDate.removeAttribute("min");
+    historyEndDate.removeAttribute("max");
+    return;
+  }
+  const min = formatDateInput(Math.min(...times));
+  const max = formatDateInput(Math.max(...times));
+  historyStartDate.min = min;
+  historyStartDate.max = max;
+  historyEndDate.min = min;
+  historyEndDate.max = max;
+}
+
+function buildHistoryRows(entries, range = getHistoryTimeRange()) {
   return entries.flatMap((entry) => {
     const difficultyConstant = difficultyConstantForFloor(entry.floorName, entry.button);
-    return (entry.history || []).map((event) => ({
+    return (entry.history || []).filter((event) => {
+      const time = new Date(event.ymdt).getTime();
+      return time >= range.start && time <= range.end;
+    }).map((event) => ({
       button: entry.button,
       title: entry.title,
       name: entry.name,
@@ -1636,7 +1818,21 @@ function buildLogPowerHistorySeries(entries) {
     const previous = points[points.length - 1];
     if (!previous || Math.abs(previous.value - sum) > 0.0001) points.push({ time: event.time, value: sum });
   }
-  return series;
+  return constrainHistorySeries(series, getHistoryTimeRange());
+}
+
+function constrainHistorySeries(series, range) {
+  if (range.start === -Infinity && range.end === Infinity) return series;
+  const constrained = new Map();
+  for (const [button, points] of series) {
+    const visible = points.filter((point) => point.time >= range.start && point.time <= range.end);
+    if (range.start !== -Infinity) {
+      const baseline = points.filter((point) => point.time <= range.start).at(-1);
+      if (baseline && !visible.some((point) => point.time === range.start)) visible.unshift({ time: range.start, value: baseline.value });
+    }
+    constrained.set(button, visible);
+  }
+  return constrained;
 }
 
 function renderLogPowerHistoryChart(entries) {
@@ -1727,7 +1923,7 @@ function hideHistoryTooltip() {
 
 async function exportHistoryImage() {
   const svg = historyLogPowerChart.querySelector("svg");
-  if (!svg || !state.payload || !state.historyRows.length) return;
+  if (!svg || !state.payload || historyImageButton.disabled) return;
   historyImageButton.disabled = true;
   setBusy(true, "히스토리 이미지 생성 중");
   try {
@@ -1821,6 +2017,7 @@ function renderSummary() {
     ["5B", summary.byButton?.["5"]?.records ?? 0],
     ["6B", summary.byButton?.["6"]?.records ?? 0],
     ["8B", summary.byButton?.["8"]?.records ?? 0],
+    ...BUTTONS.map((button) => [`${button}B LogPower Top50`, calculateTop50LogPowerSum(state.payload.records || [], button).toFixed(2)]),
   ];
   summaryEl.innerHTML = metrics
     .map(([label, value]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(formatValue(value))}</strong></div>`)
@@ -2432,7 +2629,7 @@ function renderTable() {
   const rows = filterRows(baseRows);
   sortRows(rows);
   renderTableSummary(view, ["compare", "floorMinScore"].includes(view) ? rows : baseRows);
-  const limit = view === "history" ? 0 : Number(limitSelect.value);
+  const limit = Number(limitSelect.value);
   const visibleRows = limit > 0 ? rows.slice(0, limit) : rows;
   const colDefs = columns[view] || [];
 
@@ -2646,11 +2843,11 @@ function getRowsForView(view) {
 function buildTop100Rows(records) {
   const selectedButton = buttonFilter.value;
   const buttons = selectedButton ? [selectedButton] : ["4", "5", "6", "8"];
-  return buttons.flatMap((button) => buildTopRowsForButton(records, button, 100));
+  return buttons.flatMap((button) => buildTopRowsForButton(records, button, 0));
 }
 
 function buildTopRowsForButton(records, button, limit = 100) {
-  return records
+  const rows = records
     .filter((row) => String(row.button) === String(button))
     .map((row) => {
       const scorePoint = scoreToPoint(Number(row.score));
@@ -2668,9 +2865,14 @@ function buildTopRowsForButton(records, button, limit = 100) {
       };
     })
     .filter((row) => Number.isFinite(row.logPower))
-    .sort((a, b) => b.logPower - a.logPower || b.scorePoint - a.scorePoint || compare(a.name, b.name))
-    .slice(0, limit)
+    .sort((a, b) => b.logPower - a.logPower || b.scorePoint - a.scorePoint || compare(a.name, b.name));
+  return (limit > 0 ? rows.slice(0, limit) : rows)
     .map((row, index) => ({ ...row, rank: index + 1 }));
+}
+
+function calculateTop50LogPowerSum(records, button) {
+  return buildTopRowsForButton(records, button, 50)
+    .reduce((sum, row) => sum + Number(row.logPower || 0), 0);
 }
 
 async function generateTopImage(button) {

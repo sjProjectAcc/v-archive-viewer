@@ -12,7 +12,37 @@
   --max: #23845f;
   --min: #7b61c9;
   --below: #e03b3b;
+  --control: #ffffff;
+  --subtle: #f7f9fc;
+  --disabled: #f3f5f8;
+  --table-head: #f0f3f7;
+  --grid: #e3e7ee;
   --name-col-width: 320px;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111418;
+  --panel: #1b2026;
+  --text: #e8edf2;
+  --muted: #a3adb8;
+  --line: #3a424c;
+  --accent: #4d9bd8;
+  --accent-soft: #26394a;
+  --combo: #39c997;
+  --danger: #ef6b6b;
+  --max: #54bd8f;
+  --min: #a68ce3;
+  --below: #ef6262;
+  --control: #232a32;
+  --subtle: #20262d;
+  --disabled: #181d23;
+  --table-head: #252c34;
+  --grid: #343c45;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 * {
@@ -114,8 +144,8 @@ h2 {
   padding: 0 8px;
   overflow: hidden;
   text-overflow: ellipsis;
-  background: #eef3f8;
-  border-color: #d7e0ea;
+  background: var(--subtle);
+  border-color: var(--line);
   color: var(--text);
   font-size: 12px;
 }
@@ -126,7 +156,7 @@ input {
   height: 34px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: #fff;
+  background: var(--control);
   color: var(--text);
   font: inherit;
 }
@@ -146,7 +176,7 @@ button {
   padding: 0 12px;
   border: 1px solid var(--accent);
   border-radius: 6px;
-  background: #fff;
+  background: var(--control);
   color: var(--accent);
   font-weight: 700;
   text-decoration: none;
@@ -160,7 +190,7 @@ button:disabled {
 
 input[readonly],
 input:disabled {
-  background: #f3f5f8;
+  background: var(--disabled);
   color: var(--muted);
 }
 
@@ -168,9 +198,16 @@ input:disabled {
   min-width: auto;
 }
 
+.secondaryButton,
 #fullRefreshButton {
-  background: #fff;
+  background: var(--control);
   color: var(--accent);
+}
+
+.dangerButton {
+  background: var(--control);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 main {
@@ -228,7 +265,7 @@ main {
   gap: 8px;
   margin-bottom: 12px;
   padding: 10px;
-  background: #f7f9fc;
+  background: var(--subtle);
   border: 1px solid var(--line);
   border-radius: 6px;
 }
@@ -262,14 +299,27 @@ main {
 
 .historyActions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.historyRangeControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.historyRangeControls input {
+  min-width: 140px;
 }
 
 .historyProgress {
   height: 5px;
   margin-bottom: 10px;
   overflow: hidden;
-  background: #e8edf3;
+  background: var(--grid);
 }
 
 .historyProgress span {
@@ -280,12 +330,15 @@ main {
   transition: width 160ms ease;
 }
 
-.historyChart {
-  min-height: 360px;
+.svgChart.historyChart {
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
-.historyChart svg {
-  height: 360px;
+.svgChart.historyChart svg {
+  min-width: 760px;
+  height: auto;
 }
 
 .historyPoint {
@@ -396,12 +449,12 @@ main {
 }
 
 .chartBg {
-  fill: #fff;
+  fill: var(--panel);
   stroke: var(--line);
 }
 
 .gridLine {
-  stroke: #e3e7ee;
+  stroke: var(--grid);
   stroke-width: 1;
 }
 
@@ -410,13 +463,14 @@ main {
   stroke-width: 1.2;
 }
 
-.tickLabel {
+.tickLabel,
+.axisLabel {
   fill: var(--muted);
   font-size: 12px;
 }
 
 .axisTitle {
-  fill: #394150;
+  fill: var(--text);
   font-size: 13px;
 }
 
@@ -691,14 +745,14 @@ input {
   flex-wrap: wrap;
   gap: 10px;
   padding: 10px;
-  background: #fff;
+  background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
 
 .tableMetric {
   min-width: 140px;
   padding: 8px 10px;
-  background: #f7f9fc;
+  background: var(--subtle);
   border: 1px solid var(--line);
   border-radius: 7px;
 }
@@ -772,7 +826,7 @@ td {
 
 th {
   position: static;
-  background: #f0f3f7;
+  background: var(--table-head);
   font-weight: 700;
   cursor: pointer;
 }
@@ -827,6 +881,31 @@ td.reversalCell {
 
 tr:hover td.reversalCell {
   background: #ffe390;
+}
+
+:root[data-theme="dark"] td.recentName {
+  background: #584b21;
+}
+
+:root[data-theme="dark"] tr:hover td.recentName {
+  background: #6b5b27;
+}
+
+:root[data-theme="dark"] td.comboScore {
+  background: #236f59;
+}
+
+:root[data-theme="dark"] td.positiveDiff {
+  color: #69d6a5;
+}
+
+:root[data-theme="dark"] td.reversalCell {
+  background: #51401e;
+  color: #f6cf72;
+}
+
+:root[data-theme="dark"] tr:hover td.reversalCell {
+  background: #655027;
 }
 
 .empty {

@@ -23,6 +23,7 @@
         </div>
         <div id="recentNicknames" class="recentNicknames" aria-label="recent nicknames"></div>
       </div>
+      <button id="themeToggleButton" class="secondaryButton" type="button" aria-pressed="false">다크 모드</button>
       <a class="downloadButton webOnly" href="/downloads/v-archive-viewer-windows-x64.zip" download>Windows ZIP</a>
       <button id="desktopUpdateButton" type="button" hidden>업데이트</button>
       <button id="refreshButton" type="button">새로고침</button>
@@ -72,9 +73,13 @@
       <label>
         최대 표시
         <select id="limitSelect">
+          <option value="50">50</option>
+          <option value="100">100</option>
           <option value="200">200</option>
           <option value="500">500</option>
           <option value="1000">1000</option>
+          <option value="2000">2000</option>
+          <option value="5000">5000</option>
           <option value="0">전체</option>
         </select>
       </label>
@@ -258,6 +263,8 @@
         <div class="historyActions">
           <button id="historyImageButton" type="button">이미지 저장</button>
           <button id="historyCollectButton" class="nativeOnly" type="button" hidden>히스토리 수집</button>
+          <button id="historyFullCollectButton" class="nativeOnly secondaryButton" type="button" hidden>전체 재수집</button>
+          <button id="historyResetButton" class="nativeOnly dangerButton" type="button" hidden>히스토리 초기화</button>
           <button id="historyStopButton" class="nativeOnly" type="button" hidden disabled>중지</button>
         </div>
       </div>
@@ -273,6 +280,17 @@
         <button id="historyAccountLoginButton" type="button">계정 로그인</button>
         <button id="historyAccountFileButton" type="button">account.txt 선택</button>
         <span id="historyAccountStatus" class="accountFileStatus">account.txt 미설정</span>
+      </div>
+      <div class="historyRangeControls">
+        <label>
+          시작일
+          <input id="historyStartDate" type="date">
+        </label>
+        <label>
+          종료일
+          <input id="historyEndDate" type="date">
+        </label>
+        <button id="historyRangeResetButton" class="secondaryButton" type="button">전체 기간</button>
       </div>
       <div id="historyProgress" class="historyProgress" hidden>
         <span id="historyProgressBar"></span>
