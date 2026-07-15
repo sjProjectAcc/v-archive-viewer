@@ -278,6 +278,7 @@ async fn fetch_update_manifest() -> Result<UpdateManifest, String> {
         .map_err(|error| format!("업데이트 클라이언트 생성 실패: {error}"))?
         .get(UPDATE_MANIFEST_URL)
         .header(reqwest::header::ACCEPT, "application/json")
+        .header(reqwest::header::CACHE_CONTROL, "no-cache, no-store")
         .send()
         .await
         .map_err(|error| format!("업데이트 버전 확인 실패: {error}"))?;
