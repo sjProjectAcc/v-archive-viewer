@@ -192,6 +192,7 @@ const nativeOnlyEls = document.querySelectorAll(".nativeOnly");
 const webOnlyEls = document.querySelectorAll(".webOnly");
 const desktopOnlyEls = document.querySelectorAll(".desktopOnly");
 const appVersionEl = document.querySelector("#appVersion");
+const desktopUpdateCheckButton = document.querySelector("#desktopUpdateCheckButton");
 const desktopUpdateButton = document.querySelector("#desktopUpdateButton");
 const themeToggleButton = document.querySelector("#themeToggleButton");
 const nicknameInput = document.querySelector("#nicknameInput");
@@ -281,19 +282,29 @@ async function initDesktopBridge() {
   }
 }
 
-async function checkForDesktopUpdate() {
+async function checkForDesktopUpdate(announce = false) {
   const invoke = window.__TAURI__?.core?.invoke;
   if (!invoke) return;
+  desktopUpdateCheckButton.disabled = true;
+  if (announce) desktopUpdateCheckButton.textContent = "확인 중...";
   desktopUpdateButton.hidden = true;
   try {
     const update = await invoke("check_for_update");
     appVersionEl.textContent = `v${update.currentVersion}`;
     appVersionEl.title = `데스크톱 버전 ${update.currentVersion}`;
-    if (!update.available) return;
+    if (!update.available) {
+      if (announce) statusText.textContent = `현재 최신 버전입니다. (v${update.currentVersion})`;
+      return;
+    }
     desktopUpdateButton.textContent = `업데이트 v${update.latestVersion}`;
     desktopUpdateButton.hidden = false;
-  } catch {
+    if (announce) statusText.textContent = `v${update.latestVersion} 업데이트를 사용할 수 있습니다.`;
+  } catch (error) {
     desktopUpdateButton.hidden = true;
+    if (announce) statusText.textContent = `업데이트 확인 실패: ${String(error)}`;
+  } finally {
+    desktopUpdateCheckButton.disabled = false;
+    desktopUpdateCheckButton.textContent = "업데이트 확인";
   }
 }
 
@@ -401,6 +412,7 @@ function wireEvents() {
     });
   });
   chartImageButton.addEventListener("click", exportChartImage);
+  desktopUpdateCheckButton.addEventListener("click", () => checkForDesktopUpdate(true));
   desktopUpdateButton.addEventListener("click", installDesktopUpdate);
   historyAccountLoginButton.addEventListener("click", loginHistoryAccount);
   historyAccountFileButton.addEventListener("click", selectAccountFile);
