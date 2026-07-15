@@ -261,6 +261,7 @@ const yMaxInput = document.querySelector("#yMaxInput");
 const yMaxAutoInput = document.querySelector("#yMaxAutoInput");
 const chartFloorMaxLegend = document.querySelector("#chartFloorMaxLegend");
 const chartBelowLegend = document.querySelector("#chartBelowLegend");
+const chartTop50Legend = document.querySelector("#chartTop50Legend");
 const chartFloorMaxLegendText = document.querySelector("#chartFloorMaxLegendText");
 const chartMaxLegend = document.querySelector("#chartMaxLegend");
 const chartAvgLegend = document.querySelector("#chartAvgLegend");
@@ -655,8 +656,11 @@ function handleWheelControl(event) {
     control.selectedIndex = nextIndex;
   } else {
     if (!control.value && control.type === "date") return;
+    const stepCount = control.type === "number" || control.type === "range"
+      ? (event.shiftKey ? 10 : 5)
+      : 1;
     try {
-      direction > 0 ? control.stepDown() : control.stepUp();
+      direction > 0 ? control.stepDown(stepCount) : control.stepUp(stepCount);
     } catch {
       return;
     }
@@ -2269,9 +2273,7 @@ function renderChart() {
   const plotH = height - pad.top - pad.bottom;
   const button = buttonFilter.value;
   const metric = getChartMetric();
-  const buttonRecords = button
-    ? (state.payload.records || []).filter((row) => String(row.button) === button)
-    : (state.payload.records || []);
+  const buttonRecords = filterRows(state.payload.records || []);
   const xRange = configureChartXAxis(metric, buttonRecords);
   if (!xRange) {
     chartEl.innerHTML = `<div class="empty">축 범위를 확인해주세요.</div>`;
@@ -2283,6 +2285,8 @@ function renderChart() {
   chartDescription.textContent = `점은 개별 기록, 선은 ${groupName}별 최고/평균/최저${metric.floorMaxValue ? "/최대치" : ""} ${metric.label}입니다.`;
   chartFloorMaxLegend.hidden = !metric.floorMaxValue;
   chartBelowLegend.hidden = metric.xMode === "maxDjpower";
+  const highlightsTop50 = metric.key === "logPower" || metric.key === "point";
+  chartTop50Legend.hidden = !highlightsTop50;
   chartMaxLegend.textContent = `${groupName} 최고`;
   chartAvgLegend.textContent = `${groupName} 평균`;
   chartMinLegend.textContent = `${groupName} 최저`;
@@ -2302,6 +2306,12 @@ function renderChart() {
       };
     })
     .filter((row) => xRange.labels.includes(row.xLabel) && Number.isFinite(row.metricValue));
+  const top50Keys = highlightsTop50
+    ? buildTop50RecordKeys(buttonRecords, (row) => {
+      const floorLabel = getFloorLabel(row);
+      return metric.value(row, floorLabel, String(row.button));
+    })
+    : new Set();
   const floorMaxSeries = buildFloorMaxSeries(xRange.labels, scopedRecords, metric, button);
   const yRange = getMetricRange(scopedRecords, metric);
   if (yRange && yMinAutoInput.checked) yMinInput.value = formatAxisValue(yRange.min);
@@ -2341,8 +2351,10 @@ function renderChart() {
     const cx = xFor(row.xLabel, jitter).toFixed(2);
     const cy = yFor(row.metricValue).toFixed(2);
     const isBelowNextFloorMin = metric.xMode !== "maxDjpower" && belowNextFloorMin(row, minByFloor);
+    const isTop50 = top50Keys.has(recordKey(row));
     const className = [
       "chartDot",
+      isTop50 ? "top50Dot" : "",
       row.maxCombo === true ? "comboDot" : "",
       isBelowNextFloorMin ? "belowNextDot" : "",
     ].filter(Boolean).join(" ");
@@ -2360,6 +2372,7 @@ function renderChart() {
       djpower: row.djpower ?? "",
       maxDjpower: row.maxDjpower ?? "",
       maxCombo: row.maxCombo === true,
+      top50: isTop50,
       belowNextFloorMin: isBelowNextFloorMin,
       updatedAt: row.updatedAt || "",
     }));
@@ -2401,7 +2414,7 @@ function showTooltip(event, encodedInfo) {
   chartTooltip.innerHTML = `
     <strong>${escapeHtml(info.name)}</strong>
     <span>${escapeHtml(info.pattern)} · Lv.${escapeHtml(info.level)} · floor ${escapeHtml(info.floor)}</span>
-    <span>${escapeHtml(info.metricLabel)} ${escapeHtml(formatChartMetric(info.metricValue, info.metricKey))}${info.maxCombo ? " · MAX COMBO" : ""}${info.belowNextFloorMin ? " · 상위 floor 최저 미만" : ""}</span>
+    <span>${escapeHtml(info.metricLabel)} ${escapeHtml(formatChartMetric(info.metricValue, info.metricKey))}${info.top50 ? " · TOP50" : ""}${info.maxCombo ? " · MAX COMBO" : ""}${info.belowNextFloorMin ? " · 상위 floor 최저 미만" : ""}</span>
     <span>score ${escapeHtml(formatChartMetric(info.score, "score"))} · logPower ${escapeHtml(formatChartMetric(info.logPower, "logPower"))}</span>
     <span>point ${escapeHtml(formatValue(info.rating, "rating"))} · djpower ${escapeHtml(formatValue(info.djpower, "djpower"))} · maxDJPower ${escapeHtml(formatValue(info.maxDjpower, "djpower"))}</span>
     <span>${escapeHtml(formatDate(info.updatedAt))}</span>`;
@@ -2490,8 +2503,9 @@ function loadChartSvgImage(svg) {
     .avgLine,.maxLine,.minLine,.floorMaxLine{fill:none;stroke-width:2.4;stroke-linejoin:round;stroke-linecap:round}
     .avgLine{stroke:#c03535}.maxLine{stroke:#23845f}.minLine{stroke:#7b61c9}.floorMaxLine{stroke:#1268b3;stroke-dasharray:7 5}
     .floorMaxButton4{stroke:#1268b3}.floorMaxButton5{stroke:#23845f}.floorMaxButton6{stroke:#7b61c9}.floorMaxButton8{stroke:#c07b24}
-    .chartDot{fill:rgba(18,104,179,.58);stroke:rgba(18,104,179,.88);stroke-width:1}.comboDot{fill:#4eeeaf;stroke:#159b72}
-    .belowNextDot{fill:#e03b3b;stroke:#9f1f1f}.historyPoint{stroke:#fff;stroke-width:2}
+    .chartDot{fill:rgba(18,104,179,.58);stroke:rgba(18,104,179,.88);stroke-width:1}.top50Dot{fill:#f0a83a;stroke:#8a5300}
+    .comboDot{fill:#4eeeaf;stroke:#159b72}.belowNextDot{fill:#e03b3b;stroke:#9f1f1f}
+    .top50Dot.comboDot{fill:#4eeeaf;stroke:#d08a18;stroke-width:2.2}.top50Dot.belowNextDot{fill:#e03b3b;stroke:#f0a83a;stroke-width:2.2}.historyPoint{stroke:#fff;stroke-width:2}
     .compareMinePoint{fill:rgba(23,63,103,.72);stroke:#0b2942}.compareOtherPoint{fill:rgba(192,53,53,.58);stroke:#8f2929}
     .compareTiePoint{fill:rgba(104,114,130,.58);stroke:#4d5664}.compareEqual{stroke:#687282;stroke-width:1.6;stroke-dasharray:7 5}
     .compareVectorBoundary{fill:rgba(18,104,179,.025);stroke:#9aa4b2;stroke-width:1.4}.compareVectorMineAxis{stroke:#23845f;stroke-width:2.4}
@@ -2517,8 +2531,10 @@ function loadChartSvgImage(svg) {
 function drawChartImageLegend(ctx, x, y, metric) {
   const groupName = metric.xMode === "maxDjpower" ? "그룹" : "floor";
   const entries = [
-    ["dot", "#1268b3", "기록"], ["dot", "#4eeeaf", "MAX COMBO"],
+    ["dot", "#1268b3", "기록"],
   ];
+  if (metric.key === "logPower" || metric.key === "point") entries.push(["dot", "#f0a83a", "버튼별 TOP50"]);
+  entries.push(["dot", "#4eeeaf", "MAX COMBO"]);
   if (metric.xMode !== "maxDjpower") entries.push(["dot", "#e03b3b", "상위 floor 최저 미만"]);
   entries.push(
     ["line", "#23845f", `${groupName} 최고`], ["line", "#c03535", `${groupName} 평균`], ["line", "#7b61c9", `${groupName} 최저`],
@@ -2770,6 +2786,23 @@ function formatChartMetric(value, key) {
   if (!Number.isFinite(Number(value))) return "";
   if (key === "score") return Number(value).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
   return Number(value).toFixed(2);
+}
+
+function buildTop50RecordKeys(records, valueFor) {
+  const byButton = new Map();
+  for (const record of records) {
+    const value = Number(valueFor(record));
+    if (!Number.isFinite(value)) continue;
+    const button = String(record.button ?? "");
+    if (!byButton.has(button)) byButton.set(button, []);
+    byButton.get(button).push({ key: recordKey(record), value });
+  }
+  const keys = new Set();
+  for (const rows of byButton.values()) {
+    rows.sort((a, b) => b.value - a.value || a.key.localeCompare(b.key));
+    for (const row of rows.slice(0, 50)) keys.add(row.key);
+  }
+  return keys;
 }
 
 function formatAxisValue(value) {
@@ -3870,6 +3903,7 @@ function renderDebugScatter(records, relation, baseMaxByButton) {
   };
   const yFor = (value) => pad.top + (1 - (value - yRange.min) / (yRange.max - yRange.min)) * plotH;
   const metricRows = scoped.map((record) => ({ ...record, xLabel: record.floorLabel, metricValue: record.simulatedLogPower }));
+  const top50Keys = buildTop50RecordKeys(scoped, (record) => record.simulatedLogPower);
   const grouped = groupMetricsByFloor(metricRows);
   const maxPoints = buildSeriesPoints(labels, grouped, xFor, yFor, "max");
   const averagePoints = buildSeriesPoints(labels, grouped, xFor, yFor, "avg");
@@ -3886,6 +3920,7 @@ function renderDebugScatter(records, relation, baseMaxByButton) {
   const grid = buildGrid(xRange, yRange, pad, plotW, plotH, xFor, yFor);
   const dots = metricRows.map((record) => {
     const jitter = stableJitter(`${record.button}-${record.name}-${record.pattern}-${record.level}`) * 0.42;
+    const isTop50 = top50Keys.has(recordKey(record));
     const info = encodeURIComponent(JSON.stringify({
       name: record.name || "",
       button: record.button,
@@ -3896,8 +3931,9 @@ function renderDebugScatter(records, relation, baseMaxByButton) {
       currentLogPower: record.currentLogPower,
       simulatedLogPower: record.simulatedLogPower,
       maxCombo: record.maxCombo === true,
+      top50: isTop50,
     }));
-    return `<circle class="chartDot debugChartPoint${record.maxCombo === true ? " comboDot" : ""}" cx="${xFor(record.floorLabel, jitter).toFixed(2)}" cy="${yFor(record.simulatedLogPower).toFixed(2)}" r="${record.maxCombo === true ? 4.8 : 3.9}" data-info="${info}" tabindex="0"></circle>`;
+    return `<circle class="chartDot debugChartPoint${isTop50 ? " top50Dot" : ""}${record.maxCombo === true ? " comboDot" : ""}" cx="${xFor(record.floorLabel, jitter).toFixed(2)}" cy="${yFor(record.simulatedLogPower).toFixed(2)}" r="${record.maxCombo === true ? 4.8 : 3.9}" data-info="${info}" tabindex="0"></circle>`;
   }).join("");
 
   debugScatterChart.innerHTML = `
@@ -3931,7 +3967,7 @@ function showDebugChartTooltip(event, encodedInfo) {
     <strong>${escapeHtml(info.name)}</strong>
     <span>${escapeHtml(info.button)}B · ${escapeHtml(info.pattern)} · Lv.${escapeHtml(info.level)} · floor ${escapeHtml(info.floor)}</span>
     <span>score ${escapeHtml(formatChartMetric(info.score, "score"))}${info.maxCombo ? " · MAX COMBO" : ""}</span>
-    <span>현재 ${escapeHtml(formatChartMetric(info.currentLogPower, "logPower"))} · 시뮬레이션 ${escapeHtml(formatChartMetric(info.simulatedLogPower, "logPower"))}</span>`;
+    <span>현재 ${escapeHtml(formatChartMetric(info.currentLogPower, "logPower"))} · 시뮬레이션 ${escapeHtml(formatChartMetric(info.simulatedLogPower, "logPower"))}${info.top50 ? " · TOP50" : ""}</span>`;
   debugChartTooltip.hidden = false;
   const x = (event.clientX || window.innerWidth / 2) + 14;
   const y = (event.clientY || window.innerHeight / 2) + 14;
