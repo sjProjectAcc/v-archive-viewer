@@ -40,15 +40,15 @@ const HISTORY_STORE = "recordHistories";
 const SCORE_BASE = Math.pow(30, 1 / 10);
 const ANCHOR_FLOOR_LABEL = "15.2";
 const ANCHOR_DIFFICULTY_CONSTANT = 10;
-const FLOOR_STEP_RATIO = 10 / 9.2;
+const FLOOR_STEP_RATIO = 10 / 8.9;
 const TARGET_TOP50_MAX = 5000;
-const TOP50_SCALE_CACHE_KEY = "vArchiveTop50ScaleCache092";
+const TOP50_SCALE_CACHE_KEY = "vArchiveTop50ScaleCache089";
 const TOP50_SCALE_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 const FALLBACK_BUTTON_TOP50_BASE_MAX = Object.freeze({
-  4: 4283.0796887107745,
-  5: 4122.48436958861,
-  6: 4275.1547260976458,
-  8: 4404.7209795098233,
+  4: 4054.83128527168,
+  5: 3845.11453764168,
+  6: 4051.55082771797,
+  8: 4208.51931916437,
 });
 const TOP_IMAGE_COLUMNS = 5;
 const TOP_IMAGE_ROWS = 6;
@@ -1857,13 +1857,12 @@ function renderLogPowerHistoryChart(entries) {
   const minTime = Math.min(...allPoints.map((point) => point.time));
   const rawMaxTime = Math.max(...allPoints.map((point) => point.time));
   const maxTime = rawMaxTime === minTime ? minTime + 86400000 : rawMaxTime;
-  const maxValue = Math.max(...allPoints.map((point) => point.value));
-  const yMax = Math.max(100, Math.ceil((maxValue * 1.06) / 100) * 100);
+  const { min: yMin, max: yMax } = getHistoryYAxisRange(allPoints.map((point) => point.value));
   const xFor = (time) => pad.left + ((time - minTime) / (maxTime - minTime)) * plotW;
-  const yFor = (value) => pad.top + plotH - (value / yMax) * plotH;
+  const yFor = (value) => pad.top + plotH - ((value - yMin) / (yMax - yMin)) * plotH;
 
   const yGrid = Array.from({ length: 6 }, (_, index) => {
-    const value = (yMax * index) / 5;
+    const value = yMin + ((yMax - yMin) * index) / 5;
     const y = yFor(value);
     return `<line class="gridLine" x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}"></line><text class="axisLabel" x="${pad.left - 10}" y="${y + 4}" text-anchor="end">${Math.round(value)}</text>`;
   }).join("");
@@ -1881,7 +1880,7 @@ function renderLogPowerHistoryChart(entries) {
   }).join("");
   const pointDots = [...series.entries()].map(([button, points]) => points.map((point) => {
     const info = encodeURIComponent(JSON.stringify({ button, time: point.time, value: point.value }));
-    return `<circle class="historyPoint" cx="${xFor(point.time).toFixed(2)}" cy="${yFor(point.value).toFixed(2)}" r="4" fill="${colors[button]}" tabindex="0" data-info="${info}"></circle>`;
+    return `<circle class="historyPoint" cx="${xFor(point.time).toFixed(2)}" cy="${yFor(point.value).toFixed(2)}" r="4" fill="${colors[button]}" tabindex="0" data-button="${button}" data-info="${info}"></circle>`;
   }).join("")).join("");
 
   historyLogPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top50 logPower history"><defs><clipPath id="historyPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" width="${width}" height="${height}"></rect>${yGrid}${xGrid}<g clip-path="url(#historyPlotClip)">${lines}${pointDots}</g><text class="axisTitle" x="16" y="18">Top50 logPower</text></svg>`;
@@ -1890,6 +1889,23 @@ function renderLogPowerHistoryChart(entries) {
     .map(([button, points]) => `<span><i style="background:${colors[button]}"></i>${button}B ${points[points.length - 1].value.toFixed(2)}</span>`)
     .join("");
   bindHistoryTooltips();
+}
+
+function getHistoryYAxisRange(values) {
+  const finiteValues = values.filter(Number.isFinite);
+  if (!finiteValues.length) return { min: 0, max: 100 };
+  const dataMin = Math.min(...finiteValues);
+  const dataMax = Math.max(...finiteValues);
+  const dataSpan = dataMax - dataMin;
+  const padding = dataSpan > 0 ? dataSpan * 0.08 : Math.max(Math.abs(dataMax) * 0.02, 10);
+  const roughStep = Math.max((dataSpan + padding * 2) / 5, Number.EPSILON);
+  const magnitude = 10 ** Math.floor(Math.log10(roughStep));
+  const normalized = roughStep / magnitude;
+  const stepFactor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  const step = stepFactor * magnitude;
+  const min = Math.max(0, Math.floor((dataMin - padding) / step) * step);
+  const max = Math.max(min + step, Math.ceil((dataMax + padding) / step) * step);
+  return { min, max };
 }
 
 function bindHistoryTooltips() {

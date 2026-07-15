@@ -16,6 +16,7 @@
   --subtle: #f7f9fc;
   --disabled: #f3f5f8;
   --table-head: #f0f3f7;
+  --table-alt: #f7f9fc;
   --grid: #e3e7ee;
   --name-col-width: 320px;
 }
@@ -38,6 +39,7 @@
   --subtle: #20262d;
   --disabled: #181d23;
   --table-head: #252c34;
+  --table-alt: #20262d;
   --grid: #343c45;
 }
 
@@ -355,6 +357,26 @@ main {
   outline: none;
 }
 
+:root[data-theme="dark"] .historyPoint[data-button="4"] {
+  fill: #69c3ff;
+  stroke: #d1edff;
+}
+
+:root[data-theme="dark"] .historyPoint[data-button="5"] {
+  fill: #62d9a7;
+  stroke: #c8f5e2;
+}
+
+:root[data-theme="dark"] .historyPoint[data-button="6"] {
+  fill: #b49aff;
+  stroke: #e5dcff;
+}
+
+:root[data-theme="dark"] .historyPoint[data-button="8"] {
+  fill: #ff8585;
+  stroke: #ffd0d0;
+}
+
 .historyLegend {
   display: flex;
   flex-wrap: wrap;
@@ -578,6 +600,36 @@ main {
 .compareTiePoint {
   fill: rgba(104, 114, 130, 0.58);
   stroke: #4d5664;
+}
+
+:root[data-theme="dark"] .chartDot {
+  fill: rgba(105, 195, 255, 0.82);
+  stroke: #c4e9ff;
+}
+
+:root[data-theme="dark"] .comboDot {
+  fill: #62d9a7;
+  stroke: #d0f8e8;
+}
+
+:root[data-theme="dark"] .belowNextDot {
+  fill: #ff7373;
+  stroke: #ffd0d0;
+}
+
+:root[data-theme="dark"] .compareMinePoint {
+  fill: #69c3ff;
+  stroke: #c4e9ff;
+}
+
+:root[data-theme="dark"] .compareOtherPoint {
+  fill: #ff8585;
+  stroke: #ffd0d0;
+}
+
+:root[data-theme="dark"] .compareTiePoint {
+  fill: #c6ced8;
+  stroke: #f3f6f9;
 }
 
 .compareEqual {
@@ -831,7 +883,11 @@ th {
   cursor: pointer;
 }
 
-tr:hover td {
+tbody tr:nth-child(even) td:not(.recentName):not(.comboScore):not(.reversalCell) {
+  background: var(--table-alt);
+}
+
+tbody tr:hover td:not(.recentName):not(.comboScore):not(.reversalCell) {
   background: var(--accent-soft);
 }
 
