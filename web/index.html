@@ -42,8 +42,11 @@
           <option value="top100">LogPower</option>
           <option value="records">Records</option>
           <option value="history" class="desktopOnly">History</option>
+          <option value="selfCompare" class="desktopOnly">시점 비교</option>
           <option value="floorMinScore">Floor_View</option>
           <option value="summaryInfo">종합 정보</option>
+          <option value="debug">Debug</option>
+          <option value="readme">README</option>
           <option value="errors">Errors</option>
         </select>
       </label>
@@ -299,6 +302,51 @@
       <div id="historyLogPowerChart" class="svgChart historyChart"></div>
       <div id="historyTooltip" class="chartTooltip" hidden></div>
       <div class="historyLegend" id="historyLegend"></div>
+    </section>
+
+    <section class="toolPanel" id="selfComparePanel" hidden>
+      <div class="toolHeader">
+        <div>
+          <h2>시점 비교</h2>
+          <p id="selfCompareStatus">수집한 히스토리에서 두 시점의 나를 비교합니다.</p>
+        </div>
+      </div>
+      <div class="toolControls">
+        <label>기준 시점 <input id="selfCompareStart" type="datetime-local"></label>
+        <label>비교 시점 <input id="selfCompareEnd" type="datetime-local"></label>
+        <button id="selfCompareNowButton" class="secondaryButton" type="button">현재와 비교</button>
+      </div>
+    </section>
+
+    <section class="toolPanel" id="debugPanel" hidden>
+      <div class="toolHeader">
+        <div>
+          <h2>LogPower Debug</h2>
+          <p>floor 간 관계값을 바꿨을 때 현재 기록의 Top50 변화를 계산합니다.</p>
+        </div>
+        <button id="debugRatioResetButton" class="secondaryButton" type="button">현재값 복원</button>
+      </div>
+      <div class="debugRatioControls">
+        <label>관계값 <input id="debugRatioInput" type="number" min="0.85" max="0.98" step="0.001" value="0.905"></label>
+        <input id="debugRatioRange" type="range" min="0.85" max="0.98" step="0.001" value="0.905" aria-label="floor 관계값">
+        <span id="debugRatioEquation" class="formulaText"></span>
+      </div>
+      <div id="debugSummary" class="summary"></div>
+      <div class="overviewTableWrap"><table id="debugFloorTable"></table></div>
+    </section>
+
+    <section class="readmePanel" id="readmePanel" hidden>
+      <header><h2>V-ARCHIVE Viewer README</h2><p>기록을 로컬에서 조회·분석하고 이미지나 표로 정리하는 도구입니다.</p></header>
+      <div class="readmeGrid">
+        <section><h3>데이터와 캐시</h3><p>기록 데이터는 사용자의 브라우저 또는 앱에서 V-ARCHIVE API로 직접 요청합니다. 프로필과 설정, 히스토리는 사용자 기기의 IndexedDB와 localStorage에 저장됩니다.</p></section>
+        <section><h3>새로고침</h3><p>일반 새로고침은 마지막 수집 시점 이후의 변경 기록을 요청합니다. 전체 새로고침은 캐시 오류나 누락이 의심될 때 전체 기록을 다시 요청합니다.</p></section>
+        <section><h3>LogPower</h3><p>97점 초과 구간을 로그 함수로 0~10점으로 바꾸고 floor 상수를 곱합니다. 버튼별 이론상 Top50 합계가 5000이 되도록 정규화합니다.</p></section>
+        <section><h3>History와 시점 비교</h3><p>데스크톱 앱에서 account.txt로 계정을 연결한 뒤 기록 변경 이력을 수집합니다. 시점 비교는 각 시점 이전의 마지막 기록을 복원하여 같은 패턴끼리 비교합니다.</p></section>
+        <section><h3>Compare</h3><p>두 계정에 공통으로 존재하는 기록만 비교합니다. score, floor 분포의 표준점수, LogPower, Point 차이를 표와 산포도로 확인할 수 있습니다.</p></section>
+        <section><h3>Debug</h3><p>floor 관계값을 임시로 바꿔 현재 기록의 LogPower를 다시 계산합니다. 시뮬레이션 값은 설정이나 실제 기록에 적용되지 않습니다.</p></section>
+        <section><h3>이미지 출력</h3><p>LogPower Top30, Floor_View, 산포도, 비교 그래프, 히스토리 그래프를 PNG로 저장하며 지원되는 환경에서는 클립보드에도 복사합니다.</p></section>
+        <section><h3>업데이트와 개인정보</h3><p>앱은 GitHub Pages의 버전 정보만 확인하고 GitHub Release에서 ZIP을 내려받습니다. 회원 번호와 로그인 토큰은 V-ARCHIVE 요청에만 사용하며 별도 운영 서버로 전송하지 않습니다.</p></section>
+      </div>
     </section>
 
     <section class="overviewPanel" id="overviewPanel" hidden>

@@ -226,6 +226,8 @@ main {
 .metric,
 .chartPanel,
 .historyPanel,
+.toolPanel,
+.readmePanel,
 .filters,
 .tableWrap {
   background: var(--panel);
@@ -258,6 +260,101 @@ main {
 .historyPanel {
   margin-bottom: 12px;
   padding: 12px;
+}
+
+.toolPanel,
+.readmePanel {
+  margin-bottom: 12px;
+  padding: 14px;
+}
+
+.toolHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.toolHeader h2,
+.toolHeader p,
+.readmePanel header h2,
+.readmePanel header p {
+  margin: 0;
+}
+
+.toolHeader p,
+.readmePanel header p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.toolControls,
+.debugRatioControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+
+.toolControls {
+  margin-bottom: 2px;
+}
+
+.toolControls input {
+  min-width: 210px;
+}
+
+.debugRatioControls {
+  margin-bottom: 14px;
+}
+
+.debugRatioControls input[type="number"] {
+  width: 92px;
+}
+
+.debugRatioControls input[type="range"] {
+  flex: 1;
+  min-width: 220px;
+  max-width: 560px;
+}
+
+.formulaText {
+  color: var(--muted);
+  font-family: Consolas, monospace;
+  font-size: 12px;
+}
+
+.readmePanel header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.readmeGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 28px;
+}
+
+.readmeGrid section {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.readmeGrid h3,
+.readmeGrid p {
+  margin: 0;
+}
+
+.readmeGrid h3 {
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+
+.readmeGrid p {
+  color: var(--muted);
+  line-height: 1.65;
 }
 
 .historyAccount {
@@ -973,7 +1070,8 @@ tr:hover td.reversalCell {
 @media (max-width: 900px) {
   .topbar,
   .chartHeader,
-  .historyHeader {
+  .historyHeader,
+  .toolHeader {
     align-items: stretch;
     flex-direction: column;
   }
@@ -987,6 +1085,10 @@ tr:hover td.reversalCell {
   }
 
   .overviewTables {
+    grid-template-columns: 1fr;
+  }
+
+  .readmeGrid {
     grid-template-columns: 1fr;
   }
 
@@ -1016,4 +1118,46 @@ tr:hover td.reversalCell {
     max-width: none;
   }
 
+}
+
+@media (max-width: 600px) {
+  main {
+    padding: 10px;
+  }
+
+  .filters > label {
+    flex: 1 1 calc(50% - 5px);
+    min-width: 0;
+  }
+
+  .filters > label > input,
+  .filters > label > select,
+  #searchInput,
+  #nameWidthInput {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .actions > button,
+  .actions > a {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+    text-align: center;
+  }
+
+  .toolControls label,
+  .toolControls input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .debugRatioControls input[type="range"] {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .readmePanel,
+  .readmeGrid p {
+    overflow-wrap: anywhere;
+  }
 }
