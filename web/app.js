@@ -17,6 +17,8 @@ const state = {
   compareChartRanges: {},
   historyEntries: [],
   historyRows: [],
+  selfCompareRows: [],
+  selfCompareRenderToken: 0,
   historyCollecting: false,
   historyStopRequested: false,
   historyRenderToken: 0,
@@ -91,6 +93,21 @@ const columns = {
     ["maxCombo", "maxCombo"],
     ["logPower", "logPower"],
     ["updatedAt", "updatedAt"],
+  ],
+  selfCompare: [
+    ["button", "button"],
+    ["name", "name"],
+    ["pattern", "pattern"],
+    ["level", "level"],
+    ["floorName", "floor"],
+    ["previousScore", "previous score"],
+    ["currentScore", "current score"],
+    ["scoreDiff", "score diff"],
+    ["previousLogPower", "previous logPower"],
+    ["currentLogPower", "current logPower"],
+    ["logPowerDiff", "logPower diff"],
+    ["previousUpdatedAt", "previous updatedAt"],
+    ["currentUpdatedAt", "current updatedAt"],
   ],
   floorMinScore: [
     ["button", "button"],
@@ -185,6 +202,19 @@ const historyAccountStatus = document.querySelector("#historyAccountStatus");
 const historyStartDate = document.querySelector("#historyStartDate");
 const historyEndDate = document.querySelector("#historyEndDate");
 const historyRangeResetButton = document.querySelector("#historyRangeResetButton");
+const selfComparePanel = document.querySelector("#selfComparePanel");
+const selfCompareStatus = document.querySelector("#selfCompareStatus");
+const selfCompareStart = document.querySelector("#selfCompareStart");
+const selfCompareEnd = document.querySelector("#selfCompareEnd");
+const selfCompareNowButton = document.querySelector("#selfCompareNowButton");
+const debugPanel = document.querySelector("#debugPanel");
+const debugRatioInput = document.querySelector("#debugRatioInput");
+const debugRatioRange = document.querySelector("#debugRatioRange");
+const debugRatioResetButton = document.querySelector("#debugRatioResetButton");
+const debugRatioEquation = document.querySelector("#debugRatioEquation");
+const debugSummary = document.querySelector("#debugSummary");
+const debugFloorTable = document.querySelector("#debugFloorTable");
+const readmePanel = document.querySelector("#readmePanel");
 const overviewPanel = document.querySelector("#overviewPanel");
 const overviewTierTable = document.querySelector("#overviewTierTable");
 const overviewDjClassTable = document.querySelector("#overviewDjClassTable");
@@ -437,6 +467,33 @@ function wireEvents() {
     saveSettings();
     renderHistoryView();
   });
+  [selfCompareStart, selfCompareEnd].forEach((input) => {
+    input.addEventListener("input", () => {
+      state.sortKey = null;
+      saveSettings();
+      renderSelfCompareView();
+    });
+  });
+  selfCompareNowButton.addEventListener("click", () => {
+    selfCompareEnd.value = "";
+    saveSettings();
+    renderSelfCompareView();
+  });
+  debugRatioInput.addEventListener("input", () => {
+    setDebugRatio(debugRatioInput.value);
+    saveSettings();
+    renderDebugView();
+  });
+  debugRatioRange.addEventListener("input", () => {
+    setDebugRatio(debugRatioRange.value);
+    saveSettings();
+    renderDebugView();
+  });
+  debugRatioResetButton.addEventListener("click", () => {
+    setDebugRatio(currentFloorRelation());
+    saveSettings();
+    renderDebugView();
+  });
   themeToggleButton.addEventListener("click", () => {
     applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
     saveSettings();
@@ -488,6 +545,9 @@ function applySavedSettings() {
   state.compareChartRanges = settings.compareChartRanges || {};
   historyStartDate.value = settings.historyStartDate || "";
   historyEndDate.value = settings.historyEndDate || "";
+  selfCompareStart.value = settings.selfCompareStart || "";
+  selfCompareEnd.value = settings.selfCompareEnd || "";
+  setDebugRatio(settings.debugRatio || currentFloorRelation());
   applyTheme(settings.theme || "light");
   restoreCompareChartRange(state.compareChartMetric);
   state.view = viewSelect.value;
@@ -529,6 +589,9 @@ function saveSettings() {
     chartXRangeByMode: state.chartXRangeByMode,
     historyStartDate: historyStartDate.value,
     historyEndDate: historyEndDate.value,
+    selfCompareStart: selfCompareStart.value,
+    selfCompareEnd: selfCompareEnd.value,
+    debugRatio: debugRatioInput.value,
     theme: document.documentElement.dataset.theme || "light",
   };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
@@ -1164,19 +1227,28 @@ function renderActiveView() {
   const isChart = viewSelect.value === "chart";
   const isCompare = viewSelect.value === "compare";
   const isHistory = viewSelect.value === "history";
+  const isSelfCompare = viewSelect.value === "selfCompare";
+  const isDebug = viewSelect.value === "debug";
+  const isReadme = viewSelect.value === "readme";
   const isOverview = viewSelect.value === "summaryInfo";
   chartPanel.hidden = !isChart;
   compareChartPanel.hidden = !isCompare;
   historyPanel.hidden = !isHistory;
+  selfComparePanel.hidden = !isSelfCompare;
+  debugPanel.hidden = !isDebug;
+  readmePanel.hidden = !isReadme;
   overviewPanel.hidden = !isOverview;
-  tableSection.hidden = isChart || isOverview;
+  tableSection.hidden = isChart || isOverview || isDebug || isReadme;
   updateCompareControls();
   hideTooltip();
   hideCompareChartTooltip();
   hideHistoryTooltip();
   if (isChart) renderChart();
   else if (isHistory) renderHistoryView();
+  else if (isSelfCompare) renderSelfCompareView();
+  else if (isDebug) renderDebugView();
   else if (isOverview) renderOverview();
+  else if (isReadme) return;
   else {
     if (isCompare) renderCompareChart();
     renderTable();
@@ -1740,6 +1812,114 @@ async function renderHistoryView(options = {}) {
   } catch (error) {
     historyStatus.textContent = `히스토리 캐시 오류: ${error.message || error}`;
   }
+}
+
+async function renderSelfCompareView() {
+  if (!state.payload || viewSelect.value !== "selfCompare") return;
+  const renderToken = ++state.selfCompareRenderToken;
+  const nickname = state.payload.nickname || getCurrentNickname();
+  try {
+    const entries = await loadRecordHistories(nickname);
+    if (renderToken !== state.selfCompareRenderToken || viewSelect.value !== "selfCompare") return;
+    const targetIds = new Set(getHistoryTargets().map((record) => historyCacheId(nickname, record)));
+    const available = entries.filter((entry) => targetIds.has(entry.id));
+    if (!available.some((entry) => entry.history?.length)) {
+      state.selfCompareRows = [];
+      selfCompareStatus.textContent = "먼저 History 탭에서 기록 히스토리를 수집해 주세요.";
+      renderTable();
+      return;
+    }
+    updateSelfCompareBounds(available);
+    const range = getSelfCompareRange();
+    state.selfCompareRows = buildSelfCompareRows(available, range);
+    const endLabel = Number.isFinite(range.end) ? formatDate(new Date(range.end).toISOString()) : "현재";
+    selfCompareStatus.textContent = `${formatDate(new Date(range.start).toISOString())} → ${endLabel} · 공통 기록 ${state.selfCompareRows.length}개`;
+    renderTable();
+  } catch (error) {
+    state.selfCompareRows = [];
+    selfCompareStatus.textContent = `시점 비교 캐시 오류: ${error.message || error}`;
+    renderTable();
+  }
+}
+
+function updateSelfCompareBounds(entries) {
+  const times = entries
+    .flatMap((entry) => (entry.history || []).map((event) => new Date(event.ymdt).getTime()))
+    .filter(Number.isFinite);
+  if (!times.length) return;
+  const min = Math.min(...times);
+  const max = Math.max(...times);
+  const minValue = formatDateTimeInput(min, "floor");
+  const maxValue = formatDateTimeInput(max, "ceil");
+  selfCompareStart.min = minValue;
+  selfCompareStart.max = maxValue;
+  selfCompareEnd.min = minValue;
+  selfCompareEnd.max = formatDateTimeInput(Date.now(), "ceil");
+  if (!selfCompareStart.value) {
+    selfCompareStart.value = formatDateTimeInput(min, "ceil");
+    saveSettings();
+  }
+}
+
+function formatDateTimeInput(time, mode = "floor") {
+  const minute = 60 * 1000;
+  const rounded = mode === "ceil" ? Math.ceil(time / minute) * minute : Math.floor(time / minute) * minute;
+  const date = new Date(rounded);
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function getSelfCompareRange() {
+  let start = selfCompareStart.value ? new Date(selfCompareStart.value).getTime() : -Infinity;
+  let end = selfCompareEnd.value ? new Date(selfCompareEnd.value).getTime() : Infinity;
+  if (start > end) [start, end] = [end, start];
+  return { start, end };
+}
+
+function latestHistoryEventAt(entry, time) {
+  return (entry.history || [])
+    .filter((event) => new Date(event.ymdt).getTime() <= time)
+    .at(-1) || null;
+}
+
+function buildSelfCompareRows(entries, range) {
+  const currentByKey = new Map((state.payload?.records || []).map((record) => [recordKey(record), record]));
+  return entries.flatMap((entry) => {
+    const previous = latestHistoryEventAt(entry, range.start);
+    const currentRecord = currentByKey.get(recordKey(entry));
+    const current = Number.isFinite(range.end)
+      ? latestHistoryEventAt(entry, range.end)
+      : currentRecord ? {
+        score: Number(currentRecord.score),
+        maxCombo: currentRecord.maxCombo === true,
+        ymdt: currentRecord.updatedAt,
+      } : latestHistoryEventAt(entry, Infinity);
+    if (!previous || !current || !Number.isFinite(Number(current.score))) return [];
+    const source = currentRecord || entry;
+    const floorName = getFloorLabel(source) || getFloorLabel(entry);
+    const difficultyConstant = difficultyConstantForFloor(floorName, entry.button);
+    const previousLogPower = scoreToPoint(Number(previous.score)) * difficultyConstant;
+    const currentLogPower = scoreToPoint(Number(current.score)) * difficultyConstant;
+    if (!Number.isFinite(previousLogPower) || !Number.isFinite(currentLogPower)) return [];
+    return [{
+      button: Number(entry.button),
+      title: entry.title,
+      name: source.name || entry.name || "",
+      pattern: source.pattern || entry.pattern || "",
+      level: source.level ?? entry.level ?? "",
+      floorName,
+      previousScore: Number(previous.score),
+      currentScore: Number(current.score),
+      scoreDiff: Number(current.score) - Number(previous.score),
+      previousLogPower,
+      currentLogPower,
+      logPowerDiff: currentLogPower - previousLogPower,
+      previousMaxCombo: previous.maxCombo === true,
+      currentMaxCombo: current.maxCombo === true,
+      previousUpdatedAt: previous.ymdt,
+      currentUpdatedAt: current.ymdt,
+    }];
+  });
 }
 
 function getHistoryTimeRange() {
@@ -2656,7 +2836,7 @@ function renderTable() {
   const baseRows = getRowsForView(view);
   const rows = filterRows(baseRows);
   sortRows(rows);
-  renderTableSummary(view, ["compare", "floorMinScore"].includes(view) ? rows : baseRows);
+  renderTableSummary(view, ["compare", "floorMinScore", "selfCompare"].includes(view) ? rows : baseRows);
   const limit = Number(limitSelect.value);
   const visibleRows = limit > 0 ? rows.slice(0, limit) : rows;
   const colDefs = columns[view] || [];
@@ -2679,6 +2859,10 @@ function renderTable() {
 }
 
 function renderTableSummary(view, rows) {
+  if (view === "selfCompare") {
+    renderSelfCompareSummary(rows);
+    return;
+  }
   if (view === "compare") {
     renderCompareSummary(rows);
     return;
@@ -2698,6 +2882,29 @@ function renderTableSummary(view, rows) {
   tableSummary.querySelectorAll("[data-top-image-button]").forEach((button) => {
     button.addEventListener("click", () => generateTopImage(button.dataset.topImageButton));
   });
+  tableSummary.hidden = false;
+}
+
+function renderSelfCompareSummary(rows) {
+  const improved = rows.filter((row) => row.scoreDiff > 0).length;
+  const unchanged = rows.filter((row) => Math.abs(row.scoreDiff) < 1e-9).length;
+  const averageScoreDiff = rows.length ? rows.reduce((sum, row) => sum + row.scoreDiff, 0) / rows.length : 0;
+  const buttons = buttonFilter.value ? [Number(buttonFilter.value)] : BUTTONS;
+  const cards = [
+    ["공통 기록", rows.length],
+    ["score 상승", improved],
+    ["score 동일", unchanged],
+    ["평균 score 변화", formatSigned(averageScoreDiff, 3)],
+    ...buttons.map((button) => {
+      const buttonRows = rows.filter((row) => Number(row.button) === button);
+      const previous = buttonRows.map((row) => row.previousLogPower).sort((a, b) => b - a).slice(0, 50).reduce((sum, value) => sum + value, 0);
+      const current = buttonRows.map((row) => row.currentLogPower).sort((a, b) => b - a).slice(0, 50).reduce((sum, value) => sum + value, 0);
+      return [`${button}B 공통 Top50`, `${previous.toFixed(2)} → ${current.toFixed(2)} (${formatSigned(current - previous, 2)})`];
+    }),
+  ];
+  tableSummary.innerHTML = cards
+    .map(([label, value]) => `<div class="tableMetric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
+    .join("");
   tableSummary.hidden = false;
 }
 
@@ -2865,6 +3072,7 @@ function getRowsForView(view) {
   if (view === "compare") return buildCompareRows();
   if (view === "top100") return buildTop100Rows(state.payload.records || []);
   if (view === "history") return [...state.historyRows];
+  if (view === "selfCompare") return [...state.selfCompareRows];
   return [...(state.payload[view] || [])];
 }
 
@@ -3495,6 +3703,96 @@ function baseDifficultyConstantForFloor(floorLabel) {
   return ANCHOR_DIFFICULTY_CONSTANT * Math.pow(FLOOR_STEP_RATIO, index - anchorIndex);
 }
 
+function currentFloorRelation() {
+  return 1 / FLOOR_STEP_RATIO;
+}
+
+function clampDebugRatio(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return currentFloorRelation();
+  return Math.min(0.98, Math.max(0.85, number));
+}
+
+function setDebugRatio(value) {
+  const ratio = clampDebugRatio(value);
+  const formatted = ratio.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+  debugRatioInput.value = formatted;
+  debugRatioRange.value = String(ratio);
+}
+
+function simulatedBaseDifficultyConstant(floorLabel, relation) {
+  const index = floorLabels.indexOf(floorLabel);
+  const anchorIndex = floorLabels.indexOf(ANCHOR_FLOOR_LABEL);
+  if (index < 0 || anchorIndex < 0 || !Number.isFinite(relation) || relation <= 0) return NaN;
+  return ANCHOR_DIFFICULTY_CONSTANT * Math.pow(1 / relation, index - anchorIndex);
+}
+
+function simulatedTop50BaseMaxByButton(relation) {
+  if (!state.floorPatternCounts) return null;
+  const result = {};
+  for (const button of BUTTONS) {
+    const values = [];
+    const patterns = state.floorPatternCounts[String(button)] || {};
+    for (const floors of Object.values(patterns)) {
+      for (const [floorLabel, countValue] of Object.entries(floors || {})) {
+        const floorMax = 10 * simulatedBaseDifficultyConstant(floorLabel, relation);
+        const count = Math.max(0, Number(countValue) || 0);
+        if (!Number.isFinite(floorMax)) continue;
+        for (let index = 0; index < count; index += 1) values.push(floorMax);
+      }
+    }
+    if (values.length < 50) return null;
+    values.sort((a, b) => b - a);
+    result[String(button)] = values.slice(0, 50).reduce((sum, value) => sum + value, 0);
+  }
+  return result;
+}
+
+function renderDebugView() {
+  if (!state.payload || viewSelect.value !== "debug") return;
+  const relation = clampDebugRatio(debugRatioInput.value);
+  setDebugRatio(relation);
+  debugRatioEquation.textContent = `현재 floor 10점 = 다음 floor ${(relation * 10).toFixed(2)}점`;
+  const baseMaxByButton = simulatedTop50BaseMaxByButton(relation);
+  const records = filterRows(state.payload.records || []);
+  const selectedButtons = buttonFilter.value ? [Number(buttonFilter.value)] : BUTTONS;
+  debugSummary.innerHTML = selectedButtons.map((button) => {
+    const simulatedBaseMax = Number(baseMaxByButton?.[String(button)]);
+    const multiplier = Number.isFinite(simulatedBaseMax) && simulatedBaseMax > 0
+      ? TARGET_TOP50_MAX / simulatedBaseMax
+      : NaN;
+    const simulated = records
+      .filter((record) => Number(record.button) === button)
+      .map((record) => scoreToPoint(Number(record.score)) * simulatedBaseDifficultyConstant(getFloorLabel(record), relation) * multiplier)
+      .filter(Number.isFinite)
+      .sort((a, b) => b - a)
+      .slice(0, 50)
+      .reduce((sum, value) => sum + value, 0);
+    const current = records
+      .filter((record) => Number(record.button) === button)
+      .map((record) => scoreToPoint(Number(record.score)) * difficultyConstantForFloor(getFloorLabel(record), button))
+      .filter(Number.isFinite)
+      .sort((a, b) => b - a)
+      .slice(0, 50)
+      .reduce((sum, value) => sum + value, 0);
+    const value = Number.isFinite(multiplier) ? simulated : NaN;
+    return `<div class="metric"><span>${button}B Top50 · 현재 ${current.toFixed(2)}</span><strong>${Number.isFinite(value) ? value.toFixed(2) : "곡 목록 필요"}</strong><span>${Number.isFinite(value) ? `차이 ${formatSigned(value - current, 2)}` : "정규화 정보를 불러오지 못했습니다."}</span></div>`;
+  }).join("");
+
+  const rows = [...floorLabels].reverse().map((floorLabel) => {
+    const current = 10 * baseDifficultyConstantForFloor(floorLabel);
+    const simulated = 10 * simulatedBaseDifficultyConstant(floorLabel, relation);
+    return `<tr><td>${floorLabel}</td><td class="num">${current.toFixed(2)}</td><td class="num">${simulated.toFixed(2)}</td><td class="num ${simulated >= current ? "positiveDiff" : "negativeDiff"}">${formatSigned(((simulated / current) - 1) * 100, 2)}%</td></tr>`;
+  }).join("");
+  debugFloorTable.innerHTML = `<thead><tr><th>floor</th><th>현재 base floorMax</th><th>시뮬레이션 base floorMax</th><th>변화율</th></tr></thead><tbody>${rows}</tbody>`;
+}
+
+function formatSigned(value, digits = 2) {
+  if (!Number.isFinite(Number(value))) return "-";
+  const number = Number(value);
+  return `${number > 0 ? "+" : ""}${number.toFixed(digits)}`;
+}
+
 function filterRows(rows) {
   const button = buttonFilter.value;
   const pattern = patternFilter.value;
@@ -3543,6 +3841,10 @@ function sortRows(rows) {
     rows.sort((a, b) => compareForSort(b.updatedAt, a.updatedAt));
     return;
   }
+  if (viewSelect.value === "selfCompare" && !state.sortKey) {
+    rows.sort((a, b) => compareForSort(b.logPowerDiff, a.logPowerDiff) || compare(a.button, b.button) || compare(a.name, b.name));
+    return;
+  }
   if (!state.sortKey) return;
   const key = state.sortKey;
   const dir = state.sortDir === "asc" ? 1 : -1;
@@ -3563,7 +3865,7 @@ function renderCell(row, key) {
   const classes = [];
   if (key === "name") classes.push("nameCell");
   if (key === "name" && isRecentRecord(row.updatedAt)) classes.push("recentName");
-  if (["button", "rank", "floor", "score", "mineScore", "otherScore", "scoreDiff", "mineZ", "otherZ", "zDiff", "mineLogPower", "otherLogPower", "logPowerDiff", "minePoint", "otherPoint", "pointDiff", "scorePoint", "difficultyConstant", "floorMaxPoint", "logPower", "rating", "maxRating", "djpower", "maxDjpower", "top50sum", "tierPoint", "nextRating", "djPowerSum", "djPowerConversion", "maxDjPower"].includes(key)) classes.push("num");
+  if (["button", "rank", "floor", "score", "previousScore", "currentScore", "mineScore", "otherScore", "scoreDiff", "mineZ", "otherZ", "zDiff", "previousLogPower", "currentLogPower", "mineLogPower", "otherLogPower", "logPowerDiff", "minePoint", "otherPoint", "pointDiff", "scorePoint", "difficultyConstant", "floorMaxPoint", "logPower", "rating", "maxRating", "djpower", "maxDjpower", "top50sum", "tierPoint", "nextRating", "djPowerSum", "djPowerConversion", "maxDjPower"].includes(key)) classes.push("num");
   if (key === "pattern") classes.push("pattern");
   if (key === "level") classes.push("level");
   if (key === "score" && row.maxCombo === true) classes.push("comboScore");
@@ -3572,6 +3874,8 @@ function renderCell(row, key) {
   if (key === "result" && row.isReversal) classes.push("reversalCell");
   if (key === "mineScore" && row.mineMaxCombo === true) classes.push("comboScore");
   if (key === "otherScore" && row.otherMaxCombo === true) classes.push("comboScore");
+  if (key === "previousScore" && row.previousMaxCombo === true) classes.push("comboScore");
+  if (key === "currentScore" && row.currentMaxCombo === true) classes.push("comboScore");
   return `<td class="${classes.join(" ")}">${escapeHtml(formatValue(value, key))}</td>`;
 }
 
@@ -3611,12 +3915,12 @@ function clampInt(value, min, max) {
 
 function formatValue(value, key = "") {
   if (value === null || value === undefined) return "";
-  if (["mineScore", "otherScore", "scoreDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+  if (["previousScore", "currentScore", "mineScore", "otherScore", "scoreDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
   if (["mineZ", "otherZ", "zDiff", "absZDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
-  if (["mineLogPower", "otherLogPower", "logPowerDiff", "absLogPowerDiff", "minePoint", "otherPoint", "pointDiff", "absPointDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
+  if (["previousLogPower", "currentLogPower", "mineLogPower", "otherLogPower", "logPowerDiff", "absLogPowerDiff", "minePoint", "otherPoint", "pointDiff", "absPointDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
   if (["scorePoint", "difficultyConstant", "floorMaxPoint", "logPower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
   if (["rating", "djpower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
-  if (key === "updatedAt" || key === "generatedAt") return formatDate(value);
+  if (["updatedAt", "generatedAt", "previousUpdatedAt", "currentUpdatedAt"].includes(key)) return formatDate(value);
   return value;
 }
 
