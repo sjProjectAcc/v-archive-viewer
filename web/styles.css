@@ -357,6 +357,102 @@ main {
   line-height: 1.65;
 }
 
+.readmeGrid p + p,
+.readmeGrid p + ul {
+  margin-top: 8px;
+}
+
+.readmeGrid ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.readmeGrid li + li {
+  margin-top: 4px;
+}
+
+.readmeGrid code,
+.readmeFormula {
+  font-family: Consolas, "Malgun Gothic", monospace;
+}
+
+.readmeFormula {
+  padding: 8px 10px;
+  background: var(--subtle);
+  border-left: 3px solid var(--accent);
+  color: var(--text) !important;
+  font-size: 12px;
+}
+
+.debugChartSection {
+  margin: 4px 0 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.debugChartSection .chartHeader {
+  align-items: flex-start;
+}
+
+.debugChartSection h3,
+.debugChartSection p {
+  margin: 0;
+}
+
+.debugChartSection h3 {
+  font-size: 14px;
+}
+
+.debugChartSection p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chartLegend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chartLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chartLegend .dot {
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+.chartLegend .comboDot {
+  background: var(--combo);
+  opacity: 1;
+}
+
+.chartLegend .maxLineKey {
+  border-color: var(--max);
+}
+
+.chartLegend .avgLineKey {
+  border-color: var(--danger);
+}
+
+.chartLegend .minLineKey {
+  border-color: var(--min);
+}
+
+.chartLegend .floorMaxLineKey {
+  border-color: var(--accent);
+  border-top-style: dashed;
+}
+
 .historyAccount {
   display: flex;
   flex-wrap: wrap;
@@ -620,6 +716,22 @@ main {
   stroke-dasharray: 7 5;
 }
 
+.floorMaxLine.floorMaxButton4 {
+  stroke: #1268b3;
+}
+
+.floorMaxLine.floorMaxButton5 {
+  stroke: #23845f;
+}
+
+.floorMaxLine.floorMaxButton6 {
+  stroke: #7b61c9;
+}
+
+.floorMaxLine.floorMaxButton8 {
+  stroke: #c07b24;
+}
+
 .chartDot {
   fill: rgba(18, 104, 179, 0.58);
   stroke: rgba(18, 104, 179, 0.88);
@@ -712,6 +824,22 @@ main {
 :root[data-theme="dark"] .belowNextDot {
   fill: #ff7373;
   stroke: #ffd0d0;
+}
+
+:root[data-theme="dark"] .floorMaxLine.floorMaxButton4 {
+  stroke: #69c3ff;
+}
+
+:root[data-theme="dark"] .floorMaxLine.floorMaxButton5 {
+  stroke: #62d9a7;
+}
+
+:root[data-theme="dark"] .floorMaxLine.floorMaxButton6 {
+  stroke: #bca8ff;
+}
+
+:root[data-theme="dark"] .floorMaxLine.floorMaxButton8 {
+  stroke: #ffc56f;
 }
 
 :root[data-theme="dark"] .compareMinePoint {

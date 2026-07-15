@@ -213,6 +213,9 @@ const debugRatioRange = document.querySelector("#debugRatioRange");
 const debugRatioResetButton = document.querySelector("#debugRatioResetButton");
 const debugRatioEquation = document.querySelector("#debugRatioEquation");
 const debugSummary = document.querySelector("#debugSummary");
+const debugScatterChart = document.querySelector("#debugScatterChart");
+const debugChartTooltip = document.querySelector("#debugChartTooltip");
+const debugFloorMaxLegend = document.querySelector("#debugFloorMaxLegend");
 const debugFloorTable = document.querySelector("#debugFloorTable");
 const readmePanel = document.querySelector("#readmePanel");
 const overviewPanel = document.querySelector("#overviewPanel");
@@ -506,6 +509,7 @@ function wireEvents() {
   window.addEventListener("resize", () => {
     renderChart();
     renderCompareChart();
+    renderDebugView();
   });
 }
 
@@ -2282,7 +2286,9 @@ function renderChart() {
   chartMaxLegend.textContent = `${groupName} 최고`;
   chartAvgLegend.textContent = `${groupName} 평균`;
   chartMinLegend.textContent = `${groupName} 최저`;
-  chartFloorMaxLegendText.textContent = metric.xMode === "maxDjpower" ? "maxDJPower" : "floor 최대치";
+  chartFloorMaxLegendText.textContent = metric.key === "logPower" && !button
+    ? "버튼별 floor 최대치"
+    : metric.xMode === "maxDjpower" ? "maxDJPower" : "floor 최대치";
   const scopedRecords = buttonRecords
     .map((row) => {
       const floorLabel = getFloorLabel(row);
@@ -2296,7 +2302,7 @@ function renderChart() {
       };
     })
     .filter((row) => xRange.labels.includes(row.xLabel) && Number.isFinite(row.metricValue));
-  const floorMaxByFloor = buildFloorMaxByFloor(xRange.labels, scopedRecords, metric, button);
+  const floorMaxSeries = buildFloorMaxSeries(xRange.labels, scopedRecords, metric, button);
   const yRange = getMetricRange(scopedRecords, metric);
   if (yRange && yMinAutoInput.checked) yMinInput.value = formatAxisValue(yRange.min);
   yMaxInput.value = yRange ? formatAxisValue(yRange.max) : "";
@@ -2322,7 +2328,13 @@ function renderChart() {
   const averagePoints = buildSeriesPoints(xRange.labels, grouped, xFor, yFor, "avg");
   const maxPoints = buildSeriesPoints(xRange.labels, grouped, xFor, yFor, "max");
   const minPoints = buildSeriesPoints(xRange.labels, grouped, xFor, yFor, "min");
-  const floorMaxPoints = buildFloorMaxSeriesPoints(xRange.labels, floorMaxByFloor, xFor, yFor);
+  const floorMaxLines = [...floorMaxSeries.entries()].map(([seriesButton, values]) => {
+    const points = buildFloorMaxSeriesPoints(xRange.labels, values, xFor, yFor);
+    if (!points) return "";
+    const buttonClass = seriesButton ? ` floorMaxButton${seriesButton}` : "";
+    const label = seriesButton ? `${seriesButton}B floor 최대치` : metric.xMode === "maxDjpower" ? "maxDJPower" : "floor 최대치";
+    return `<polyline class="floorMaxLine${buttonClass}" points="${points}"><title>${escapeHtml(label)}</title></polyline>`;
+  }).join("");
   const grid = buildGrid(xRange, yRange, pad, plotW, plotH, xFor, yFor);
   const dots = records.map((row) => {
     const jitter = stableJitter(`${row.name}-${row.pattern}-${row.level}`) * 0.42;
@@ -2360,7 +2372,7 @@ function renderChart() {
       <rect class="chartBg" x="0" y="0" width="${width}" height="${height}"></rect>
       ${grid}
       <g clip-path="url(#chartPlotClip)">
-        ${floorMaxPoints ? `<polyline class="floorMaxLine" points="${floorMaxPoints}"></polyline>` : ""}
+        ${floorMaxLines}
         ${maxPoints ? `<polyline class="maxLine" points="${maxPoints}"></polyline>` : ""}
         ${averagePoints ? `<polyline class="avgLine" points="${averagePoints}"></polyline>` : ""}
         ${minPoints ? `<polyline class="minLine" points="${minPoints}"></polyline>` : ""}
@@ -2477,6 +2489,7 @@ function loadChartSvgImage(svg) {
     .tickLabel,.axisLabel{fill:#687282;font:12px Segoe UI,Malgun Gothic,Arial}.axisTitle{fill:#394150;font:13px Segoe UI,Malgun Gothic,Arial}
     .avgLine,.maxLine,.minLine,.floorMaxLine{fill:none;stroke-width:2.4;stroke-linejoin:round;stroke-linecap:round}
     .avgLine{stroke:#c03535}.maxLine{stroke:#23845f}.minLine{stroke:#7b61c9}.floorMaxLine{stroke:#1268b3;stroke-dasharray:7 5}
+    .floorMaxButton4{stroke:#1268b3}.floorMaxButton5{stroke:#23845f}.floorMaxButton6{stroke:#7b61c9}.floorMaxButton8{stroke:#c07b24}
     .chartDot{fill:rgba(18,104,179,.58);stroke:rgba(18,104,179,.88);stroke-width:1}.comboDot{fill:#4eeeaf;stroke:#159b72}
     .belowNextDot{fill:#e03b3b;stroke:#9f1f1f}.historyPoint{stroke:#fff;stroke-width:2}
     .compareMinePoint{fill:rgba(23,63,103,.72);stroke:#0b2942}.compareOtherPoint{fill:rgba(192,53,53,.58);stroke:#8f2929}
@@ -2510,7 +2523,18 @@ function drawChartImageLegend(ctx, x, y, metric) {
   entries.push(
     ["line", "#23845f", `${groupName} 최고`], ["line", "#c03535", `${groupName} 평균`], ["line", "#7b61c9", `${groupName} 최저`],
   );
-  if (metric.floorMaxValue) entries.push(["dash", "#1268b3", metric.xMode === "maxDjpower" ? "maxDJPower" : "floor 최대치"]);
+  if (metric.floorMaxValue) {
+    if (metric.key === "logPower" && !buttonFilter.value) {
+      entries.push(
+        ["dash", "#1268b3", "4B floor 최대치"],
+        ["dash", "#23845f", "5B floor 최대치"],
+        ["dash", "#7b61c9", "6B floor 최대치"],
+        ["dash", "#c07b24", "8B floor 최대치"],
+      );
+    } else {
+      entries.push(["dash", "#1268b3", metric.xMode === "maxDjpower" ? "maxDJPower" : "floor 최대치"]);
+    }
+  }
   ctx.font = "15px Segoe UI, Malgun Gothic, Arial";
   ctx.fillStyle = "#687282";
   for (const [kind, color, label] of entries) {
@@ -2714,6 +2738,25 @@ function buildFloorMaxByFloor(labels, records, metric, button) {
     if (current === undefined || row.floorMaxValue > current) values.set(row.xLabel, row.floorMaxValue);
   }
   return values;
+}
+
+function buildFloorMaxSeries(labels, records, metric, button) {
+  const series = new Map();
+  if (!metric.floorMaxValue) return series;
+  if (metric.key === "logPower" && metric.floorMaxForFloor) {
+    const buttons = button ? [Number(button)] : BUTTONS;
+    for (const seriesButton of buttons) {
+      const values = new Map();
+      for (const label of labels) {
+        const value = metric.floorMaxForFloor(label, seriesButton);
+        if (Number.isFinite(value)) values.set(label, value);
+      }
+      series.set(String(seriesButton), values);
+    }
+    return series;
+  }
+  series.set("", buildFloorMaxByFloor(labels, records, metric, button));
+  return series;
 }
 
 function buildFloorMaxSeriesPoints(labels, floorMaxByFloor, xFor, yFor) {
@@ -3779,12 +3822,125 @@ function renderDebugView() {
     return `<div class="metric"><span>${button}B Top50 · 현재 ${current.toFixed(2)}</span><strong>${Number.isFinite(value) ? value.toFixed(2) : "곡 목록 필요"}</strong><span>${Number.isFinite(value) ? `차이 ${formatSigned(value - current, 2)}` : "정규화 정보를 불러오지 못했습니다."}</span></div>`;
   }).join("");
 
+  renderDebugScatter(records, relation, baseMaxByButton);
+
   const rows = [...floorLabels].reverse().map((floorLabel) => {
     const current = 10 * baseDifficultyConstantForFloor(floorLabel);
     const simulated = 10 * simulatedBaseDifficultyConstant(floorLabel, relation);
     return `<tr><td>${floorLabel}</td><td class="num">${current.toFixed(2)}</td><td class="num">${simulated.toFixed(2)}</td><td class="num ${simulated >= current ? "positiveDiff" : "negativeDiff"}">${formatSigned(((simulated / current) - 1) * 100, 2)}%</td></tr>`;
   }).join("");
   debugFloorTable.innerHTML = `<thead><tr><th>floor</th><th>현재 base floorMax</th><th>시뮬레이션 base floorMax</th><th>변화율</th></tr></thead><tbody>${rows}</tbody>`;
+}
+
+function renderDebugScatter(records, relation, baseMaxByButton) {
+  const width = Math.max(760, debugScatterChart.clientWidth || 1000);
+  const height = 430;
+  const pad = { left: 58, right: 24, top: 22, bottom: 62 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const scoped = records.map((record) => {
+    const floorLabel = getFloorLabel(record);
+    const button = Number(record.button);
+    const baseMax = Number(baseMaxByButton?.[String(button)]);
+    const multiplier = Number.isFinite(baseMax) && baseMax > 0 ? TARGET_TOP50_MAX / baseMax : NaN;
+    const currentLogPower = scoreToPoint(Number(record.score)) * difficultyConstantForFloor(floorLabel, button);
+    const simulatedLogPower = scoreToPoint(Number(record.score)) * simulatedBaseDifficultyConstant(floorLabel, relation) * multiplier;
+    return { ...record, floorLabel, currentLogPower, simulatedLogPower };
+  }).filter((record) => floorLabels.includes(record.floorLabel) && Number.isFinite(record.simulatedLogPower));
+
+  if (!scoped.length) {
+    debugScatterChart.innerHTML = `<div class="empty">표시할 기록이 없습니다.</div>`;
+    debugFloorMaxLegend.hidden = true;
+    return;
+  }
+
+  const observedIndexes = scoped.map((record) => floorLabels.indexOf(record.floorLabel));
+  const labels = floorLabels.slice(Math.min(...observedIndexes), Math.max(...observedIndexes) + 1);
+  const values = scoped.map((record) => record.simulatedLogPower);
+  const dataMin = Math.min(...values);
+  const dataMax = Math.max(...values);
+  const span = Math.max(dataMax - dataMin, Math.abs(dataMax) * 0.01, 0.1);
+  const padding = Math.max(span * 0.035, 0.02);
+  const yRange = { min: Math.max(0, dataMin - padding), max: dataMax + padding };
+  const xRange = { mode: "floor", labels, displayLabels: new Map(), axisTitle: "floorName (n.m)" };
+  const xFor = (label, jitter = 0) => {
+    const index = labels.indexOf(label);
+    if (labels.length === 1) return pad.left + plotW / 2 + jitter * Math.min(48, plotW * 0.1);
+    return pad.left + ((index + jitter) / Math.max(1, labels.length - 1)) * plotW;
+  };
+  const yFor = (value) => pad.top + (1 - (value - yRange.min) / (yRange.max - yRange.min)) * plotH;
+  const metricRows = scoped.map((record) => ({ ...record, xLabel: record.floorLabel, metricValue: record.simulatedLogPower }));
+  const grouped = groupMetricsByFloor(metricRows);
+  const maxPoints = buildSeriesPoints(labels, grouped, xFor, yFor, "max");
+  const averagePoints = buildSeriesPoints(labels, grouped, xFor, yFor, "avg");
+  const minPoints = buildSeriesPoints(labels, grouped, xFor, yFor, "min");
+  const selectedButton = buttonFilter.value ? Number(buttonFilter.value) : null;
+  let floorMaxPoints = "";
+  if (selectedButton) {
+    const baseMax = Number(baseMaxByButton?.[String(selectedButton)]);
+    const multiplier = Number.isFinite(baseMax) && baseMax > 0 ? TARGET_TOP50_MAX / baseMax : NaN;
+    const maxByFloor = new Map(labels.map((label) => [label, 10 * simulatedBaseDifficultyConstant(label, relation) * multiplier]));
+    floorMaxPoints = buildFloorMaxSeriesPoints(labels, maxByFloor, xFor, yFor);
+  }
+  debugFloorMaxLegend.hidden = !floorMaxPoints;
+  const grid = buildGrid(xRange, yRange, pad, plotW, plotH, xFor, yFor);
+  const dots = metricRows.map((record) => {
+    const jitter = stableJitter(`${record.button}-${record.name}-${record.pattern}-${record.level}`) * 0.42;
+    const info = encodeURIComponent(JSON.stringify({
+      name: record.name || "",
+      button: record.button,
+      pattern: record.pattern || "",
+      level: record.level ?? "",
+      floor: record.floorLabel,
+      score: Number(record.score),
+      currentLogPower: record.currentLogPower,
+      simulatedLogPower: record.simulatedLogPower,
+      maxCombo: record.maxCombo === true,
+    }));
+    return `<circle class="chartDot debugChartPoint${record.maxCombo === true ? " comboDot" : ""}" cx="${xFor(record.floorLabel, jitter).toFixed(2)}" cy="${yFor(record.simulatedLogPower).toFixed(2)}" r="${record.maxCombo === true ? 4.8 : 3.9}" data-info="${info}" tabindex="0"></circle>`;
+  }).join("");
+
+  debugScatterChart.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="내 기록 LogPower 시뮬레이션 산포도">
+      <defs><clipPath id="debugChartPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs>
+      <rect class="chartBg" x="0" y="0" width="${width}" height="${height}"></rect>
+      ${grid}
+      <g clip-path="url(#debugChartPlotClip)">
+        ${floorMaxPoints ? `<polyline class="floorMaxLine" points="${floorMaxPoints}"></polyline>` : ""}
+        ${maxPoints ? `<polyline class="maxLine" points="${maxPoints}"></polyline>` : ""}
+        ${averagePoints ? `<polyline class="avgLine" points="${averagePoints}"></polyline>` : ""}
+        ${minPoints ? `<polyline class="minLine" points="${minPoints}"></polyline>` : ""}
+        ${dots}
+      </g>
+      <text class="axisTitle" x="16" y="18">simulated LogPower</text>
+      <text class="axisTitle" x="${width - 170}" y="${height - 16}">floorName (n.m)</text>
+    </svg>`;
+  debugScatterChart.querySelectorAll(".debugChartPoint").forEach((point) => {
+    point.addEventListener("pointermove", (event) => showDebugChartTooltip(event, point.dataset.info));
+    point.addEventListener("pointerenter", (event) => showDebugChartTooltip(event, point.dataset.info));
+    point.addEventListener("focus", (event) => showDebugChartTooltip(event, point.dataset.info));
+    point.addEventListener("pointerleave", hideDebugChartTooltip);
+    point.addEventListener("blur", hideDebugChartTooltip);
+  });
+}
+
+function showDebugChartTooltip(event, encodedInfo) {
+  if (!encodedInfo) return;
+  const info = JSON.parse(decodeURIComponent(encodedInfo));
+  debugChartTooltip.innerHTML = `
+    <strong>${escapeHtml(info.name)}</strong>
+    <span>${escapeHtml(info.button)}B · ${escapeHtml(info.pattern)} · Lv.${escapeHtml(info.level)} · floor ${escapeHtml(info.floor)}</span>
+    <span>score ${escapeHtml(formatChartMetric(info.score, "score"))}${info.maxCombo ? " · MAX COMBO" : ""}</span>
+    <span>현재 ${escapeHtml(formatChartMetric(info.currentLogPower, "logPower"))} · 시뮬레이션 ${escapeHtml(formatChartMetric(info.simulatedLogPower, "logPower"))}</span>`;
+  debugChartTooltip.hidden = false;
+  const x = (event.clientX || window.innerWidth / 2) + 14;
+  const y = (event.clientY || window.innerHeight / 2) + 14;
+  debugChartTooltip.style.left = `${Math.max(12, Math.min(x, window.innerWidth - debugChartTooltip.offsetWidth - 12))}px`;
+  debugChartTooltip.style.top = `${Math.max(12, Math.min(y, window.innerHeight - debugChartTooltip.offsetHeight - 12))}px`;
+}
+
+function hideDebugChartTooltip() {
+  debugChartTooltip.hidden = true;
 }
 
 function formatSigned(value, digits = 2) {
