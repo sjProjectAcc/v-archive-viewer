@@ -176,6 +176,15 @@ fn store_client(session: &State<'_, ApiSession>, client: Client) -> Result<(), S
 }
 
 #[tauri::command]
+fn logout_history_account(session: State<'_, ApiSession>) -> Result<(), String> {
+    *session
+        .client
+        .lock()
+        .map_err(|_| "로그인 세션 잠금 실패".to_string())? = None;
+    Ok(())
+}
+
+#[tauri::command]
 async fn login_with_token(
     user_no: String,
     token: String,
@@ -458,6 +467,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             login_with_token,
             login_from_account_file,
+            logout_history_account,
             select_account_file,
             fetch_record_history,
             check_for_update,
