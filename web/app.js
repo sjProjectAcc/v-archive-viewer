@@ -27,6 +27,7 @@ const state = {
   tagsSelected: new Set(),
   tagsUpdatedAt: 0,
   tagsLoading: false,
+  tagsLoadError: "",
   sortKey: null,
   sortDir: "asc",
 };
@@ -827,6 +828,7 @@ async function loadTagsData(force = false) {
   }
 
   state.tagsLoading = true;
+  state.tagsLoadError = "";
   tagsRefreshButton.disabled = true;
   tagsStatus.textContent = cached ? "저장된 태그를 표시하며 새 데이터를 확인하고 있습니다." : "태그와 곡 목록을 불러오고 있습니다.";
   try {
@@ -851,6 +853,7 @@ async function loadTagsData(force = false) {
       // The current data still remains usable when storage quota is unavailable.
     }
   } catch (error) {
+    state.tagsLoadError = error.message || String(error);
     tagsStatus.textContent = cached
       ? `태그 갱신 실패 · 저장된 ${state.tagsRows.length}곡 사용 · ${error.message || error}`
       : `태그를 불러오지 못했습니다. ${error.message || error}`;
@@ -978,10 +981,11 @@ function renderTagsView() {
   if (!state.tagsRows.length) {
     const cached = loadTagsCache();
     if (!cached) {
-      tagsTable.innerHTML = `<tbody><tr><td class="empty">태그 데이터를 불러오고 있습니다.</td></tr></tbody>`;
+      const failed = Boolean(state.tagsLoadError);
+      tagsTable.innerHTML = `<tbody><tr><td class="empty">${failed ? "태그 데이터를 불러오지 못했습니다. 태그 새로고침으로 다시 시도해 주세요." : "태그 데이터를 불러오고 있습니다."}</td></tr></tbody>`;
       tagsFacetList.innerHTML = "";
       tagsResultSummary.textContent = "";
-      if (!state.tagsLoading) loadTagsData(false);
+      if (!state.tagsLoading && !failed) loadTagsData(false);
       return;
     }
   }
