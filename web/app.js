@@ -52,8 +52,9 @@ const TARGET_TOP50_MAX = 5000;
 const TOP50_SCALE_CACHE_KEY = "vArchiveTop50ScaleCache0905";
 const TOP50_SCALE_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 const TAGS_API_URL = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/song_tags_2?select=song_title%2Ctags%2Caka&limit=1000";
+const TAGS_ABILITY_API_URL = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/ability?select=id%2Cability_set&order=id";
 const TAGS_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqd3V1b2RtdHR0cW9oeHN5Y3ZwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUxNDkwNjYsImV4cCI6MjA3MDcyNTA2Nn0.FItZtjt2v2otOUnmDtqhKG4IrPD4FjaRc_tVy-nxpsI";
-const TAGS_CACHE_KEY = "vArchiveSongTagsCacheV1";
+const TAGS_CACHE_KEY = "vArchiveSongTagsCacheV2";
 const TAGS_CACHE_TTL = 24 * 60 * 60 * 1000;
 const FALLBACK_BUTTON_TOP50_BASE_MAX = Object.freeze({
   4: 4166.31349894268,
@@ -832,17 +833,22 @@ async function loadTagsData(force = false) {
   tagsRefreshButton.disabled = true;
   tagsStatus.textContent = cached ? "저장된 태그를 표시하며 새 데이터를 확인하고 있습니다." : "태그와 곡 목록을 불러오고 있습니다.";
   try {
-    const [tagsResponse, songsResponse] = await Promise.all([
+    const [tagsResponse, songsResponse, abilityResponse] = await Promise.all([
       fetch(TAGS_API_URL, {
         credentials: "omit",
         headers: { apikey: TAGS_ANON_KEY, Authorization: `Bearer ${TAGS_ANON_KEY}`, Accept: "application/json" },
       }),
       fetch(SONG_DB_URL, { credentials: "omit" }),
+      fetch(TAGS_ABILITY_API_URL, {
+        credentials: "omit",
+        headers: { apikey: TAGS_ANON_KEY, Authorization: `Bearer ${TAGS_ANON_KEY}`, Accept: "application/json" },
+      }),
     ]);
     if (!tagsResponse.ok) throw new Error(`태그 API HTTP ${tagsResponse.status}`);
     if (!songsResponse.ok) throw new Error(`곡 목록 HTTP ${songsResponse.status}`);
-    const [tagRows, songs] = await Promise.all([tagsResponse.json(), songsResponse.json()]);
-    const rows = normalizeTagsRows(tagRows, songs);
+    if (!abilityResponse.ok) throw new Error(`버튼별 태그 API HTTP ${abilityResponse.status}`);
+    const [tagRows, songs, abilityRows] = await Promise.all([tagsResponse.json(), songsResponse.json(), abilityResponse.json()]);
+    const rows = normalizeTagsRows(tagRows, songs, abilityRows);
     if (rows.length < 100) throw new Error(`태그 데이터가 너무 적습니다. (${rows.length}곡)`);
     state.tagsRows = rows;
     state.tagsUpdatedAt = Date.now();
@@ -864,12 +870,13 @@ async function loadTagsData(force = false) {
   }
 }
 
-function normalizeTagsRows(tagRows, songs) {
+function normalizeTagsRows(tagRows, songs, abilityRows = []) {
   if (!Array.isArray(tagRows) || !Array.isArray(songs)) return [];
+  const abilityByButton = normalizeTagAbilities(abilityRows);
   const tagsByTitle = new Map(tagRows.map((row) => [String(row.song_title), row]));
   return songs.map((song) => {
     const tagRow = tagsByTitle.get(String(song.title)) || {};
-    const parsed = parseTagsText(tagRow.tags);
+    const parsed = parseTagsText(tagRow.tags, abilityByButton);
     const availablePatterns = {};
     for (const button of BUTTONS) availablePatterns[String(button)] = Object.keys(song?.patterns?.[`${button}B`] || {});
     return {
@@ -890,7 +897,30 @@ function normalizeTagsRows(tagRows, songs) {
   });
 }
 
-function parseTagsText(value) {
+function normalizeTagAbilities(rows) {
+  const result = Object.fromEntries(BUTTONS.map((button) => [String(button), new Map()]));
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const button = String(row?.id || "").replace(/B$/i, "");
+    const aliases = result[button];
+    if (!aliases || !Array.isArray(row?.ability_set)) continue;
+    for (const group of row.ability_set) {
+      const label = String(group?.name || "").trim();
+      if (!label) continue;
+      const color = /^#[0-9a-f]{6}$/i.test(String(group?.color || "")) ? String(group.color) : "";
+      for (const alias of new Set([label, ...(Array.isArray(group?.tags) ? group.tags : [])])) {
+        const key = normalizeTagAlias(alias);
+        if (key) aliases.set(key, { label, color });
+      }
+    }
+  }
+  return result;
+}
+
+function normalizeTagAlias(value) {
+  return String(value || "").trim().toLocaleLowerCase("ko");
+}
+
+function parseTagsText(value, abilityByButton = {}) {
   let bpmText = "";
   let genre = "";
   const tokens = [];
@@ -908,14 +938,55 @@ function parseTagsText(value) {
       genre = genreMatch[1].trim();
       continue;
     }
-    const scopedMatch = raw.match(/^(ALL|[4568]B)\s*:\s*(.*?)(?:\|\{(\d+)\})?$/i);
-    const scope = scopedMatch ? scopedMatch[1].toUpperCase() : "GENERAL";
-    const label = (scopedMatch ? scopedMatch[2] : raw).trim();
-    const weight = scopedMatch?.[3] || "";
-    const key = `${scope}|${label}|${weight}`;
-    if (!label || seen.has(key)) continue;
-    seen.add(key);
-    tokens.push({ scope, label, weight });
+    const scopedMatch = raw.match(/^(ALL|(?:[4568]B)(?:\s*&\s*[4568]B)*)\s*:\s*(.+)$/i);
+    let tagText = (scopedMatch ? scopedMatch[2] : raw).trim();
+    let weight = "";
+    tagText = tagText.replace(/\|\{(\d+)\}/g, (_match, value) => {
+      if (!weight) weight = value;
+      return "";
+    }).trim();
+    let pattern = "";
+    let patternMatch = tagText.match(/_(NM|HD|MX|SC)$/i);
+    while (patternMatch) {
+      pattern ||= patternMatch[1].toUpperCase();
+      tagText = tagText.slice(0, -patternMatch[0].length).trim();
+      patternMatch = tagText.match(/_(NM|HD|MX|SC)$/i);
+    }
+    if (!tagText) continue;
+
+    const requestedButtons = scopedMatch
+      ? scopedMatch[1].toUpperCase() === "ALL"
+        ? BUTTONS.map(String)
+        : scopedMatch[1].toUpperCase().match(/[4568](?=B)/g) || []
+      : BUTTONS.map(String);
+    const alias = normalizeTagAlias(tagText);
+    const buttonMatches = requestedButtons
+      .map((button) => ({ button, ability: abilityByButton?.[button]?.get(alias) }))
+      .filter((item) => item.ability);
+
+    if (!buttonMatches.length) {
+      addNormalizedTagToken(tokens, seen, {
+        scope: "GENERAL",
+        button: "",
+        label: tagText,
+        originalLabel: tagText,
+        weight: "",
+        pattern,
+        color: "",
+      });
+      continue;
+    }
+    for (const { button, ability } of buttonMatches) {
+      addNormalizedTagToken(tokens, seen, {
+        scope: `${button}B`,
+        button,
+        label: ability.label,
+        originalLabel: tagText,
+        weight,
+        pattern,
+        color: ability.color,
+      });
+    }
   }
   const bpmNumbers = (bpmText.match(/\d+(?:\.\d+)?/g) || []).map(Number).filter(Number.isFinite);
   return {
@@ -925,6 +996,13 @@ function parseTagsText(value) {
     genre,
     tokens,
   };
+}
+
+function addNormalizedTagToken(tokens, seen, token) {
+  const key = `${token.scope}|${token.label}|${token.weight}|${token.pattern}`;
+  if (!token.label || seen.has(key)) return;
+  seen.add(key);
+  tokens.push(token);
 }
 
 function populateTagsGenreOptions() {
@@ -960,7 +1038,9 @@ function tagsForCurrentScope(row) {
   const button = buttonFilter.value;
   const weight = tagsWeightSelect.value;
   return (row.tokens || []).filter((token) => {
-    if (token.scope !== "GENERAL" && token.scope !== "ALL" && button && token.scope !== `${button}B`) return false;
+    if (!button && token.scope !== "GENERAL") return false;
+    if (button && token.scope !== "GENERAL" && token.button !== button) return false;
+    if (patternFilter.value && token.pattern && token.pattern !== patternFilter.value) return false;
     if (!weight || token.scope === "GENERAL") return true;
     if (weight === "none") return !token.weight;
     return token.weight === weight;
@@ -1007,7 +1087,8 @@ function renderTagsView() {
     if (tagsRecordModeSelect.value === "unrecorded" && stats) return false;
     if (weight) {
       const scopedPatternTokens = (row.tokens || []).filter((token) => token.scope !== "GENERAL"
-        && (!buttonFilter.value || token.scope === "ALL" || token.scope === `${buttonFilter.value}B`));
+        && buttonFilter.value && token.button === buttonFilter.value
+        && (!patternFilter.value || !token.pattern || token.pattern === patternFilter.value));
       const hasWeight = weight === "none"
         ? scopedPatternTokens.some((token) => !token.weight)
         : scopedPatternTokens.some((token) => token.weight === weight);
@@ -1021,8 +1102,10 @@ function renderTagsView() {
     const labels = new Set(tagsForCurrentScope(row).map((token) => token.label));
     for (const label of labels) facetCounts.set(label, Number(facetCounts.get(label) || 0) + 1);
   }
-  for (const selected of [...state.tagsSelected]) {
-    if (!facetCounts.has(selected)) facetCounts.set(selected, 0);
+  const unavailableSelected = [...state.tagsSelected].filter((selected) => !facetCounts.has(selected));
+  if (unavailableSelected.length) {
+    unavailableSelected.forEach((selected) => state.tagsSelected.delete(selected));
+    saveSettings();
   }
 
   const selected = [...state.tagsSelected];
@@ -1038,7 +1121,8 @@ function renderTagsView() {
   renderTagsTable(rows);
   const recordedCount = rows.filter((row) => row.recordStats).length;
   tagsResultSummary.innerHTML = `<strong>${rows.length.toLocaleString()}곡</strong><span>전체 ${state.tagsRows.length.toLocaleString()}곡 · 내 기록 ${recordedCount.toLocaleString()}곡 · 표시 조건은 상단 버튼/패턴/검색을 포함합니다.</span>`;
-  tagsSelectedSummary.textContent = selected.length ? `${selected.length}개 선택 · ${selected.join(" + ")}` : "선택 없음";
+  const scopeLabel = buttonFilter.value ? `공통 + ${buttonFilter.value}B` : "공통";
+  tagsSelectedSummary.textContent = selected.length ? `${scopeLabel} · ${selected.length}개 선택 · ${selected.join(" + ")}` : `${scopeLabel} · 선택 없음`;
   if (!state.tagsLoading) tagsStatus.textContent = `${state.tagsRows.length.toLocaleString()}곡 · ${formatDate(new Date(state.tagsUpdatedAt).toISOString())} 갱신`;
 }
 
@@ -1077,7 +1161,7 @@ function renderTagsTable(rows) {
       ? `<strong>${stats.count}개</strong><span>최고 ${Number.isFinite(stats.bestScore) ? stats.bestScore.toFixed(2) : "-"}</span><small>${[...stats.buttons].sort().map((button) => `${button}B`).join(" · ")}</small>`
       : `<span class="muted">기록 없음</span>`;
     const tokenHtml = row.visibleTokens.length
-      ? row.visibleTokens.map((token) => `<span class="songTag${state.tagsSelected.has(token.label) ? " selected" : ""}">${token.scope === "GENERAL" ? "" : `<small>${escapeHtml(token.scope)}</small>`}${escapeHtml(token.label)}${token.weight ? `<b>${escapeHtml(token.weight)}</b>` : ""}</span>`).join("")
+      ? row.visibleTokens.map((token) => `<span class="songTag${state.tagsSelected.has(token.label) ? " selected" : ""}"${token.color ? ` style="--tag-color:${escapeHtml(token.color)}"` : ""}>${token.scope === "GENERAL" ? "" : `<small>${escapeHtml(token.scope)}</small>`}${escapeHtml(token.label)}${token.pattern ? `<small>${escapeHtml(token.pattern)}</small>` : ""}${token.weight ? `<b>${escapeHtml(token.weight)}</b>` : ""}</span>`).join("")
       : `<span class="muted">표시할 태그 없음</span>`;
     return `<tr>
       <td class="tagSongCell"><strong>${escapeHtml(row.name)}</strong><span>#${row.title} · ${escapeHtml(row.composer)}${row.dlcCode ? ` · ${escapeHtml(row.dlcCode)}` : ""}</span></td>
