@@ -54,7 +54,8 @@ const TOP50_SCALE_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 const TAGS_API_URL = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/song_tags_2?select=song_title%2Ctags%2Caka&limit=1000";
 const TAGS_ABILITY_API_URL = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/ability?select=id%2Cability_set&order=id";
 const TAGS_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqd3V1b2RtdHR0cW9oeHN5Y3ZwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUxNDkwNjYsImV4cCI6MjA3MDcyNTA2Nn0.FItZtjt2v2otOUnmDtqhKG4IrPD4FjaRc_tVy-nxpsI";
-const TAGS_CACHE_KEY = "vArchiveSongTagsCacheV2";
+const TAGS_CACHE_KEY = "vArchiveSongTagsCacheV3";
+const TAGS_CACHE_SCHEMA_VERSION = 3;
 const TAGS_CACHE_TTL = 24 * 60 * 60 * 1000;
 const FALLBACK_BUTTON_TOP50_BASE_MAX = Object.freeze({
   4: 4166.31349894268,
@@ -814,7 +815,8 @@ function isValidFloorPatternCounts(value) {
 function loadTagsCache() {
   try {
     const cached = JSON.parse(localStorage.getItem(TAGS_CACHE_KEY) || "null");
-    if (!Array.isArray(cached?.rows) || cached.rows.length < 100) return null;
+    if (cached?.schemaVersion !== TAGS_CACHE_SCHEMA_VERSION || !Array.isArray(cached?.rows) || cached.rows.length < 100) return null;
+    if (cached.rows.some((row) => !row?.scLevels || typeof row.scLevels !== "object")) return null;
     state.tagsRows = cached.rows;
     state.tagsUpdatedAt = Number(cached.updatedAt) || 0;
     populateTagsGenreOptions();
@@ -858,7 +860,7 @@ async function loadTagsData(force = false) {
     state.tagsUpdatedAt = Date.now();
     populateTagsGenreOptions();
     try {
-      localStorage.setItem(TAGS_CACHE_KEY, JSON.stringify({ updatedAt: state.tagsUpdatedAt, rows }));
+      localStorage.setItem(TAGS_CACHE_KEY, JSON.stringify({ schemaVersion: TAGS_CACHE_SCHEMA_VERSION, updatedAt: state.tagsUpdatedAt, rows }));
     } catch {
       // The current data still remains usable when storage quota is unavailable.
     }
