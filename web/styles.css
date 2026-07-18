@@ -288,7 +288,7 @@ main {
 
 .tagsControls {
   display: grid;
-  grid-template-columns: repeat(7, minmax(120px, 1fr));
+  grid-template-columns: repeat(8, minmax(115px, 1fr));
   gap: 8px;
   margin-bottom: 14px;
   padding-bottom: 14px;
@@ -304,6 +304,19 @@ main {
 .tagsControls select,
 .tagsFacetHeader input {
   width: 100%;
+}
+
+.tagsControls .tagsCheckControl span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  white-space: nowrap;
+}
+
+.tagsControls .tagsCheckControl input {
+  width: auto;
+  margin: 0;
 }
 
 .tagsFacetHeader {
@@ -418,14 +431,32 @@ main {
 
 .tagsTableWrap table {
   width: 100%;
-  min-width: 1080px;
+  min-width: 1040px;
 }
 
-.tagsTableWrap th:nth-child(1) { width: 230px; }
-.tagsTableWrap th:nth-child(2) { width: 75px; }
-.tagsTableWrap th:nth-child(3) { width: 150px; }
-.tagsTableWrap th:nth-child(4) { width: 220px; }
-.tagsTableWrap th:nth-child(6) { width: 105px; }
+.tagSongHead { width: 42%; }
+.tagScLevelHead { width: 70px; }
+.tagBpmHead { width: 75px; }
+.tagGenreHead { width: 140px; }
+.tagAliasHead { width: 200px; }
+.tagRecordHead { width: 105px; }
+
+.tagSongTitleRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 8px;
+  margin-bottom: 2px;
+}
+
+.tagSongTitleRow .songTags {
+  min-width: 0;
+}
+
+.tagScLevelCell {
+  font-weight: 700;
+  text-align: center;
+}
 
 .tagSongCell strong,
 .tagSongCell span,
@@ -451,7 +482,7 @@ main {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  min-width: 260px;
+  min-width: 0;
 }
 
 .songTag {
