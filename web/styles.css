@@ -467,6 +467,10 @@ main {
   line-height: 1.25;
 }
 
+.songTag[style*="--tag-color"] {
+  border-left: 3px solid var(--tag-color);
+}
+
 .songTag.selected {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
