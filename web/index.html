@@ -41,6 +41,7 @@
           <option value="compare">Compare</option>
           <option value="top100">LogPower</option>
           <option value="records">Records</option>
+          <option value="tags">Tags</option>
           <option value="history" class="desktopOnly">History</option>
           <option value="selfCompare" class="desktopOnly">시점 비교</option>
           <option value="floorMinScore">Floor_View</option>
@@ -319,6 +320,36 @@
       </div>
     </section>
 
+    <section class="tagsPanel" id="tagsPanel" hidden>
+      <div class="toolHeader tagsHeader">
+        <div>
+          <h2>Song Tags</h2>
+          <p id="tagsStatus">태그 데이터를 준비하고 있습니다.</p>
+        </div>
+        <div class="tagsHeaderActions">
+          <button id="tagsClearButton" class="secondaryButton" type="button">필터 초기화</button>
+          <button id="tagsRefreshButton" type="button">태그 새로고침</button>
+        </div>
+      </div>
+      <div class="tagsControls">
+        <label>장르 <select id="tagsGenreSelect"><option value="">전체</option></select></label>
+        <label>BPM 최소 <input id="tagsBpmMinInput" type="number" min="0" max="999" step="5" placeholder="전체"></label>
+        <label>BPM 최대 <input id="tagsBpmMaxInput" type="number" min="0" max="999" step="5" placeholder="전체"></label>
+        <label>내 기록 <select id="tagsRecordModeSelect"><option value="">전체 곡</option><option value="recorded">기록 있음</option><option value="unrecorded">기록 없음</option></select></label>
+        <label>태그 단계 <select id="tagsWeightSelect"><option value="">전체</option><option value="1">1단계</option><option value="2">2단계</option><option value="3">3단계</option><option value="none">단계 없음</option></select></label>
+        <label>선택 태그 <select id="tagsMatchModeSelect"><option value="all">모두 포함 (AND)</option><option value="any">하나 이상 (OR)</option></select></label>
+        <label>정렬 <select id="tagsSortSelect"><option value="name">곡명</option><option value="bpmAsc">BPM 낮은 순</option><option value="bpmDesc">BPM 높은 순</option><option value="tagCount">태그 많은 순</option><option value="score">내 최고점 순</option></select></label>
+      </div>
+      <div class="tagsFacetHeader">
+        <div><strong>태그 선택</strong><span id="tagsSelectedSummary">선택 없음</span></div>
+        <label>태그 찾기 <input id="tagsFacetSearchInput" type="search" autocomplete="off" placeholder="폭타, 트릴, 보컬..."></label>
+      </div>
+      <div id="tagsFacetList" class="tagsFacetList" aria-label="태그 필터"></div>
+      <div id="tagsResultSummary" class="tagsResultSummary"></div>
+      <div class="tagsTableWrap"><table id="tagsTable"></table></div>
+      <p class="tagsSource">태그 데이터: song_tags_2 · 곡 정보: V-ARCHIVE songs.json · 데이터는 사용자 기기에 캐시됩니다.</p>
+    </section>
+
     <section class="toolPanel" id="debugPanel" hidden>
       <div class="toolHeader">
         <div>
@@ -364,12 +395,13 @@
         <section><h3>4. Records와 종합 정보</h3><p>Records는 API의 원본 필드를 최대한 유지한 전체 기록표입니다. 숨겨진 열도 데이터에서 삭제된 것은 아닙니다.</p><ul><li>열 제목을 눌러 정렬하고 브라우저의 표 필터와 검색을 함께 사용할 수 있습니다.</li><li>종합 정보에는 수집 시점, 오류, 버튼별 기록 수, Tier, DJClass와 버튼별 LogPower Top50 합계가 표시됩니다.</li><li>최근 3일 이내 갱신된 곡명은 노란색으로 강조됩니다.</li></ul></section>
         <section><h3>5. LogPower 계산</h3><p>Score 97 초과 구간을 로그 함수로 0~10점으로 바꾼 뒤 floor 난이도 상수와 버튼별 정규화 상수를 곱합니다. 99.9 이상은 동일한 만점으로 처리합니다.</p><p class="readmeFormula">scorePoint = -log<sub>a</sub>((100 - min(score, 99.9)) / 3)<br>LogPower = scorePoint × floor 상수 × 버튼 정규화</p><ul><li>floor 관계값은 현재 floor 10점과 다음 floor의 점수 관계를 결정합니다.</li><li>각 버튼의 이론상 상위 50개 합계가 5000이 되도록 버튼별로 정규화합니다.</li><li>LogPower 탭은 상위 기록과 Top50 합계, 각 기록의 floorMax를 보여줍니다.</li></ul></section>
         <section><h3>6. Floor_View와 산포도</h3><p>Floor_View는 선택한 floor 범위에서 내 최고·최저 기록과 기록 수, 전체 패턴 수, 달성률, 평균, 표준편차, floorMax를 한 줄씩 정리합니다.</p><ul><li>시작 floor가 끝 floor보다 크면 내림차순으로 출력합니다.</li><li>산포도는 Score·scorePoint·LogPower·Point·DJPower 중 지표를 선택할 수 있습니다.</li><li>Point와 LogPower에서는 버튼별 TOP50 패턴을 별도 색으로 강조합니다.</li><li>점에 마우스를 올리면 곡명, 패턴, 레벨, 점수와 지표값이 표시됩니다.</li></ul></section>
-        <section><h3>7. History와 시점 비교</h3><p>History는 V-ARCHIVE의 패턴별 변경 이력을 로컬 캐시에 수집해 시간에 따른 버튼별 LogPower Top50 합계를 복원합니다.</p><ul><li>데스크톱 앱에서 V-ARCHIVE 앱 폴더의 <code>account.txt</code>를 지정하거나 회원 번호와 토큰을 입력해야 합니다.</li><li>다른 닉네임을 조회하면 계정 연결은 해제되어 잘못된 계정 이력 수집을 막습니다.</li><li>시점 비교는 두 시점 이전의 마지막 기록이 모두 있는 패턴만 비교합니다. 비교 시점을 비우면 현재 API 기록을 사용합니다.</li></ul></section>
-        <section><h3>8. 다른 계정과 비교</h3><p>Compare는 두 계정에 모두 존재하는 title·button·pattern 조합만 표시합니다. floor 범위를 바꾸면 공통 기록 수와 우위 통계도 함께 다시 계산됩니다.</p><ul><li>Score는 절대 점수 차이, Z는 각 계정의 동일 floor 분포에서 평균으로부터 떨어진 표준편차 차이입니다.</li><li>LogPower·DJClass·Point 차이를 정렬하거나 필터링할 수 있습니다.</li><li>비교 산포도는 양 계정을 X·Y축으로 두거나 회전한 벡터 축으로 표시할 수 있습니다.</li></ul></section>
-        <section><h3>9. Debug 시뮬레이터</h3><p>floor 관계값 후보를 입력하면 현재 기록 전체의 LogPower와 버튼별 Top50 합계를 즉시 다시 계산합니다.</p><ul><li>산포도는 후보 관계값으로 계산한 내 개별 기록과 floor별 분포를 보여줍니다.</li><li>단일 버튼을 선택하면 해당 버튼의 정규화가 반영된 floor 최대치선도 표시됩니다.</li><li>Debug 값은 임시 계산이며 실제 점수제, 기록 캐시 또는 저장된 결과를 변경하지 않습니다.</li></ul></section>
-        <section><h3>10. 이미지 출력</h3><p>LogPower Top30, Floor_View, 일반 산포도, 계정 비교, History 그래프를 PNG로 다운로드합니다. 지원되는 환경에서는 같은 이미지를 클립보드에도 복사합니다.</p><ul><li>자켓 이미지는 DJMAX.GG에서 사용자 기기가 직접 요청합니다.</li><li>외부 이미지 서버가 응답하지 않으면 이미지 생성에서 해당 자켓이 비어 보일 수 있습니다.</li><li>이미지에는 닉네임, 그래프 조건, 앱 버전과 생성 시점이 포함됩니다.</li></ul></section>
-        <section><h3>11. 데스크톱 앱과 업데이트</h3><p>웹 버전은 일반 기록 조회와 분석에 사용할 수 있고, 데스크톱 앱은 CORS 제한 없이 History API와 계정 로그인을 사용할 수 있습니다.</p><ul><li>업데이트 확인은 GitHub Pages의 버전 정보만 읽습니다.</li><li>새 버전이 있으면 GitHub Release의 Windows ZIP을 내려받아 앱을 교체합니다.</li><li>업데이트가 보이지 않으면 수동 업데이트 확인을 누른 뒤 앱을 다시 시작해 보세요.</li></ul></section>
-        <section><h3>12. 개인정보와 문제 해결</h3><p>회원 번호와 로그인 토큰은 V-ARCHIVE 로그인 및 History 요청에만 사용하며, 이 프로젝트의 별도 운영 서버로 전송하지 않습니다. 토큰이 들어 있는 파일은 공유하지 마세요.</p><ul><li>기록이 이상하면 먼저 일반 새로고침, 이후 전체 새로고침 순서로 확인합니다.</li><li>History가 비어 있으면 조회 닉네임과 연결 계정이 같은지 확인하고 전체 재수집을 실행합니다.</li><li>필터가 예상과 다르면 버튼·패턴·검색·floor 범위를 전체로 되돌려 확인합니다.</li></ul></section>
+        <section><h3>7. Tags</h3><p>Tags는 816곡의 BPM, 장르, 별칭과 채보 특성 태그를 곡 번호로 결합해 탐색합니다. 태그 데이터는 Supabase에서 사용자 기기가 직접 요청하고 24시간 캐시됩니다.</p><ul><li>상단 버튼·패턴·검색·표시 개수 조건이 Tags 결과에도 적용됩니다.</li><li>여러 태그를 선택해 모두 포함(AND) 또는 하나 이상(OR)으로 조합할 수 있습니다.</li><li>장르, BPM 범위, 내 기록 유무, 태그 단계와 정렬 조건을 함께 사용할 수 있습니다.</li><li>태그 새로고침은 캐시를 무시하고 태그와 전체 곡 목록을 다시 결합합니다.</li></ul></section>
+        <section><h3>8. History와 시점 비교</h3><p>History는 V-ARCHIVE의 패턴별 변경 이력을 로컬 캐시에 수집해 시간에 따른 버튼별 LogPower Top50 합계를 복원합니다.</p><ul><li>데스크톱 앱에서 V-ARCHIVE 앱 폴더의 <code>account.txt</code>를 지정하거나 회원 번호와 토큰을 입력해야 합니다.</li><li>다른 닉네임을 조회하면 계정 연결은 해제되어 잘못된 계정 이력 수집을 막습니다.</li><li>시점 비교는 두 시점 이전의 마지막 기록이 모두 있는 패턴만 비교합니다. 비교 시점을 비우면 현재 API 기록을 사용합니다.</li></ul></section>
+        <section><h3>9. 다른 계정과 비교</h3><p>Compare는 두 계정에 모두 존재하는 title·button·pattern 조합만 표시합니다. floor 범위를 바꾸면 공통 기록 수와 우위 통계도 함께 다시 계산됩니다.</p><ul><li>Score는 절대 점수 차이, Z는 각 계정의 동일 floor 분포에서 평균으로부터 떨어진 표준편차 차이입니다.</li><li>LogPower·DJClass·Point 차이를 정렬하거나 필터링할 수 있습니다.</li><li>비교 산포도는 양 계정을 X·Y축으로 두거나 회전한 벡터 축으로 표시할 수 있습니다.</li></ul></section>
+        <section><h3>10. Debug 시뮬레이터</h3><p>floor 관계값 후보를 입력하면 현재 기록 전체의 LogPower와 버튼별 Top50 합계를 즉시 다시 계산합니다.</p><ul><li>산포도는 후보 관계값으로 계산한 내 개별 기록과 floor별 분포를 보여줍니다.</li><li>단일 버튼을 선택하면 해당 버튼의 정규화가 반영된 floor 최대치선도 표시됩니다.</li><li>Debug 값은 임시 계산이며 실제 점수제, 기록 캐시 또는 저장된 결과를 변경하지 않습니다.</li></ul></section>
+        <section><h3>11. 이미지 출력</h3><p>LogPower Top30, Floor_View, 일반 산포도, 계정 비교, History 그래프를 PNG로 다운로드합니다. 지원되는 환경에서는 같은 이미지를 클립보드에도 복사합니다.</p><ul><li>자켓 이미지는 DJMAX.GG에서 사용자 기기가 직접 요청합니다.</li><li>외부 이미지 서버가 응답하지 않으면 이미지 생성에서 해당 자켓이 비어 보일 수 있습니다.</li><li>이미지에는 닉네임, 그래프 조건, 앱 버전과 생성 시점이 포함됩니다.</li></ul></section>
+        <section><h3>12. 데스크톱 앱과 업데이트</h3><p>웹 버전은 일반 기록 조회와 분석에 사용할 수 있고, 데스크톱 앱은 CORS 제한 없이 History API와 계정 로그인을 사용할 수 있습니다.</p><ul><li>업데이트 확인은 GitHub Pages의 버전 정보만 읽습니다.</li><li>새 버전이 있으면 GitHub Release의 Windows ZIP을 내려받아 앱을 교체합니다.</li><li>업데이트가 보이지 않으면 수동 업데이트 확인을 누른 뒤 앱을 다시 시작해 보세요.</li></ul></section>
+        <section><h3>13. 개인정보와 문제 해결</h3><p>회원 번호와 로그인 토큰은 V-ARCHIVE 로그인 및 History 요청에만 사용하며, 이 프로젝트의 별도 운영 서버로 전송하지 않습니다. 토큰이 들어 있는 파일은 공유하지 마세요.</p><ul><li>기록이 이상하면 먼저 일반 새로고침, 이후 전체 새로고침 순서로 확인합니다.</li><li>History가 비어 있으면 조회 닉네임과 연결 계정이 같은지 확인하고 전체 재수집을 실행합니다.</li><li>필터가 예상과 다르면 버튼·패턴·검색·floor 범위를 전체로 되돌려 확인합니다.</li></ul></section>
       </div>
     </section>
 

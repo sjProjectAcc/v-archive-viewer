@@ -23,6 +23,10 @@ const state = {
   historyStopRequested: false,
   historyRenderToken: 0,
   historyAccountNickname: "",
+  tagsRows: [],
+  tagsSelected: new Set(),
+  tagsUpdatedAt: 0,
+  tagsLoading: false,
   sortKey: null,
   sortDir: "asc",
 };
@@ -46,6 +50,10 @@ const FLOOR_STEP_RATIO = 10 / 9.05;
 const TARGET_TOP50_MAX = 5000;
 const TOP50_SCALE_CACHE_KEY = "vArchiveTop50ScaleCache0905";
 const TOP50_SCALE_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+const TAGS_API_URL = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/song_tags_2?select=song_title%2Ctags%2Caka&limit=1000";
+const TAGS_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqd3V1b2RtdHR0cW9oeHN5Y3ZwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUxNDkwNjYsImV4cCI6MjA3MDcyNTA2Nn0.FItZtjt2v2otOUnmDtqhKG4IrPD4FjaRc_tVy-nxpsI";
+const TAGS_CACHE_KEY = "vArchiveSongTagsCacheV1";
+const TAGS_CACHE_TTL = 24 * 60 * 60 * 1000;
 const FALLBACK_BUTTON_TOP50_BASE_MAX = Object.freeze({
   4: 4166.31349894268,
   5: 3980.45017878281,
@@ -207,6 +215,22 @@ const selfCompareStatus = document.querySelector("#selfCompareStatus");
 const selfCompareStart = document.querySelector("#selfCompareStart");
 const selfCompareEnd = document.querySelector("#selfCompareEnd");
 const selfCompareNowButton = document.querySelector("#selfCompareNowButton");
+const tagsPanel = document.querySelector("#tagsPanel");
+const tagsStatus = document.querySelector("#tagsStatus");
+const tagsRefreshButton = document.querySelector("#tagsRefreshButton");
+const tagsClearButton = document.querySelector("#tagsClearButton");
+const tagsGenreSelect = document.querySelector("#tagsGenreSelect");
+const tagsBpmMinInput = document.querySelector("#tagsBpmMinInput");
+const tagsBpmMaxInput = document.querySelector("#tagsBpmMaxInput");
+const tagsRecordModeSelect = document.querySelector("#tagsRecordModeSelect");
+const tagsWeightSelect = document.querySelector("#tagsWeightSelect");
+const tagsMatchModeSelect = document.querySelector("#tagsMatchModeSelect");
+const tagsSortSelect = document.querySelector("#tagsSortSelect");
+const tagsFacetSearchInput = document.querySelector("#tagsFacetSearchInput");
+const tagsSelectedSummary = document.querySelector("#tagsSelectedSummary");
+const tagsFacetList = document.querySelector("#tagsFacetList");
+const tagsResultSummary = document.querySelector("#tagsResultSummary");
+const tagsTable = document.querySelector("#tagsTable");
 const debugPanel = document.querySelector("#debugPanel");
 const debugRatioInput = document.querySelector("#debugRatioInput");
 const debugRatioRange = document.querySelector("#debugRatioRange");
@@ -483,6 +507,36 @@ function wireEvents() {
     saveSettings();
     renderSelfCompareView();
   });
+  [tagsGenreSelect, tagsBpmMinInput, tagsBpmMaxInput, tagsRecordModeSelect, tagsWeightSelect, tagsMatchModeSelect, tagsSortSelect, tagsFacetSearchInput].forEach((control) => {
+    control.addEventListener("input", () => {
+      saveSettings();
+      renderTagsView();
+    });
+  });
+  tagsFacetList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-tag-value]");
+    if (!button) return;
+    const tag = decodeURIComponent(button.dataset.tagValue || "");
+    if (!tag) return;
+    if (state.tagsSelected.has(tag)) state.tagsSelected.delete(tag);
+    else state.tagsSelected.add(tag);
+    saveSettings();
+    renderTagsView();
+  });
+  tagsClearButton.addEventListener("click", () => {
+    tagsGenreSelect.value = "";
+    tagsBpmMinInput.value = "";
+    tagsBpmMaxInput.value = "";
+    tagsRecordModeSelect.value = "";
+    tagsWeightSelect.value = "";
+    tagsMatchModeSelect.value = "all";
+    tagsSortSelect.value = "name";
+    tagsFacetSearchInput.value = "";
+    state.tagsSelected.clear();
+    saveSettings();
+    renderTagsView();
+  });
+  tagsRefreshButton.addEventListener("click", () => loadTagsData(true));
   debugRatioInput.addEventListener("input", () => {
     setDebugRatio(debugRatioInput.value);
     saveSettings();
@@ -552,6 +606,15 @@ function applySavedSettings() {
   historyEndDate.value = settings.historyEndDate || "";
   selfCompareStart.value = settings.selfCompareStart || "";
   selfCompareEnd.value = settings.selfCompareEnd || "";
+  setIfOptionExists(tagsRecordModeSelect, settings.tagsRecordMode || "");
+  setIfOptionExists(tagsWeightSelect, settings.tagsWeight || "");
+  setIfOptionExists(tagsMatchModeSelect, settings.tagsMatchMode || "all");
+  setIfOptionExists(tagsSortSelect, settings.tagsSort || "name");
+  tagsBpmMinInput.value = settings.tagsBpmMin || "";
+  tagsBpmMaxInput.value = settings.tagsBpmMax || "";
+  tagsFacetSearchInput.value = settings.tagsFacetSearch || "";
+  tagsGenreSelect.dataset.savedValue = settings.tagsGenre || "";
+  state.tagsSelected = new Set(Array.isArray(settings.tagsSelected) ? settings.tagsSelected.filter(Boolean) : []);
   setDebugRatio(settings.debugRatio || currentFloorRelation());
   applyTheme(settings.theme || "light");
   restoreCompareChartRange(state.compareChartMetric);
@@ -596,6 +659,15 @@ function saveSettings() {
     historyEndDate: historyEndDate.value,
     selfCompareStart: selfCompareStart.value,
     selfCompareEnd: selfCompareEnd.value,
+    tagsGenre: tagsGenreSelect.value,
+    tagsBpmMin: tagsBpmMinInput.value,
+    tagsBpmMax: tagsBpmMaxInput.value,
+    tagsRecordMode: tagsRecordModeSelect.value,
+    tagsWeight: tagsWeightSelect.value,
+    tagsMatchMode: tagsMatchModeSelect.value,
+    tagsSort: tagsSortSelect.value,
+    tagsFacetSearch: tagsFacetSearchInput.value,
+    tagsSelected: [...state.tagsSelected],
     debugRatio: debugRatioInput.value,
     theme: document.documentElement.dataset.theme || "light",
   };
@@ -731,6 +803,288 @@ function isValidButtonTop50BaseMax(value) {
 
 function isValidFloorPatternCounts(value) {
   return value && BUTTONS.every((button) => value[String(button)] && typeof value[String(button)] === "object");
+}
+
+function loadTagsCache() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(TAGS_CACHE_KEY) || "null");
+    if (!Array.isArray(cached?.rows) || cached.rows.length < 100) return null;
+    state.tagsRows = cached.rows;
+    state.tagsUpdatedAt = Number(cached.updatedAt) || 0;
+    populateTagsGenreOptions();
+    return cached;
+  } catch {
+    return null;
+  }
+}
+
+async function loadTagsData(force = false) {
+  if (state.tagsLoading) return;
+  const cached = loadTagsCache();
+  if (!force && cached && Date.now() - state.tagsUpdatedAt < TAGS_CACHE_TTL) {
+    if (viewSelect.value === "tags") renderTagsView();
+    return;
+  }
+
+  state.tagsLoading = true;
+  tagsRefreshButton.disabled = true;
+  tagsStatus.textContent = cached ? "저장된 태그를 표시하며 새 데이터를 확인하고 있습니다." : "태그와 곡 목록을 불러오고 있습니다.";
+  try {
+    const [tagsResponse, songsResponse] = await Promise.all([
+      fetch(TAGS_API_URL, {
+        credentials: "omit",
+        headers: { apikey: TAGS_ANON_KEY, Authorization: `Bearer ${TAGS_ANON_KEY}`, Accept: "application/json" },
+      }),
+      fetch(SONG_DB_URL, { credentials: "omit" }),
+    ]);
+    if (!tagsResponse.ok) throw new Error(`태그 API HTTP ${tagsResponse.status}`);
+    if (!songsResponse.ok) throw new Error(`곡 목록 HTTP ${songsResponse.status}`);
+    const [tagRows, songs] = await Promise.all([tagsResponse.json(), songsResponse.json()]);
+    const rows = normalizeTagsRows(tagRows, songs);
+    if (rows.length < 100) throw new Error(`태그 데이터가 너무 적습니다. (${rows.length}곡)`);
+    state.tagsRows = rows;
+    state.tagsUpdatedAt = Date.now();
+    populateTagsGenreOptions();
+    try {
+      localStorage.setItem(TAGS_CACHE_KEY, JSON.stringify({ updatedAt: state.tagsUpdatedAt, rows }));
+    } catch {
+      // The current data still remains usable when storage quota is unavailable.
+    }
+  } catch (error) {
+    tagsStatus.textContent = cached
+      ? `태그 갱신 실패 · 저장된 ${state.tagsRows.length}곡 사용 · ${error.message || error}`
+      : `태그를 불러오지 못했습니다. ${error.message || error}`;
+  } finally {
+    state.tagsLoading = false;
+    tagsRefreshButton.disabled = false;
+    if (viewSelect.value === "tags") renderTagsView();
+  }
+}
+
+function normalizeTagsRows(tagRows, songs) {
+  if (!Array.isArray(tagRows) || !Array.isArray(songs)) return [];
+  const tagsByTitle = new Map(tagRows.map((row) => [String(row.song_title), row]));
+  return songs.map((song) => {
+    const tagRow = tagsByTitle.get(String(song.title)) || {};
+    const parsed = parseTagsText(tagRow.tags);
+    const availablePatterns = {};
+    for (const button of BUTTONS) availablePatterns[String(button)] = Object.keys(song?.patterns?.[`${button}B`] || {});
+    return {
+      title: Number(song.title),
+      name: String(song.name || `#${song.title}`),
+      composer: String(song.composer || ""),
+      dlcCode: String(song.dlcCode || ""),
+      aka: String(tagRow.aka || ""),
+      aliases: String(tagRow.aka || "").split(",").map((value) => value.trim()).filter(Boolean),
+      tagsRaw: String(tagRow.tags || ""),
+      bpmText: parsed.bpmText,
+      bpmMin: parsed.bpmMin,
+      bpmMax: parsed.bpmMax,
+      genre: parsed.genre,
+      tokens: parsed.tokens,
+      availablePatterns,
+    };
+  });
+}
+
+function parseTagsText(value) {
+  let bpmText = "";
+  let genre = "";
+  const tokens = [];
+  const seen = new Set();
+  for (const rawValue of String(value || "").split(",")) {
+    const raw = rawValue.trim();
+    if (!raw) continue;
+    const bpmMatch = raw.match(/^BPM\s*:\s*(.+)$/i);
+    if (bpmMatch) {
+      bpmText = bpmMatch[1].trim();
+      continue;
+    }
+    const genreMatch = raw.match(/^GENRE\s*:\s*(.+)$/i);
+    if (genreMatch) {
+      genre = genreMatch[1].trim();
+      continue;
+    }
+    const scopedMatch = raw.match(/^(ALL|[4568]B)\s*:\s*(.*?)(?:\|\{(\d+)\})?$/i);
+    const scope = scopedMatch ? scopedMatch[1].toUpperCase() : "GENERAL";
+    const label = (scopedMatch ? scopedMatch[2] : raw).trim();
+    const weight = scopedMatch?.[3] || "";
+    const key = `${scope}|${label}|${weight}`;
+    if (!label || seen.has(key)) continue;
+    seen.add(key);
+    tokens.push({ scope, label, weight });
+  }
+  const bpmNumbers = (bpmText.match(/\d+(?:\.\d+)?/g) || []).map(Number).filter(Number.isFinite);
+  return {
+    bpmText,
+    bpmMin: bpmNumbers.length ? Math.min(...bpmNumbers) : null,
+    bpmMax: bpmNumbers.length ? Math.max(...bpmNumbers) : null,
+    genre,
+    tokens,
+  };
+}
+
+function populateTagsGenreOptions() {
+  const current = tagsGenreSelect.value || tagsGenreSelect.dataset.savedValue || "";
+  const genres = [...new Set(state.tagsRows.map((row) => row.genre).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "ko", { sensitivity: "base" }));
+  tagsGenreSelect.innerHTML = `<option value="">전체</option>${genres.map((genre) => `<option value="${escapeHtml(genre)}">${escapeHtml(genre)}</option>`).join("")}`;
+  if ([...tagsGenreSelect.options].some((option) => option.value === current)) tagsGenreSelect.value = current;
+  delete tagsGenreSelect.dataset.savedValue;
+}
+
+function getTagsRecordStats() {
+  const records = (state.payload?.records || []).filter((record) => {
+    if (buttonFilter.value && String(record.button) !== buttonFilter.value) return false;
+    if (patternFilter.value && String(record.pattern || "") !== patternFilter.value) return false;
+    return true;
+  });
+  const stats = new Map();
+  for (const record of records) {
+    const key = String(record.title);
+    if (!stats.has(key)) stats.set(key, { count: 0, bestScore: NaN, buttons: new Set(), patterns: new Set() });
+    const item = stats.get(key);
+    item.count += 1;
+    const score = Number(record.score);
+    if (Number.isFinite(score) && (!Number.isFinite(item.bestScore) || score > item.bestScore)) item.bestScore = score;
+    item.buttons.add(String(record.button));
+    item.patterns.add(String(record.pattern || ""));
+  }
+  return stats;
+}
+
+function tagsForCurrentScope(row) {
+  const button = buttonFilter.value;
+  const weight = tagsWeightSelect.value;
+  return (row.tokens || []).filter((token) => {
+    if (token.scope !== "GENERAL" && token.scope !== "ALL" && button && token.scope !== `${button}B`) return false;
+    if (!weight || token.scope === "GENERAL") return true;
+    if (weight === "none") return !token.weight;
+    return token.weight === weight;
+  });
+}
+
+function tagRowHasAvailablePattern(row) {
+  const button = buttonFilter.value;
+  const pattern = patternFilter.value;
+  if (button && !(row.availablePatterns?.[button] || []).length) return false;
+  if (!pattern) return true;
+  if (button) return (row.availablePatterns?.[button] || []).includes(pattern);
+  return BUTTONS.some((item) => (row.availablePatterns?.[String(item)] || []).includes(pattern));
+}
+
+function renderTagsView() {
+  if (viewSelect.value !== "tags") return;
+  if (!state.tagsRows.length) {
+    const cached = loadTagsCache();
+    if (!cached) {
+      tagsTable.innerHTML = `<tbody><tr><td class="empty">태그 데이터를 불러오고 있습니다.</td></tr></tbody>`;
+      tagsFacetList.innerHTML = "";
+      tagsResultSummary.textContent = "";
+      if (!state.tagsLoading) loadTagsData(false);
+      return;
+    }
+  }
+  if (Date.now() - state.tagsUpdatedAt >= TAGS_CACHE_TTL && !state.tagsLoading) loadTagsData(true);
+
+  const recordStats = getTagsRecordStats();
+  const query = searchInput.value.trim().toLocaleLowerCase("ko");
+  const bpmMin = tagsBpmMinInput.value === "" ? null : Number(tagsBpmMinInput.value);
+  const bpmMax = tagsBpmMaxInput.value === "" ? null : Number(tagsBpmMaxInput.value);
+  const weight = tagsWeightSelect.value;
+  const baseRows = state.tagsRows.filter((row) => {
+    if (!tagRowHasAvailablePattern(row)) return false;
+    if (query && !`${row.title} ${row.name} ${row.composer} ${row.aka} ${row.tagsRaw}`.toLocaleLowerCase("ko").includes(query)) return false;
+    if (tagsGenreSelect.value && row.genre !== tagsGenreSelect.value) return false;
+    if (Number.isFinite(bpmMin) && (!Number.isFinite(row.bpmMax) || row.bpmMax < bpmMin)) return false;
+    if (Number.isFinite(bpmMax) && (!Number.isFinite(row.bpmMin) || row.bpmMin > bpmMax)) return false;
+    const stats = recordStats.get(String(row.title));
+    if (tagsRecordModeSelect.value === "recorded" && !stats) return false;
+    if (tagsRecordModeSelect.value === "unrecorded" && stats) return false;
+    if (weight) {
+      const scopedPatternTokens = (row.tokens || []).filter((token) => token.scope !== "GENERAL"
+        && (!buttonFilter.value || token.scope === "ALL" || token.scope === `${buttonFilter.value}B`));
+      const hasWeight = weight === "none"
+        ? scopedPatternTokens.some((token) => !token.weight)
+        : scopedPatternTokens.some((token) => token.weight === weight);
+      if (!hasWeight) return false;
+    }
+    return true;
+  });
+
+  const facetCounts = new Map();
+  for (const row of baseRows) {
+    const labels = new Set(tagsForCurrentScope(row).map((token) => token.label));
+    for (const label of labels) facetCounts.set(label, Number(facetCounts.get(label) || 0) + 1);
+  }
+  for (const selected of [...state.tagsSelected]) {
+    if (!facetCounts.has(selected)) facetCounts.set(selected, 0);
+  }
+
+  const selected = [...state.tagsSelected];
+  const matchAll = tagsMatchModeSelect.value !== "any";
+  const rows = baseRows.filter((row) => {
+    if (!selected.length) return true;
+    const labels = new Set(tagsForCurrentScope(row).map((token) => token.label));
+    return matchAll ? selected.every((tag) => labels.has(tag)) : selected.some((tag) => labels.has(tag));
+  }).map((row) => ({ ...row, recordStats: recordStats.get(String(row.title)) || null, visibleTokens: tagsForCurrentScope(row) }));
+
+  sortTagRows(rows);
+  renderTagsFacets(facetCounts);
+  renderTagsTable(rows);
+  const recordedCount = rows.filter((row) => row.recordStats).length;
+  tagsResultSummary.innerHTML = `<strong>${rows.length.toLocaleString()}곡</strong><span>전체 ${state.tagsRows.length.toLocaleString()}곡 · 내 기록 ${recordedCount.toLocaleString()}곡 · 표시 조건은 상단 버튼/패턴/검색을 포함합니다.</span>`;
+  tagsSelectedSummary.textContent = selected.length ? `${selected.length}개 선택 · ${selected.join(" + ")}` : "선택 없음";
+  if (!state.tagsLoading) tagsStatus.textContent = `${state.tagsRows.length.toLocaleString()}곡 · ${formatDate(new Date(state.tagsUpdatedAt).toISOString())} 갱신`;
+}
+
+function sortTagRows(rows) {
+  const mode = tagsSortSelect.value;
+  const byName = (a, b) => a.name.localeCompare(b.name, "ko", { sensitivity: "base" }) || a.title - b.title;
+  if (mode === "bpmAsc") rows.sort((a, b) => compareForSort(a.bpmMin, b.bpmMin) || byName(a, b));
+  else if (mode === "bpmDesc") rows.sort((a, b) => compareForSort(b.bpmMax, a.bpmMax) || byName(a, b));
+  else if (mode === "tagCount") rows.sort((a, b) => b.visibleTokens.length - a.visibleTokens.length || byName(a, b));
+  else if (mode === "score") rows.sort((a, b) => compareForSort(b.recordStats?.bestScore, a.recordStats?.bestScore) || byName(a, b));
+  else rows.sort(byName);
+}
+
+function renderTagsFacets(facetCounts) {
+  const query = tagsFacetSearchInput.value.trim().toLocaleLowerCase("ko");
+  const entries = [...facetCounts.entries()]
+    .filter(([label]) => !query || label.toLocaleLowerCase("ko").includes(query))
+    .sort((a, b) => Number(state.tagsSelected.has(b[0])) - Number(state.tagsSelected.has(a[0])) || b[1] - a[1] || a[0].localeCompare(b[0], "ko"));
+  const visible = entries.slice(0, 200);
+  tagsFacetList.innerHTML = visible.length
+    ? visible.map(([label, count]) => `<button class="tagFacetChip${state.tagsSelected.has(label) ? " active" : ""}" type="button" data-tag-value="${encodeURIComponent(label)}"><span>${escapeHtml(label)}</span><b>${count}</b></button>`).join("")
+    : `<span class="tagsEmpty">조건에 맞는 태그가 없습니다.</span>`;
+}
+
+function renderTagsTable(rows) {
+  const limit = Number(limitSelect.value);
+  const visibleRows = limit > 0 ? rows.slice(0, limit) : rows;
+  const header = `<thead><tr><th>곡</th><th>BPM</th><th>장르</th><th>별칭</th><th>태그</th><th>내 기록</th></tr></thead>`;
+  if (!visibleRows.length) {
+    tagsTable.innerHTML = `${header}<tbody><tr><td class="empty" colspan="6">조건에 맞는 곡이 없습니다.</td></tr></tbody>`;
+    return;
+  }
+  const body = visibleRows.map((row) => {
+    const stats = row.recordStats;
+    const recordLabel = stats
+      ? `<strong>${stats.count}개</strong><span>최고 ${Number.isFinite(stats.bestScore) ? stats.bestScore.toFixed(2) : "-"}</span><small>${[...stats.buttons].sort().map((button) => `${button}B`).join(" · ")}</small>`
+      : `<span class="muted">기록 없음</span>`;
+    const tokenHtml = row.visibleTokens.length
+      ? row.visibleTokens.map((token) => `<span class="songTag${state.tagsSelected.has(token.label) ? " selected" : ""}">${token.scope === "GENERAL" ? "" : `<small>${escapeHtml(token.scope)}</small>`}${escapeHtml(token.label)}${token.weight ? `<b>${escapeHtml(token.weight)}</b>` : ""}</span>`).join("")
+      : `<span class="muted">표시할 태그 없음</span>`;
+    return `<tr>
+      <td class="tagSongCell"><strong>${escapeHtml(row.name)}</strong><span>#${row.title} · ${escapeHtml(row.composer)}${row.dlcCode ? ` · ${escapeHtml(row.dlcCode)}` : ""}</span></td>
+      <td class="num">${escapeHtml(row.bpmText || "-")}</td>
+      <td>${escapeHtml(row.genre || "-")}</td>
+      <td class="tagAliasCell">${escapeHtml(row.aka || "-")}</td>
+      <td><div class="songTags">${tokenHtml}</div></td>
+      <td class="tagRecordCell">${recordLabel}</td>
+    </tr>`;
+  }).join("");
+  tagsTable.innerHTML = `${header}<tbody>${body}</tbody>`;
 }
 
 function getCurrentNickname() {
@@ -1236,6 +1590,7 @@ function renderActiveView() {
   const isCompare = viewSelect.value === "compare";
   const isHistory = viewSelect.value === "history";
   const isSelfCompare = viewSelect.value === "selfCompare";
+  const isTags = viewSelect.value === "tags";
   const isDebug = viewSelect.value === "debug";
   const isReadme = viewSelect.value === "readme";
   const isOverview = viewSelect.value === "summaryInfo";
@@ -1243,10 +1598,11 @@ function renderActiveView() {
   compareChartPanel.hidden = !isCompare;
   historyPanel.hidden = !isHistory;
   selfComparePanel.hidden = !isSelfCompare;
+  tagsPanel.hidden = !isTags;
   debugPanel.hidden = !isDebug;
   readmePanel.hidden = !isReadme;
   overviewPanel.hidden = !isOverview;
-  tableSection.hidden = isChart || isOverview || isDebug || isReadme;
+  tableSection.hidden = isChart || isOverview || isDebug || isReadme || isTags;
   updateCompareControls();
   hideTooltip();
   hideCompareChartTooltip();
@@ -1254,6 +1610,7 @@ function renderActiveView() {
   if (isChart) renderChart();
   else if (isHistory) renderHistoryView();
   else if (isSelfCompare) renderSelfCompareView();
+  else if (isTags) renderTagsView();
   else if (isDebug) renderDebugView();
   else if (isOverview) renderOverview();
   else if (isReadme) return;
