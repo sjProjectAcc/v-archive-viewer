@@ -228,7 +228,7 @@ const tagsBpmMaxInput = document.querySelector("#tagsBpmMaxInput");
 const tagsRecordModeSelect = document.querySelector("#tagsRecordModeSelect");
 const tagsWeightSelect = document.querySelector("#tagsWeightSelect");
 const tagsPatternOnlyInput = document.querySelector("#tagsPatternOnlyInput");
-const tagsExcludeMxInput = document.querySelector("#tagsExcludeMxInput");
+const tagsScPatternOnlyInput = document.querySelector("#tagsScPatternOnlyInput");
 const tagsMatchModeSelect = document.querySelector("#tagsMatchModeSelect");
 const tagsSortSelect = document.querySelector("#tagsSortSelect");
 const tagsFacetSearchInput = document.querySelector("#tagsFacetSearchInput");
@@ -269,6 +269,9 @@ const patternFilter = document.querySelector("#patternFilter");
 const searchInput = document.querySelector("#searchInput");
 const limitSelect = document.querySelector("#limitSelect");
 const nameWidthInput = document.querySelector("#nameWidthInput");
+const recordsFloorMinSelect = document.querySelector("#recordsFloorMinSelect");
+const recordsFloorMaxSelect = document.querySelector("#recordsFloorMaxSelect");
+const recordsOnlyEls = document.querySelectorAll(".recordsOnly");
 const compareNicknameInput = document.querySelector("#compareNicknameInput");
 const compareLoadButton = document.querySelector("#compareLoadButton");
 const compareModeSelect = document.querySelector("#compareModeSelect");
@@ -444,10 +447,14 @@ function initFloorSelectors() {
   xMaxSelect.innerHTML = options;
   compareFloorMinSelect.innerHTML = options;
   compareFloorMaxSelect.innerHTML = options;
+  recordsFloorMinSelect.innerHTML = options;
+  recordsFloorMaxSelect.innerHTML = options;
   xMinSelect.value = "1.1";
   xMaxSelect.value = "17.3";
   compareFloorMinSelect.value = "1.1";
   compareFloorMaxSelect.value = "17.3";
+  recordsFloorMinSelect.value = "1.1";
+  recordsFloorMaxSelect.value = "17.3";
   viewSelect.value = "chart";
   applySavedSettings();
 }
@@ -466,7 +473,7 @@ function wireEvents() {
   compareNicknameInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") loadComparison(false);
   });
-  [viewSelect, buttonFilter, patternFilter, searchInput, limitSelect, nameWidthInput, compareNicknameInput, compareModeSelect, compareSortSelect, compareMinZSelect, compareFloorMinSelect, compareFloorMaxSelect, compareStdFloorSelect].forEach((el) => {
+  [viewSelect, buttonFilter, patternFilter, searchInput, limitSelect, nameWidthInput, recordsFloorMinSelect, recordsFloorMaxSelect, compareNicknameInput, compareModeSelect, compareSortSelect, compareMinZSelect, compareFloorMinSelect, compareFloorMaxSelect, compareStdFloorSelect].forEach((el) => {
     el.addEventListener("input", () => {
       if (el === viewSelect) state.sortKey = null;
       state.view = viewSelect.value;
@@ -558,7 +565,7 @@ function wireEvents() {
     saveSettings();
     renderSelfCompareView();
   });
-  [tagsGenreSelect, tagsBpmMinInput, tagsBpmMaxInput, tagsRecordModeSelect, tagsWeightSelect, tagsPatternOnlyInput, tagsExcludeMxInput, tagsMatchModeSelect, tagsSortSelect, tagsFacetSearchInput].forEach((control) => {
+  [tagsGenreSelect, tagsBpmMinInput, tagsBpmMaxInput, tagsRecordModeSelect, tagsWeightSelect, tagsPatternOnlyInput, tagsScPatternOnlyInput, tagsMatchModeSelect, tagsSortSelect, tagsFacetSearchInput].forEach((control) => {
     control.addEventListener("input", () => {
       saveSettings();
       renderTagsView();
@@ -581,7 +588,7 @@ function wireEvents() {
     tagsRecordModeSelect.value = "";
     tagsWeightSelect.value = "";
     tagsPatternOnlyInput.checked = false;
-    tagsExcludeMxInput.checked = false;
+    tagsScPatternOnlyInput.checked = false;
     tagsMatchModeSelect.value = "all";
     tagsSortSelect.value = "name";
     tagsFacetSearchInput.value = "";
@@ -650,6 +657,8 @@ function applySavedSettings() {
   setIfOptionExists(compareMinZSelect, settings.compareMinZ || "0");
   setIfOptionExists(compareFloorMinSelect, settings.compareFloorMin || "1.1");
   setIfOptionExists(compareFloorMaxSelect, settings.compareFloorMax || "17.3");
+  setIfOptionExists(recordsFloorMinSelect, settings.recordsFloorMin || "1.1");
+  setIfOptionExists(recordsFloorMaxSelect, settings.recordsFloorMax || "17.3");
   setIfOptionExists(compareStdFloorSelect, settings.compareStdFloor || "0.05");
   setIfOptionExists(compareChartMetricSelect, settings.compareChartMetric || "score");
   setIfOptionExists(compareChartModeSelect, settings.compareChartMode || "vector");
@@ -662,7 +671,7 @@ function applySavedSettings() {
   setIfOptionExists(tagsRecordModeSelect, settings.tagsRecordMode || "");
   setIfOptionExists(tagsWeightSelect, settings.tagsWeight || "");
   tagsPatternOnlyInput.checked = Boolean(settings.tagsPatternOnly && buttonFilter.value);
-  tagsExcludeMxInput.checked = Boolean(settings.tagsExcludeMx);
+  tagsScPatternOnlyInput.checked = Boolean(settings.tagsScPatternOnly ?? settings.tagsExcludeMx);
   setIfOptionExists(tagsMatchModeSelect, settings.tagsMatchMode || "all");
   setIfOptionExists(tagsSortSelect, settings.tagsSort || "name");
   tagsBpmMinInput.value = settings.tagsBpmMin || "";
@@ -694,6 +703,8 @@ function saveSettings() {
     compareMinZ: compareMinZSelect.value,
     compareFloorMin: compareFloorMinSelect.value,
     compareFloorMax: compareFloorMaxSelect.value,
+    recordsFloorMin: recordsFloorMinSelect.value,
+    recordsFloorMax: recordsFloorMaxSelect.value,
     compareStdFloor: compareStdFloorSelect.value,
     compareChartMetric: compareChartMetricSelect.value,
     compareChartMode: compareChartModeSelect.value,
@@ -720,7 +731,7 @@ function saveSettings() {
     tagsRecordMode: tagsRecordModeSelect.value,
     tagsWeight: tagsWeightSelect.value,
     tagsPatternOnly: tagsPatternOnlyInput.checked,
-    tagsExcludeMx: tagsExcludeMxInput.checked,
+    tagsScPatternOnly: tagsScPatternOnlyInput.checked,
     tagsMatchMode: tagsMatchModeSelect.value,
     tagsSort: tagsSortSelect.value,
     tagsFacetSearch: tagsFacetSearchInput.value,
@@ -1109,9 +1120,15 @@ function tagsForCurrentScope(row) {
     if (button && token.scope !== "GENERAL" && token.button !== button) return false;
     if (tagsPatternOnlyInput.checked && token.scope === "GENERAL") return false;
     if (patternFilter.value && token.pattern && token.pattern !== patternFilter.value) return false;
-    if (tagsExcludeMxInput.checked && token.pattern === "MX") return false;
+    if (tagsScPatternOnlyInput.checked && ["NM", "HD", "MX"].includes(token.pattern)) return false;
     return true;
   });
+}
+
+function tagTokenMatchesWeight(token, weight) {
+  if (!weight) return true;
+  if (token.scope === "GENERAL") return false;
+  return weight === "none" ? !token.weight : token.weight === weight;
 }
 
 function tagRowHasAvailablePattern(row) {
@@ -1160,7 +1177,7 @@ function renderTagsView() {
       const scopedPatternTokens = (row.tokens || []).filter((token) => token.scope !== "GENERAL"
         && buttonFilter.value && token.button === buttonFilter.value
         && (!patternFilter.value || !token.pattern || token.pattern === patternFilter.value)
-        && (!tagsExcludeMxInput.checked || token.pattern !== "MX"));
+        && (!tagsScPatternOnlyInput.checked || !["NM", "HD", "MX"].includes(token.pattern)));
       const hasWeight = weight === "none"
         ? scopedPatternTokens.some((token) => !token.weight)
         : scopedPatternTokens.some((token) => token.weight === weight);
@@ -1184,8 +1201,9 @@ function renderTagsView() {
   const matchAll = tagsMatchModeSelect.value !== "any";
   const rows = baseRows.filter((row) => {
     if (!selected.length) return true;
-    const labels = new Set(tagsForCurrentScope(row).map((token) => token.label));
-    return matchAll ? selected.every((tag) => labels.has(tag)) : selected.some((tag) => labels.has(tag));
+    const tokens = tagsForCurrentScope(row);
+    const hasMatchingTag = (tag) => tokens.some((token) => token.label === tag && tagTokenMatchesWeight(token, weight));
+    return matchAll ? selected.every(hasMatchingTag) : selected.some(hasMatchingTag);
   }).map((row) => ({ ...row, recordStats: recordStats.get(String(row.title)) || null, visibleTokens: tagsForCurrentScope(row) }));
 
   sortTagRows(rows);
@@ -2756,6 +2774,9 @@ async function drawHistoryImage(svg) {
 function updateCompareControls() {
   compareOnlyEls.forEach((el) => {
     el.hidden = viewSelect.value !== "compare";
+  });
+  recordsOnlyEls.forEach((el) => {
+    el.hidden = viewSelect.value !== "records";
   });
 }
 
@@ -4530,6 +4551,7 @@ function filterRows(rows) {
   return rows.filter((row) => {
     if (button && String(row.button) !== button) return false;
     if (pattern && String(row.pattern || "") !== pattern) return false;
+    if (viewSelect.value === "records" && !isFloorInRecordsRange(row.floorName)) return false;
     if (viewSelect.value === "compare") {
       const mode = compareModeSelect.value;
       const minZ = Number(compareMinZSelect.value) || 0;
@@ -4548,6 +4570,15 @@ function filterRows(rows) {
     if (!query) return true;
     return JSON.stringify(row).toLowerCase().includes(query);
   });
+}
+
+function isFloorInRecordsRange(floorLabel) {
+  const rowFloorIndex = floorLabels.indexOf(String(floorLabel || ""));
+  let start = floorLabels.indexOf(recordsFloorMinSelect.value);
+  let end = floorLabels.indexOf(recordsFloorMaxSelect.value);
+  if (rowFloorIndex < 0 || start < 0 || end < 0) return false;
+  if (start > end) [start, end] = [end, start];
+  return rowFloorIndex >= start && rowFloorIndex <= end;
 }
 
 function isFloorInCompareRange(floorLabel) {
