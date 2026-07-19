@@ -256,6 +256,7 @@ const appVersionEl = document.querySelector("#appVersion");
 const desktopUpdateCheckButton = document.querySelector("#desktopUpdateCheckButton");
 const desktopUpdateButton = document.querySelector("#desktopUpdateButton");
 const themeToggleButton = document.querySelector("#themeToggleButton");
+const installAppButton = document.querySelector("#installAppButton");
 const nicknameInput = document.querySelector("#nicknameInput");
 const nicknameApplyButton = document.querySelector("#nicknameApplyButton");
 const recentNicknamesEl = document.querySelector("#recentNicknames");
@@ -299,12 +300,44 @@ const chartEl = document.querySelector("#floorScoreChart");
 
 window.addEventListener("load", () => {
   renderAppVersion();
+  initPwa();
   initDesktopBridge();
   initFloorSelectors();
   wireEvents();
   loadTop50ScaleCache();
   refresh(false);
 });
+
+let deferredInstallPrompt = null;
+
+function initPwa() {
+  if (!/^https?:$/.test(location.protocol)) return;
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    installAppButton.hidden = false;
+  });
+  window.addEventListener("appinstalled", () => {
+    deferredInstallPrompt = null;
+    installAppButton.hidden = true;
+  });
+  installAppButton.addEventListener("click", async () => {
+    if (!deferredInstallPrompt) return;
+    installAppButton.disabled = true;
+    try {
+      await deferredInstallPrompt.prompt();
+      await deferredInstallPrompt.userChoice;
+    } finally {
+      deferredInstallPrompt = null;
+      installAppButton.hidden = true;
+      installAppButton.disabled = false;
+    }
+  });
+  if ("serviceWorker" in navigator) {
+    const version = document.querySelector('meta[name="v-archive-version"]')?.content || "dev";
+    navigator.serviceWorker.register(`./sw.js?v=${encodeURIComponent(version)}`, { updateViaCache: "none" }).catch(() => {});
+  }
+}
 
 function renderAppVersion() {
   const version = document.querySelector('meta[name="v-archive-version"]')?.content;
