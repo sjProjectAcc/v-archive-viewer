@@ -54,8 +54,8 @@ const TOP50_SCALE_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 const TAGS_API_URL = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/song_tags_2?select=song_title%2Ctags%2Caka&limit=1000";
 const TAGS_ABILITY_API_URL = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/ability?select=id%2Cability_set&order=id";
 const TAGS_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqd3V1b2RtdHR0cW9oeHN5Y3ZwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUxNDkwNjYsImV4cCI6MjA3MDcyNTA2Nn0.FItZtjt2v2otOUnmDtqhKG4IrPD4FjaRc_tVy-nxpsI";
-const TAGS_CACHE_KEY = "vArchiveSongTagsCacheV3";
-const TAGS_CACHE_SCHEMA_VERSION = 3;
+const TAGS_CACHE_KEY = "vArchiveSongTagsCacheV4";
+const TAGS_CACHE_SCHEMA_VERSION = 4;
 const TAGS_CACHE_TTL = 24 * 60 * 60 * 1000;
 const FALLBACK_BUTTON_TOP50_BASE_MAX = Object.freeze({
   4: 4166.31349894268,
@@ -228,6 +228,7 @@ const tagsBpmMaxInput = document.querySelector("#tagsBpmMaxInput");
 const tagsRecordModeSelect = document.querySelector("#tagsRecordModeSelect");
 const tagsWeightSelect = document.querySelector("#tagsWeightSelect");
 const tagsPatternOnlyInput = document.querySelector("#tagsPatternOnlyInput");
+const tagsExcludeMxInput = document.querySelector("#tagsExcludeMxInput");
 const tagsMatchModeSelect = document.querySelector("#tagsMatchModeSelect");
 const tagsSortSelect = document.querySelector("#tagsSortSelect");
 const tagsFacetSearchInput = document.querySelector("#tagsFacetSearchInput");
@@ -557,7 +558,7 @@ function wireEvents() {
     saveSettings();
     renderSelfCompareView();
   });
-  [tagsGenreSelect, tagsBpmMinInput, tagsBpmMaxInput, tagsRecordModeSelect, tagsWeightSelect, tagsPatternOnlyInput, tagsMatchModeSelect, tagsSortSelect, tagsFacetSearchInput].forEach((control) => {
+  [tagsGenreSelect, tagsBpmMinInput, tagsBpmMaxInput, tagsRecordModeSelect, tagsWeightSelect, tagsPatternOnlyInput, tagsExcludeMxInput, tagsMatchModeSelect, tagsSortSelect, tagsFacetSearchInput].forEach((control) => {
     control.addEventListener("input", () => {
       saveSettings();
       renderTagsView();
@@ -580,6 +581,7 @@ function wireEvents() {
     tagsRecordModeSelect.value = "";
     tagsWeightSelect.value = "";
     tagsPatternOnlyInput.checked = false;
+    tagsExcludeMxInput.checked = false;
     tagsMatchModeSelect.value = "all";
     tagsSortSelect.value = "name";
     tagsFacetSearchInput.value = "";
@@ -660,6 +662,7 @@ function applySavedSettings() {
   setIfOptionExists(tagsRecordModeSelect, settings.tagsRecordMode || "");
   setIfOptionExists(tagsWeightSelect, settings.tagsWeight || "");
   tagsPatternOnlyInput.checked = Boolean(settings.tagsPatternOnly && buttonFilter.value);
+  tagsExcludeMxInput.checked = Boolean(settings.tagsExcludeMx);
   setIfOptionExists(tagsMatchModeSelect, settings.tagsMatchMode || "all");
   setIfOptionExists(tagsSortSelect, settings.tagsSort || "name");
   tagsBpmMinInput.value = settings.tagsBpmMin || "";
@@ -717,6 +720,7 @@ function saveSettings() {
     tagsRecordMode: tagsRecordModeSelect.value,
     tagsWeight: tagsWeightSelect.value,
     tagsPatternOnly: tagsPatternOnlyInput.checked,
+    tagsExcludeMx: tagsExcludeMxInput.checked,
     tagsMatchMode: tagsMatchModeSelect.value,
     tagsSort: tagsSortSelect.value,
     tagsFacetSearch: tagsFacetSearchInput.value,
@@ -931,10 +935,14 @@ function normalizeTagsRows(tagRows, songs, abilityRows = []) {
     const parsed = parseTagsText(tagRow.tags, abilityByButton);
     const availablePatterns = {};
     const scLevels = {};
+    const scFloors = {};
+    const scFloorNames = {};
     for (const button of BUTTONS) {
       const buttonPatterns = song?.patterns?.[`${button}B`] || {};
       availablePatterns[String(button)] = Object.keys(buttonPatterns);
       scLevels[String(button)] = buttonPatterns?.SC?.level ?? null;
+      scFloors[String(button)] = buttonPatterns?.SC?.floor ?? null;
+      scFloorNames[String(button)] = buttonPatterns?.SC?.floorName ?? null;
     }
     return {
       title: Number(song.title),
@@ -951,6 +959,8 @@ function normalizeTagsRows(tagRows, songs, abilityRows = []) {
       tokens: parsed.tokens,
       availablePatterns,
       scLevels,
+      scFloors,
+      scFloorNames,
     };
   });
 }
@@ -1099,6 +1109,7 @@ function tagsForCurrentScope(row) {
     if (button && token.scope !== "GENERAL" && token.button !== button) return false;
     if (tagsPatternOnlyInput.checked && token.scope === "GENERAL") return false;
     if (patternFilter.value && token.pattern && token.pattern !== patternFilter.value) return false;
+    if (tagsExcludeMxInput.checked && token.pattern === "MX") return false;
     return true;
   });
 }
@@ -1148,7 +1159,8 @@ function renderTagsView() {
     if (weight) {
       const scopedPatternTokens = (row.tokens || []).filter((token) => token.scope !== "GENERAL"
         && buttonFilter.value && token.button === buttonFilter.value
-        && (!patternFilter.value || !token.pattern || token.pattern === patternFilter.value));
+        && (!patternFilter.value || !token.pattern || token.pattern === patternFilter.value)
+        && (!tagsExcludeMxInput.checked || token.pattern !== "MX"));
       const hasWeight = weight === "none"
         ? scopedPatternTokens.some((token) => !token.weight)
         : scopedPatternTokens.some((token) => token.weight === weight);
@@ -1190,8 +1202,21 @@ function renderTagsView() {
 
 function sortTagRows(rows) {
   const mode = tagsSortSelect.value;
+  const selectedButton = buttonFilter.value;
   const byName = (a, b) => a.name.localeCompare(b.name, "ko", { sensitivity: "base" }) || a.title - b.title;
-  if (mode === "bpmAsc") rows.sort((a, b) => compareForSort(a.bpmMin, b.bpmMin) || byName(a, b));
+  const byDifficulty = (a, b, descending) => {
+    const aFloor = Number(a.scFloors?.[selectedButton]);
+    const bFloor = Number(b.scFloors?.[selectedButton]);
+    const aValid = Number.isFinite(aFloor) && aFloor > 0;
+    const bValid = Number.isFinite(bFloor) && bFloor > 0;
+    if (!aValid && !bValid) return byName(a, b);
+    if (!aValid) return 1;
+    if (!bValid) return -1;
+    return (descending ? bFloor - aFloor : aFloor - bFloor) || byName(a, b);
+  };
+  if (mode === "difficultyDesc" && selectedButton) rows.sort((a, b) => byDifficulty(a, b, true));
+  else if (mode === "difficultyAsc" && selectedButton) rows.sort((a, b) => byDifficulty(a, b, false));
+  else if (mode === "bpmAsc") rows.sort((a, b) => compareForSort(a.bpmMin, b.bpmMin) || byName(a, b));
   else if (mode === "bpmDesc") rows.sort((a, b) => compareForSort(b.bpmMax, a.bpmMax) || byName(a, b));
   else if (mode === "tagCount") rows.sort((a, b) => b.visibleTokens.length - a.visibleTokens.length || byName(a, b));
   else if (mode === "score") rows.sort((a, b) => compareForSort(b.recordStats?.bestScore, a.recordStats?.bestScore) || byName(a, b));
@@ -1213,9 +1238,9 @@ function renderTagsTable(rows) {
   const limit = Number(limitSelect.value);
   const visibleRows = limit > 0 ? rows.slice(0, limit) : rows;
   const selectedButton = buttonFilter.value;
-  const scHeader = selectedButton ? `<th class="tagScLevelHead">${selectedButton}B SC</th>` : "";
+  const scHeader = selectedButton ? `<th class="tagScLevelHead">${selectedButton}B SC</th><th class="tagScFloorHead">서열표</th>` : "";
   const header = `<thead><tr><th class="tagSongHead">곡</th>${scHeader}<th class="tagBpmHead">BPM</th><th class="tagGenreHead">장르</th><th class="tagAliasHead">별칭</th><th class="tagRecordHead">내 기록</th></tr></thead>`;
-  const columnCount = selectedButton ? 6 : 5;
+  const columnCount = selectedButton ? 7 : 5;
   if (!visibleRows.length) {
     tagsTable.innerHTML = `${header}<tbody><tr><td class="empty" colspan="${columnCount}">조건에 맞는 곡이 없습니다.</td></tr></tbody>`;
     return;
@@ -1229,7 +1254,7 @@ function renderTagsTable(rows) {
       ? row.visibleTokens.map((token) => `<span class="songTag${state.tagsSelected.has(token.label) ? " selected" : ""}"${token.color ? ` style="--tag-color:${escapeHtml(token.color)}"` : ""}>${token.scope === "GENERAL" ? "" : `<small>${escapeHtml(token.scope)}</small>`}${escapeHtml(token.label)}${token.pattern ? `<small>${escapeHtml(token.pattern)}</small>` : ""}${token.weight ? `<b>${escapeHtml(token.weight)}</b>` : ""}</span>`).join("")
       : `<span class="muted">표시할 태그 없음</span>`;
     const scLevelCell = selectedButton
-      ? `<td class="tagScLevelCell">${escapeHtml(row.scLevels?.[selectedButton] ?? "-")}</td>`
+      ? `<td class="tagScLevelCell">${escapeHtml(row.scLevels?.[selectedButton] ?? "-")}</td><td class="tagScFloorCell">${escapeHtml(row.scFloorNames?.[selectedButton] ?? "-")}</td>`
       : "";
     return `<tr>
       <td class="tagSongCell"><div class="tagSongTitleRow"><strong>${escapeHtml(row.name)}</strong><div class="songTags">${tokenHtml}</div></div><span>#${row.title} · ${escapeHtml(row.composer)}${row.dlcCode ? ` · ${escapeHtml(row.dlcCode)}` : ""}</span></td>
