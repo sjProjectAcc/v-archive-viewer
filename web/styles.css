@@ -439,7 +439,8 @@ main {
 }
 
 .tagSongHead { width: 42%; }
-.tagScLevelHead { width: 70px; }
+.tagScLevelHead,
+.tagScFloorHead { width: 70px; }
 .tagBpmHead { width: 75px; }
 .tagGenreHead { width: 140px; }
 .tagAliasHead { width: 200px; }
@@ -457,7 +458,8 @@ main {
   min-width: 0;
 }
 
-.tagScLevelCell {
+.tagScLevelCell,
+.tagScFloorCell {
   font-weight: 700;
   text-align: center;
 }
