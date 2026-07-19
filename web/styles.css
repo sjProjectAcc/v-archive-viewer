@@ -185,6 +185,10 @@ button {
   white-space: nowrap;
 }
 
+.mobileEnvironment .downloadButton {
+  display: none !important;
+}
+
 button:disabled {
   cursor: progress;
   opacity: 0.6;

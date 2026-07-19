@@ -300,6 +300,7 @@ const chartEl = document.querySelector("#floorScoreChart");
 
 window.addEventListener("load", () => {
   renderAppVersion();
+  initMobileEnvironment();
   initPwa();
   initDesktopBridge();
   initFloorSelectors();
@@ -307,6 +308,18 @@ window.addEventListener("load", () => {
   loadTop50ScaleCache();
   refresh(false);
 });
+
+function initMobileEnvironment() {
+  const compactPointer = window.matchMedia("(pointer: coarse) and (max-width: 1024px)");
+  const update = () => {
+    const userAgentMobile = navigator.userAgentData?.mobile === true
+      || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+      || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    document.documentElement.classList.toggle("mobileEnvironment", userAgentMobile || compactPointer.matches);
+  };
+  update();
+  compactPointer.addEventListener?.("change", update);
+}
 
 let deferredInstallPrompt = null;
 
