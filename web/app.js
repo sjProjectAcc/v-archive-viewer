@@ -1094,15 +1094,12 @@ function getTagsRecordStats() {
 
 function tagsForCurrentScope(row) {
   const button = buttonFilter.value;
-  const weight = tagsWeightSelect.value;
   return (row.tokens || []).filter((token) => {
     if (!button && token.scope !== "GENERAL") return false;
     if (button && token.scope !== "GENERAL" && token.button !== button) return false;
     if (tagsPatternOnlyInput.checked && token.scope === "GENERAL") return false;
     if (patternFilter.value && token.pattern && token.pattern !== patternFilter.value) return false;
-    if (!weight || token.scope === "GENERAL") return true;
-    if (weight === "none") return !token.weight;
-    return token.weight === weight;
+    return true;
   });
 }
 
