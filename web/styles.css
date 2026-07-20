@@ -304,6 +304,10 @@ main {
   gap: 8px;
 }
 
+.achievementList.dragSelecting .achievementItem {
+  cursor: crosshair;
+}
+
 .achievementItem {
   display: grid;
   grid-template-columns: 28px 72px minmax(220px, 1fr) minmax(170px, 0.65fr) 32px minmax(170px, 0.65fr);
@@ -314,6 +318,8 @@ main {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--panel);
+  cursor: pointer;
+  user-select: none;
 }
 
 .achievementItem:nth-child(even) {
@@ -341,6 +347,7 @@ main {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--subtle);
+  pointer-events: none;
 }
 
 .achievementSong,
