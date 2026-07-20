@@ -221,7 +221,6 @@ const compareChartPanel = document.querySelector("#compareChartPanel");
 const compareProfileSummary = document.querySelector("#compareProfileSummary");
 const compareChartTitle = document.querySelector("#compareChartTitle");
 const compareChartDescription = document.querySelector("#compareChartDescription");
-const compareChartModeSelect = document.querySelector("#compareChartModeSelect");
 const compareChartIndividualScaleInput = document.querySelector("#compareChartIndividualScaleInput");
 const compareChartMetricSelect = document.querySelector("#compareChartMetricSelect");
 const compareChartMinInput = document.querySelector("#compareChartMinInput");
@@ -715,17 +714,16 @@ function wireEvents() {
     saveSettings();
     renderCompareChart();
   });
-  compareChartModeSelect.addEventListener("change", () => {
-    saveSettings();
-    renderCompareChart();
-  });
   compareChartIndividualScaleInput.addEventListener("change", () => {
+    syncCompareChartRangesForSharedScale();
+    updateCompareChartRangeControls();
     saveSettings();
     renderCompareChart();
   });
   [compareChartMinInput, compareChartMaxInput, compareChartOtherMinInput, compareChartOtherMaxInput].forEach((input) => {
     input.addEventListener("input", () => {
       compareChartAutoInput.checked = false;
+      syncCompareChartRangesForSharedScale();
       updateCompareChartRangeControls();
       storeCompareChartRange();
       saveSettings();
@@ -919,8 +917,8 @@ function applySavedSettings() {
   setIfOptionExists(recordsFloorMinSelect, settings.recordsFloorMin || "1.1");
   setIfOptionExists(recordsFloorMaxSelect, settings.recordsFloorMax || "17.3");
   setIfOptionExists(compareChartMetricSelect, settings.compareChartMetric || "score");
-  setIfOptionExists(compareChartModeSelect, settings.compareChartMode || "vector");
   compareChartIndividualScaleInput.checked = settings.compareChartIndividualScale === true;
+  syncCompareChartRangesForSharedScale();
   state.compareChartMetric = compareChartMetricSelect.value;
   state.compareChartRanges = settings.compareChartRanges || {};
   historyStartDate.value = settings.historyStartDate || "";
@@ -976,7 +974,6 @@ function saveSettings() {
     recordsFloorMin: recordsFloorMinSelect.value,
     recordsFloorMax: recordsFloorMaxSelect.value,
     compareChartMetric: compareChartMetricSelect.value,
-    compareChartMode: compareChartModeSelect.value,
     compareChartIndividualScale: compareChartIndividualScaleInput.checked,
     compareChartRanges: state.compareChartRanges,
     limitSelect: limitSelect.value,
@@ -2211,20 +2208,17 @@ function renderCompareChart() {
     .filter((row) => Number.isFinite(row.xValue) && Number.isFinite(row.yValue));
   const mineName = state.payload.nickname || "내 계정";
   const otherName = state.comparePayload?.nickname || "비교 계정";
-  const vectorMode = compareChartModeSelect.value === "vector";
+  const vectorMode = true;
   compareScatterChart.classList.toggle("compareChartSquare", !vectorMode);
   compareScatterChart.classList.toggle("compareChartVector", vectorMode);
   compareChartPanel.classList.toggle("compareVectorMode", vectorMode);
-  compareChartTitle.textContent = `${metric.label} ${vectorMode ? "차이-합 벡터" : "계정 비교"}`;
-  compareChartDescription.textContent = vectorMode
-    ? `오른쪽 ${mineName} 우위 · 왼쪽 ${otherName} 우위 · 위쪽 합산 수준 · 공통 기록 ${rows.length}개`
-    : `X축 ${mineName} · Y축 ${otherName} · 공통 기록 ${rows.length}개`;
+  compareChartTitle.textContent = `${metric.label} 차이-합 벡터`;
+  compareChartDescription.textContent = `오른쪽 ${mineName} 우위 · 왼쪽 ${otherName} 우위 · 위쪽 합산 수준 · 공통 기록 ${rows.length}개`;
 
   const clientWidth = compareScatterChart.clientWidth || 760;
-  const size = Math.max(560, Math.min(860, clientWidth));
-  const width = vectorMode ? Math.max(760, clientWidth) : size;
-  const height = vectorMode ? Math.max(480, Math.min(680, Math.round(width * 0.62))) : size;
-  const pad = vectorMode ? { left: 74, right: 74, top: 36, bottom: 62 } : { left: 78, right: 30, top: 30, bottom: 78 };
+  const width = Math.max(760, clientWidth);
+  const height = Math.max(480, Math.min(680, Math.round(width * 0.62)));
+  const pad = { left: 74, right: 74, top: 36, bottom: 62 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
   if (!rows.length) {
@@ -2234,70 +2228,30 @@ function renderCompareChart() {
 
   const xAutoRange = getCompareChartRange(rows.map((row) => row.xValue), metric.key);
   const yAutoRange = getCompareChartRange(rows.map((row) => row.yValue), metric.key);
+  const sharedAutoRange = getCompareChartRange(rows.flatMap((row) => [row.xValue, row.yValue]), metric.key);
   let xRange = getManualCompareChartRange(compareChartMinInput, compareChartMaxInput, xAutoRange);
   let yRange = getManualCompareChartRange(compareChartOtherMinInput, compareChartOtherMaxInput, yAutoRange);
-  if (compareChartAutoInput.checked) {
+  const useIndividualScale = compareChartIndividualScaleInput.checked;
+  if (compareChartAutoInput.checked && !useIndividualScale) {
+    xRange = sharedAutoRange;
+    yRange = sharedAutoRange;
+    compareChartMinInput.value = formatCompareRangeInput(xRange.min);
+    compareChartMaxInput.value = formatCompareRangeInput(xRange.max);
+    compareChartOtherMinInput.value = formatCompareRangeInput(yRange.min);
+    compareChartOtherMaxInput.value = formatCompareRangeInput(yRange.max);
+  } else if (compareChartAutoInput.checked) {
     xRange = xAutoRange;
     yRange = yAutoRange;
     compareChartMinInput.value = formatCompareRangeInput(xRange.min);
     compareChartMaxInput.value = formatCompareRangeInput(xRange.max);
     compareChartOtherMinInput.value = formatCompareRangeInput(yRange.min);
     compareChartOtherMaxInput.value = formatCompareRangeInput(yRange.max);
+  } else if (!useIndividualScale) {
+    yRange = xRange;
+    compareChartOtherMinInput.value = compareChartMinInput.value;
+    compareChartOtherMaxInput.value = compareChartMaxInput.value;
   }
-  if (vectorMode) {
-    renderCompareVectorChart({ rows, metric, mineName, otherName, xRange, yRange, width, height, pad, plotW, plotH });
-    return;
-  }
-  const xFor = (value) => pad.left + ((value - xRange.min) / (xRange.max - xRange.min)) * plotW;
-  const yFor = (value) => pad.top + (1 - (value - yRange.min) / (yRange.max - yRange.min)) * plotH;
-  const xTicks = Array.from({ length: 6 }, (_, index) => xRange.min + ((xRange.max - xRange.min) * index) / 5);
-  const yTicks = Array.from({ length: 6 }, (_, index) => yRange.min + ((yRange.max - yRange.min) * index) / 5);
-  const grid = `${xTicks.map((value) => {
-    const x = xFor(value);
-    return `<line class="gridLine" x1="${x}" y1="${pad.top}" x2="${x}" y2="${pad.top + plotH}"></line>
-      <text class="tickLabel" x="${x}" y="${height - 42}" text-anchor="middle">${formatCompareChartAxis(value, metric.key)}</text>`;
-  }).join("")}${yTicks.map((value) => {
-    const y = yFor(value);
-    return `<line class="gridLine" x1="${pad.left}" y1="${y}" x2="${pad.left + plotW}" y2="${y}"></line>
-      <text class="tickLabel" x="${pad.left - 12}" y="${y + 4}" text-anchor="end">${formatCompareChartAxis(value, metric.key)}</text>`;
-  }).join("")}`;
-  const visibleRows = rows.filter((row) => row.xValue >= xRange.min && row.xValue <= xRange.max && row.yValue >= yRange.min && row.yValue <= yRange.max);
-  const floorTrend = buildCompareFloorTrend(visibleRows, (center) => ({ x: xFor(center.xValue), y: yFor(center.yValue) }), { metric, mineName, otherName });
-  const points = visibleRows.map((row) => {
-    const diff = row.xValue - row.yValue;
-    const className = Math.abs(diff) < 1e-9 ? "compareTiePoint" : diff > 0 ? "compareMinePoint" : "compareOtherPoint";
-    const info = encodeURIComponent(JSON.stringify({
-      name: row.name,
-      pattern: row.pattern,
-      level: row.level,
-      floor: row.floorName,
-      metric: metric.label,
-      metricKey: metric.key,
-      mineName,
-      otherName,
-      mineValue: row.xValue,
-      otherValue: row.yValue,
-      diff,
-    }));
-    return `<circle class="chartDot compareChartPoint ${className}" cx="${xFor(row.xValue).toFixed(2)}" cy="${yFor(row.yValue).toFixed(2)}" r="4.2" data-info="${info}" tabindex="0"></circle>`;
-  }).join("");
-  const equalRange = { min: Math.max(xRange.min, yRange.min), max: Math.min(xRange.max, yRange.max) };
-  const equalLine = equalRange.max > equalRange.min
-    ? `<line class="compareEqual" x1="${xFor(equalRange.min)}" y1="${yFor(equalRange.min)}" x2="${xFor(equalRange.max)}" y2="${yFor(equalRange.max)}"></line>`
-    : "";
-  compareScatterChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(metric.label)} 계정 비교 산포도">
-    <defs><clipPath id="comparePlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs>
-    <rect class="chartBg" width="${width}" height="${height}"></rect>
-    ${grid}
-    <g clip-path="url(#comparePlotClip)">
-      ${equalLine}
-      ${points}
-      ${floorTrend}
-    </g>
-    <text class="axisTitle" x="16" y="18">${escapeHtml(otherName)} · ${escapeHtml(metric.label)}</text>
-    <text class="axisTitle" x="${width - 210}" y="${height - 14}">${escapeHtml(mineName)} · ${escapeHtml(metric.label)}</text>
-  </svg>`;
-  bindCompareChartTooltips();
+  renderCompareVectorChart({ rows, metric, mineName, otherName, xRange, yRange, width, height, pad, plotW, plotH });
 }
 
 function renderCompareVectorChart({ rows, metric, mineName, otherName, xRange, yRange, width, height, pad, plotW, plotH }) {
@@ -2472,8 +2426,15 @@ function restoreCompareChartRange(metricKey) {
 function updateCompareChartRangeControls() {
   compareChartMinInput.disabled = compareChartAutoInput.checked;
   compareChartMaxInput.disabled = compareChartAutoInput.checked;
-  compareChartOtherMinInput.disabled = compareChartAutoInput.checked;
-  compareChartOtherMaxInput.disabled = compareChartAutoInput.checked;
+  const lockOtherAxis = compareChartAutoInput.checked || !compareChartIndividualScaleInput.checked;
+  compareChartOtherMinInput.disabled = lockOtherAxis;
+  compareChartOtherMaxInput.disabled = lockOtherAxis;
+}
+
+function syncCompareChartRangesForSharedScale() {
+  if (compareChartIndividualScaleInput.checked) return;
+  compareChartOtherMinInput.value = compareChartMinInput.value;
+  compareChartOtherMaxInput.value = compareChartMaxInput.value;
 }
 
 function formatCompareRangeInput(value) {
@@ -2543,7 +2504,7 @@ async function exportCompareChartImage() {
     const otherName = state.comparePayload.nickname || "other";
     const safeNames = `${mineName}-${otherName}`.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-");
     const metric = compareChartMetricSelect.value;
-    const mode = compareChartModeSelect.value;
+    const mode = "vector";
     const copied = await saveCanvasImage(canvas, `v-archive-${safeNames}-${metric}-${mode}.png`);
     statusText.textContent = `비교 이미지를 다운로드했습니다.${copied ? " 클립보드에도 복사했습니다." : ""}`;
   } catch (error) {
@@ -2573,7 +2534,7 @@ async function drawCompareChartImage(svg) {
   const mineName = state.payload.nickname || "내 계정";
   const otherName = state.comparePayload.nickname || "비교 계정";
   const metric = getCompareChartMetric();
-  const modeLabel = compareChartModeSelect.value === "vector" ? "차이-합 벡터" : "일반 XY";
+  const modeLabel = "차이-합 벡터";
 
   ctx.fillStyle = "#f4f6f8";
   ctx.fillRect(0, 0, width, height);
@@ -2582,9 +2543,7 @@ async function drawCompareChartImage(svg) {
   ctx.fillText(`${mineName} vs ${otherName} · ${metric.label}`, margin, margin + 34);
   ctx.fillStyle = "#687282";
   ctx.font = "16px Segoe UI, Malgun Gothic, Arial";
-  const rangeLabel = compareChartModeSelect.value === "vector"
-    ? `내 ${compareChartMinInput.value}-${compareChartMaxInput.value} · 상대 ${compareChartOtherMinInput.value}-${compareChartOtherMaxInput.value} · ${compareChartIndividualScaleInput.checked ? "개별 scale" : "동일 scale"}`
-    : `내 ${compareChartMinInput.value}-${compareChartMaxInput.value} · 상대 ${compareChartOtherMinInput.value}-${compareChartOtherMaxInput.value}`;
+  const rangeLabel = `내 ${compareChartMinInput.value}-${compareChartMaxInput.value} · 상대 ${compareChartOtherMinInput.value}-${compareChartOtherMaxInput.value} · ${compareChartIndividualScaleInput.checked ? "개별 scale" : "동일 scale"}`;
   ctx.fillText(`${modeLabel} · ${rangeLabel}`, margin, margin + 66);
   const version = document.querySelector('meta[name="v-archive-version"]')?.content || "local";
   ctx.textAlign = "right";

@@ -1631,9 +1631,6 @@ main {
   margin-bottom: 12px;
 }
 
-.compareChartPanel:not(.compareVectorMode) .compareVectorScale {
-  display: none;
-}
 
 
 .compareProfileSummary {
