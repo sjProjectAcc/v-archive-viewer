@@ -198,16 +198,12 @@ const columns = {
     ["mineScore", "my score"],
     ["otherScore", "other score"],
     ["scoreDiff", "score diff"],
-    ["mineZ", "my z"],
-    ["otherZ", "other z"],
-    ["zDiff", "z diff"],
     ["mineLogPower", "my logPower"],
     ["otherLogPower", "other logPower"],
     ["logPowerDiff", "logPower diff"],
     ["minePoint", "my Point"],
     ["otherPoint", "other Point"],
     ["pointDiff", "Point diff"],
-    ["result", "result"],
     ["mineUpdatedAt", "my updatedAt"],
     ["otherUpdatedAt", "other updatedAt"],
   ],
@@ -221,6 +217,7 @@ const tableEl = document.querySelector("#dataTable");
 const chartPanel = document.querySelector("#chartPanel");
 const chartTooltip = document.querySelector("#chartTooltip");
 const compareChartPanel = document.querySelector("#compareChartPanel");
+const compareProfileSummary = document.querySelector("#compareProfileSummary");
 const compareChartTitle = document.querySelector("#compareChartTitle");
 const compareChartDescription = document.querySelector("#compareChartDescription");
 const compareChartModeSelect = document.querySelector("#compareChartModeSelect");
@@ -286,11 +283,21 @@ const tagsFacetList = document.querySelector("#tagsFacetList");
 const tagsResultSummary = document.querySelector("#tagsResultSummary");
 const tagsTable = document.querySelector("#tagsTable");
 const logPowerCalculatorPanel = document.querySelector("#logPowerCalculatorPanel");
+const calculatorTitle = document.querySelector("#calculatorTitle");
 const logPowerCalculatorContext = document.querySelector("#logPowerCalculatorContext");
+const calculatorMode = document.querySelector("#calculatorMode");
 const logPowerCalculatorButton = document.querySelector("#logPowerCalculatorButton");
+const calculatorFloorControl = document.querySelector("#calculatorFloorControl");
 const logPowerCalculatorFloor = document.querySelector("#logPowerCalculatorFloor");
+const calculatorPatternControl = document.querySelector("#calculatorPatternControl");
+const djPowerCalculatorPattern = document.querySelector("#djPowerCalculatorPattern");
+const calculatorLevelControl = document.querySelector("#calculatorLevelControl");
+const djPowerCalculatorLevel = document.querySelector("#djPowerCalculatorLevel");
 const logPowerCalculatorScore = document.querySelector("#logPowerCalculatorScore");
 const logPowerCalculatorTarget = document.querySelector("#logPowerCalculatorTarget");
+const calculatorInverseTitle = document.querySelector("#calculatorInverseTitle");
+const calculatorInverseDescription = document.querySelector("#calculatorInverseDescription");
+const calculatorTargetLabel = document.querySelector("#calculatorTargetLabel");
 const logPowerCalculatorResults = document.querySelector("#logPowerCalculatorResults");
 const logPowerCalculatorBreakdown = document.querySelector("#logPowerCalculatorBreakdown");
 const logPowerCalculatorScoreTable = document.querySelector("#logPowerCalculatorScoreTable");
@@ -344,10 +351,8 @@ const compareNicknameInput = document.querySelector("#compareNicknameInput");
 const compareLoadButton = document.querySelector("#compareLoadButton");
 const compareModeSelect = document.querySelector("#compareModeSelect");
 const compareSortSelect = document.querySelector("#compareSortSelect");
-const compareMinZSelect = document.querySelector("#compareMinZSelect");
 const compareFloorMinSelect = document.querySelector("#compareFloorMinSelect");
 const compareFloorMaxSelect = document.querySelector("#compareFloorMaxSelect");
-const compareStdFloorSelect = document.querySelector("#compareStdFloorSelect");
 const compareOnlyEls = document.querySelectorAll(".compareOnly");
 const chartMetricSelect = document.querySelector("#chartMetricSelect");
 const chartTitle = document.querySelector("#chartTitle");
@@ -373,13 +378,14 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-calculator-v3";
+const UI_SCHEMA_VERSION = "v-log-calculator-v4";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
   "globalFilters",
   "chartPanel",
   "compareChartPanel",
+  "compareProfileSummary",
   "historyPanel",
   "achievementPanel",
   "achievementAutoLogPowerInput",
@@ -388,6 +394,9 @@ const REQUIRED_UI_IDS = [
   "selfComparePanel",
   "tagsPanel",
   "logPowerCalculatorPanel",
+  "calculatorMode",
+  "djPowerCalculatorPattern",
+  "djPowerCalculatorLevel",
   "logPowerCalculatorTarget",
   "logPowerCalculatorScoreTable",
   "debugPanel",
@@ -521,12 +530,12 @@ async function initDesktopBridge() {
   checkForDesktopUpdate();
 
   const currentNickname = cacheKey(getCurrentNickname());
-  const linkedNickname = localStorage.getItem(HISTORY_ACCOUNT_NICKNAME_KEY) || "";
+  const linkedNickname = appStorageGetItem(HISTORY_ACCOUNT_NICKNAME_KEY) || "";
   if (linkedNickname && linkedNickname !== currentNickname) {
     historyAccountStatus.textContent = `${getCurrentNickname()} 계정 재연결 필요`;
     historyAccountStatus.title = "마지막으로 연결한 닉네임과 현재 조회 닉네임이 다릅니다.";
     state.historyAccountNickname = "";
-    localStorage.removeItem(HISTORY_ACCOUNT_NICKNAME_KEY);
+    appStorageRemoveItem(HISTORY_ACCOUNT_NICKNAME_KEY);
     await window.__TAURI__.core.invoke("logout_history_account").catch(() => {});
   }
   try {
@@ -619,13 +628,13 @@ async function connectVerifiedHistoryAccount(account, { deferIfUnavailable = fal
     await window.__TAURI__?.core?.invoke?.("logout_history_account");
     state.historyPendingAccount = null;
     state.historyAccountNickname = "";
-    localStorage.removeItem(HISTORY_ACCOUNT_NICKNAME_KEY);
+    appStorageRemoveItem(HISTORY_ACCOUNT_NICKNAME_KEY);
     throw new Error(`account.txt 회원 ${account?.userNo || "확인 불가"}는 현재 조회 계정 ${identity.nickname} (회원 ${identity.userNo})과 다릅니다.`);
   }
   const nickname = state.payload?.nickname || getCurrentNickname();
   state.historyPendingAccount = null;
   state.historyAccountNickname = cacheKey(nickname);
-  localStorage.setItem(HISTORY_ACCOUNT_NICKNAME_KEY, state.historyAccountNickname);
+  appStorageSetItem(HISTORY_ACCOUNT_NICKNAME_KEY, state.historyAccountNickname);
   renderAccountFileStatus(account, nickname);
   return true;
 }
@@ -693,11 +702,11 @@ function wireEvents() {
   compareNicknameInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") loadComparison(false);
   });
-  [viewSelect, buttonFilter, patternFilter, searchInput, limitSelect, nameWidthInput, recordsFloorMinSelect, recordsFloorMaxSelect, compareNicknameInput, compareModeSelect, compareSortSelect, compareMinZSelect, compareFloorMinSelect, compareFloorMaxSelect, compareStdFloorSelect].forEach((el) => {
+  [viewSelect, buttonFilter, patternFilter, searchInput, limitSelect, nameWidthInput, recordsFloorMinSelect, recordsFloorMaxSelect, compareNicknameInput, compareModeSelect, compareSortSelect, compareFloorMinSelect, compareFloorMaxSelect].forEach((el) => {
     el.addEventListener("input", () => {
       if (el === viewSelect) state.sortKey = null;
       state.view = viewSelect.value;
-      if ([compareSortSelect, compareModeSelect, compareMinZSelect, compareFloorMinSelect, compareFloorMaxSelect, compareStdFloorSelect].includes(el)) state.sortKey = null;
+      if ([compareSortSelect, compareModeSelect, compareFloorMinSelect, compareFloorMaxSelect].includes(el)) state.sortKey = null;
       saveSettings();
       render();
     });
@@ -864,7 +873,7 @@ function wireEvents() {
     saveSettings();
     renderDebugView();
   });
-  [logPowerCalculatorButton, logPowerCalculatorFloor, logPowerCalculatorScore, logPowerCalculatorTarget].forEach((control) => {
+  [calculatorMode, logPowerCalculatorButton, logPowerCalculatorFloor, djPowerCalculatorPattern, djPowerCalculatorLevel, logPowerCalculatorScore, logPowerCalculatorTarget].forEach((control) => {
     control.addEventListener("input", () => {
       saveSettings();
       renderLogPowerCalculator();
@@ -911,13 +920,11 @@ function applySavedSettings() {
   nameWidthInput.value = settings.nameWidth || "320";
   compareNicknameInput.value = settings.compareNickname || "";
   setIfOptionExists(compareModeSelect, settings.compareMode || "");
-  setIfOptionExists(compareSortSelect, settings.compareSort || "absZDiff");
-  setIfOptionExists(compareMinZSelect, settings.compareMinZ || "0");
+  setIfOptionExists(compareSortSelect, settings.compareSort || "absScoreDiff");
   setIfOptionExists(compareFloorMinSelect, settings.compareFloorMin || "1.1");
   setIfOptionExists(compareFloorMaxSelect, settings.compareFloorMax || "17.3");
   setIfOptionExists(recordsFloorMinSelect, settings.recordsFloorMin || "1.1");
   setIfOptionExists(recordsFloorMaxSelect, settings.recordsFloorMax || "17.3");
-  setIfOptionExists(compareStdFloorSelect, settings.compareStdFloor || "0.05");
   setIfOptionExists(compareChartMetricSelect, settings.compareChartMetric || "score");
   setIfOptionExists(compareChartModeSelect, settings.compareChartMode || "vector");
   state.compareChartMetric = compareChartMetricSelect.value;
@@ -930,7 +937,10 @@ function applySavedSettings() {
   selfCompareStart.value = settings.selfCompareStart || "";
   selfCompareEnd.value = settings.selfCompareEnd || "";
   setIfOptionExists(logPowerCalculatorButton, settings.logPowerCalculatorButton || "");
+  setIfOptionExists(calculatorMode, settings.calculatorMode || "logPower");
   setIfOptionExists(logPowerCalculatorFloor, settings.logPowerCalculatorFloor || "16.1");
+  setIfOptionExists(djPowerCalculatorPattern, settings.djPowerCalculatorPattern || "SC");
+  djPowerCalculatorLevel.value = String(Math.min(15, Math.max(1, Number(settings.djPowerCalculatorLevel) || 15)));
   logPowerCalculatorScore.value = settings.logPowerCalculatorScore || "99";
   logPowerCalculatorTarget.value = settings.logPowerCalculatorTarget || "50";
   setIfOptionExists(tagsRecordModeSelect, settings.tagsRecordMode || "");
@@ -967,12 +977,10 @@ function saveSettings() {
     compareNickname: compareNicknameInput.value.trim(),
     compareMode: compareModeSelect.value,
     compareSort: compareSortSelect.value,
-    compareMinZ: compareMinZSelect.value,
     compareFloorMin: compareFloorMinSelect.value,
     compareFloorMax: compareFloorMaxSelect.value,
     recordsFloorMin: recordsFloorMinSelect.value,
     recordsFloorMax: recordsFloorMaxSelect.value,
-    compareStdFloor: compareStdFloorSelect.value,
     compareChartMetric: compareChartMetricSelect.value,
     compareChartMode: compareChartModeSelect.value,
     compareChartRanges: state.compareChartRanges,
@@ -996,7 +1004,10 @@ function saveSettings() {
     selfCompareStart: selfCompareStart.value,
     selfCompareEnd: selfCompareEnd.value,
     logPowerCalculatorButton: logPowerCalculatorButton.value,
+    calculatorMode: calculatorMode.value,
     logPowerCalculatorFloor: logPowerCalculatorFloor.value,
+    djPowerCalculatorPattern: djPowerCalculatorPattern.value,
+    djPowerCalculatorLevel: djPowerCalculatorLevel.value,
     logPowerCalculatorScore: logPowerCalculatorScore.value,
     logPowerCalculatorTarget: logPowerCalculatorTarget.value,
     tagsGenre: tagsGenreSelect.value,
@@ -1014,7 +1025,7 @@ function saveSettings() {
     debugRatio: debugRatioInput.value,
     theme: document.documentElement.dataset.theme || "light",
   };
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  appStorageSetItem(SETTINGS_KEY, JSON.stringify(settings));
   applyNameWidth();
 }
 
@@ -1046,7 +1057,7 @@ function restoreChartRange(metric) {
 
 function loadSettings() {
   try {
-    return JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    return JSON.parse(appStorageGetItem(SETTINGS_KEY) || "{}");
   } catch {
     return {};
   }
@@ -1086,7 +1097,7 @@ function handleWheelControl(event) {
 
 function loadTop50ScaleCache() {
   try {
-    const cached = JSON.parse(localStorage.getItem(TOP50_SCALE_CACHE_KEY) || "null");
+    const cached = JSON.parse(appStorageGetItem(TOP50_SCALE_CACHE_KEY) || "null");
     if (!isValidButtonTop50BaseMax(cached?.baseMaxByButton)
       || !isValidDjPowerTop100Max(cached?.djPowerTop100MaxByButton)
       || !isValidFloorPatternCounts(cached?.floorPatternCounts)) return null;
@@ -1113,7 +1124,7 @@ async function refreshTop50ScaleCache(force = false) {
     state.buttonTop50BaseMax = baseMaxByButton;
     state.djPowerTop100MaxByButton = djPowerTop100MaxByButton;
     state.floorPatternCounts = floorPatternCounts;
-    localStorage.setItem(TOP50_SCALE_CACHE_KEY, JSON.stringify({ updatedAt: Date.now(), baseMaxByButton, djPowerTop100MaxByButton, floorPatternCounts }));
+    appStorageSetItem(TOP50_SCALE_CACHE_KEY, JSON.stringify({ updatedAt: Date.now(), baseMaxByButton, djPowerTop100MaxByButton, floorPatternCounts }));
     return true;
   } catch {
     return false;
@@ -1191,7 +1202,7 @@ function maxDjPowerForPattern(pattern, level) {
 
 function loadTagsCache() {
   try {
-    const cached = JSON.parse(localStorage.getItem(TAGS_CACHE_KEY) || "null");
+    const cached = JSON.parse(appStorageGetItem(TAGS_CACHE_KEY) || "null");
     if (cached?.schemaVersion !== TAGS_CACHE_SCHEMA_VERSION || !Array.isArray(cached?.rows) || cached.rows.length < 100) return null;
     if (cached.rows.some((row) => !row?.scLevels || typeof row.scLevels !== "object")) return null;
     state.tagsRows = cached.rows;
@@ -1237,7 +1248,7 @@ async function loadTagsData(force = false) {
     state.tagsUpdatedAt = Date.now();
     populateTagsGenreOptions();
     try {
-      localStorage.setItem(TAGS_CACHE_KEY, JSON.stringify({ schemaVersion: TAGS_CACHE_SCHEMA_VERSION, updatedAt: state.tagsUpdatedAt, rows }));
+      appStorageSetItem(TAGS_CACHE_KEY, JSON.stringify({ schemaVersion: TAGS_CACHE_SCHEMA_VERSION, updatedAt: state.tagsUpdatedAt, rows }));
     } catch {
       // The current data still remains usable when storage quota is unavailable.
     }
@@ -1431,10 +1442,11 @@ function getTagsRecordStats() {
 
 function tagsForCurrentScope(row) {
   const button = buttonFilter.value;
+  const patternOnly = isTagsPatternOnlyActive();
   return (row.tokens || []).filter((token) => {
-    if (!button && token.scope !== "GENERAL") return false;
+    if (!button && !patternOnly && token.scope !== "GENERAL") return false;
     if (button && token.scope !== "GENERAL" && token.button !== button) return false;
-    if (isTagsPatternOnlyActive() && token.scope === "GENERAL") return false;
+    if (patternOnly && token.scope === "GENERAL") return false;
     if (patternFilter.value && token.pattern && token.pattern !== patternFilter.value) return false;
     if (tagsScPatternOnlyInput.checked && ["NM", "HD", "MX"].includes(token.pattern)) return false;
     return true;
@@ -1442,7 +1454,7 @@ function tagsForCurrentScope(row) {
 }
 
 function isTagsPatternOnlyActive() {
-  return tagsPatternOnlyInput.checked && Boolean(buttonFilter.value);
+  return tagsPatternOnlyInput.checked;
 }
 
 function tagTokenMatchesWeight(token, weight) {
@@ -1462,8 +1474,6 @@ function tagRowHasAvailablePattern(row) {
 
 function renderTagsView() {
   if (viewSelect.value !== "tags") return;
-  const hasButtonScope = Boolean(buttonFilter.value);
-  tagsPatternOnlyInput.disabled = !hasButtonScope;
   if (!state.tagsRows.length) {
     const cached = loadTagsCache();
     if (!cached) {
@@ -1531,7 +1541,7 @@ function renderTagsView() {
   const recordedCount = rows.filter((row) => row.recordStats).length;
   tagsResultSummary.innerHTML = `<strong>${rows.length.toLocaleString()}곡</strong><span>전체 ${state.tagsRows.length.toLocaleString()}곡 · 내 기록 ${recordedCount.toLocaleString()}곡 · 표시 조건은 상단 버튼/패턴/검색을 포함합니다.</span>`;
   const scopeLabel = isTagsPatternOnlyActive()
-    ? `${buttonFilter.value}B 패턴`
+    ? buttonFilter.value ? `${buttonFilter.value}B 패턴` : "전체 버튼 패턴"
     : buttonFilter.value ? `공통 + ${buttonFilter.value}B` : "공통";
   tagsSelectedSummary.textContent = selected.length ? `${scopeLabel} · ${selected.length}개 선택 · ${selected.join(" + ")}` : `${scopeLabel} · 선택 없음`;
   if (!state.tagsLoading) tagsStatus.textContent = `${state.tagsRows.length.toLocaleString()}곡 · ${formatDate(new Date(state.tagsUpdatedAt).toISOString())} 갱신`;
@@ -1612,12 +1622,12 @@ function getCurrentNickname() {
 function saveCurrentNickname(nickname) {
   const settings = loadSettings();
   settings.nickname = (nickname || "").trim();
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  appStorageSetItem(SETTINGS_KEY, JSON.stringify(settings));
 }
 
 function getNicknameHistory() {
   try {
-    const nicknames = JSON.parse(localStorage.getItem(NICKNAME_HISTORY_KEY) || "[]");
+    const nicknames = JSON.parse(appStorageGetItem(NICKNAME_HISTORY_KEY) || "[]");
     return Array.isArray(nicknames) ? nicknames.filter(Boolean) : [];
   } catch {
     return [];
@@ -1628,7 +1638,7 @@ function rememberNickname(nickname) {
   const clean = (nickname || "").trim();
   if (!clean) return;
   const next = [clean, ...getNicknameHistory().filter((item) => item.toLowerCase() !== clean.toLowerCase())].slice(0, 8);
-  localStorage.setItem(NICKNAME_HISTORY_KEY, JSON.stringify(next));
+  appStorageSetItem(NICKNAME_HISTORY_KEY, JSON.stringify(next));
   saveCurrentNickname(clean);
   renderRecentNicknames();
 }
@@ -2059,7 +2069,7 @@ async function deleteRecordHistories(nickname) {
 
 function openCacheDb() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const request = indexedDB.open(state.isTestMode ? `${DB_NAME}Test` : DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(PROFILE_STORE)) db.createObjectStore(PROFILE_STORE, { keyPath: "id" });
@@ -2075,6 +2085,22 @@ function openCacheDb() {
 
 function cacheKey(nickname) {
   return (nickname || "").trim().toLowerCase();
+}
+
+function appStorageKey(key) {
+  return state.isTestMode ? `${key}:test` : key;
+}
+
+function appStorageGetItem(key) {
+  return localStorage.getItem(appStorageKey(key));
+}
+
+function appStorageSetItem(key, value) {
+  localStorage.setItem(appStorageKey(key), value);
+}
+
+function appStorageRemoveItem(key) {
+  localStorage.removeItem(appStorageKey(key));
 }
 
 function delay(ms) {
@@ -2175,6 +2201,7 @@ function renderActiveView() {
 
 function renderCompareChart() {
   if (!state.payload || viewSelect.value !== "compare") return;
+  renderCompareProfileSummary();
   const metric = getCompareChartMetric();
   const rows = filterRows(buildCompareRows())
     .map((row) => ({ ...row, xValue: row[metric.mineKey], yValue: row[metric.otherKey] }))
@@ -2568,7 +2595,7 @@ async function loginHistoryAccount() {
     historyAccountToken.value = "";
     const nickname = state.payload?.nickname || getCurrentNickname();
     state.historyAccountNickname = cacheKey(nickname);
-    localStorage.setItem(HISTORY_ACCOUNT_NICKNAME_KEY, state.historyAccountNickname);
+    appStorageSetItem(HISTORY_ACCOUNT_NICKNAME_KEY, state.historyAccountNickname);
     historyAccountStatus.textContent = `회원 ${userNo} · ${nickname} 연결됨`;
     historyAccountStatus.title = "직접 입력한 계정으로 로그인했습니다.";
     statusText.textContent = "히스토리 계정 로그인이 완료되었습니다.";
@@ -4313,7 +4340,7 @@ function renderFloorMinScoreSummary(rows) {
     const next = loadSettings();
     next.floorMinImageStartFloor = startInput.value;
     next.floorMinImageEndFloor = endInput.value;
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+    appStorageSetItem(SETTINGS_KEY, JSON.stringify(next));
   };
   startInput.addEventListener("change", saveRange);
   endInput.addEventListener("change", saveRange);
@@ -4390,33 +4417,23 @@ function renderTop100Metric(button, rows) {
 
 function renderCompareSummary(rows) {
   const both = rows.filter((row) => row.mineScore !== null && row.otherScore !== null);
-  const zBoth = both.filter((row) => Number.isFinite(row.zDiff));
   const logPowerBoth = both.filter((row) => Number.isFinite(row.logPowerDiff));
   const pointBoth = both.filter((row) => Number.isFinite(row.pointDiff));
   const scoreMine = both.filter((row) => row.scoreDiff > 0).length;
   const scoreOther = both.filter((row) => row.scoreDiff < 0).length;
-  const zMine = zBoth.filter((row) => row.zDiff > 0).length;
-  const zOther = zBoth.filter((row) => row.zDiff < 0).length;
   const logPowerMine = logPowerBoth.filter((row) => row.logPowerDiff > 0).length;
   const logPowerOther = logPowerBoth.filter((row) => row.logPowerDiff < 0).length;
   const pointMine = pointBoth.filter((row) => row.pointDiff > 0).length;
   const pointOther = pointBoth.filter((row) => row.pointDiff < 0).length;
-  const reversals = both.filter((row) => row.isReversal).length;
-  const avgZDiff = zBoth.length ? zBoth.reduce((sum, row) => sum + row.zDiff, 0) / zBoth.length : 0;
   const cards = [
     ["비교 대상", state.comparePayload?.nickname || "-"],
     ["공통 기록", both.length],
     ["score 내가 우위", scoreMine],
     ["score 상대 우위", scoreOther],
-    ["z 내가 우위", zMine],
-    ["z 상대 우위", zOther],
     ["logPower 내가 우위", logPowerMine],
     ["logPower 상대 우위", logPowerOther],
     ["Point 내가 우위", pointMine],
     ["Point 상대 우위", pointOther],
-    ["역전", reversals],
-    ["평균 z 차이", avgZDiff.toFixed(2)],
-    ...buildDjClassCompareCards(),
   ];
   tableSummary.innerHTML = cards
     .map(([label, value]) => `<div class="tableMetric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
@@ -4424,24 +4441,52 @@ function renderCompareSummary(rows) {
   tableSummary.hidden = false;
 }
 
-function buildDjClassCompareCards() {
+function renderCompareProfileSummary() {
+  if (!state.payload || !state.comparePayload) {
+    compareProfileSummary.hidden = true;
+    compareProfileSummary.innerHTML = "";
+    return;
+  }
   const selectedButton = buttonFilter.value;
   const buttons = selectedButton ? [Number(selectedButton)] : BUTTONS;
-  const mineByButton = new Map((state.payload?.djClasses || []).map((row) => [Number(row.button), row]));
-  const otherByButton = new Map((state.comparePayload?.djClasses || []).map((row) => [Number(row.button), row]));
-  return buttons.map((button) => {
-    const mine = mineByButton.get(button);
-    const other = otherByButton.get(button);
-    const mineClass = mine?.djClass || "-";
-    const otherClass = other?.djClass || "-";
-    const minePower = formatDjClassPower(mine?.djPowerSum);
-    const otherPower = formatDjClassPower(other?.djPowerSum);
-    return [`${button}B DJ Class`, `내 ${mineClass} (${minePower}) / 상대 ${otherClass} (${otherPower})`];
-  });
+  const mineClasses = new Map((state.payload.djClasses || []).map((row) => [Number(row.button), row]));
+  const otherClasses = new Map((state.comparePayload.djClasses || []).map((row) => [Number(row.button), row]));
+  const mineTiers = new Map((state.payload.tiers || []).map((row) => [Number(row.button), row]));
+  const otherTiers = new Map((state.comparePayload.tiers || []).map((row) => [Number(row.button), row]));
+  const mineName = state.payload.nickname || "내 계정";
+  const otherName = state.comparePayload.nickname || "비교 계정";
+  compareProfileSummary.innerHTML = buttons.map((button) => {
+    const mineClass = mineClasses.get(button);
+    const otherClass = otherClasses.get(button);
+    const mineTier = mineTiers.get(button);
+    const otherTier = otherTiers.get(button);
+    const mineLogPower = calculateTop50LogPowerSum(state.payload.records || [], button);
+    const otherLogPower = calculateTop50LogPowerSum(state.comparePayload.records || [], button);
+    return `<article class="compareProfileCard">
+      <h3>${button}B</h3>
+      <div class="compareProfileNames"><span></span><strong title="${escapeHtml(mineName)}">${escapeHtml(mineName)}</strong><strong title="${escapeHtml(otherName)}">${escapeHtml(otherName)}</strong></div>
+      ${renderCompareProfileRow("LogPower", mineLogPower.toFixed(2), otherLogPower.toFixed(2))}
+      ${renderCompareProfileRow("DJClass", formatDjClassLabel(mineClass), formatDjClassLabel(otherClass))}
+      ${renderCompareProfileRow("Tier", formatTierLabel(mineTier), formatTierLabel(otherTier))}
+    </article>`;
+  }).join("");
+  compareProfileSummary.hidden = false;
 }
 
-function formatDjClassPower(value) {
-  return Number.isFinite(Number(value)) ? Number(value).toFixed(2) : "-";
+function renderCompareProfileRow(label, mine, other) {
+  return `<div class="compareProfileRow"><span>${escapeHtml(label)}</span><strong>${escapeHtml(mine)}</strong><strong>${escapeHtml(other)}</strong></div>`;
+}
+
+function formatDjClassLabel(row) {
+  if (!row) return "-";
+  const power = Number.isFinite(Number(row.djPowerSum)) ? Number(row.djPowerSum).toFixed(2) : "-";
+  return `${row.djClass || "-"} · ${power}`;
+}
+
+function formatTierLabel(row) {
+  if (!row) return "-";
+  const point = Number.isFinite(Number(row.tierPoint)) ? Number(row.tierPoint).toFixed(2) : "-";
+  return `${row.tierName || "-"} · ${point}`;
 }
 
 function applyNameWidth() {
@@ -5167,12 +5212,9 @@ function buildCompareRows() {
   if (!state.payload || !state.comparePayload) return [];
   const mineRecords = state.payload.records || [];
   const otherRecords = state.comparePayload.records || [];
-  const mineStats = buildFloorStats(mineRecords);
-  const otherStats = buildFloorStats(otherRecords);
   const mineMap = new Map(mineRecords.map((record) => [recordKey(record), record]));
   const otherMap = new Map(otherRecords.map((record) => [recordKey(record), record]));
   const keys = [...mineMap.keys()].filter((key) => otherMap.has(key));
-  const minStd = Number(compareStdFloorSelect.value) || 0.05;
 
   return keys.map((key) => {
     const mine = mineMap.get(key) || null;
@@ -5182,10 +5224,7 @@ function buildCompareRows() {
     const otherScore = other && Number.isFinite(Number(other.score)) ? Number(other.score) : null;
     const mineFloor = mine ? getFloorLabel(mine) : getFloorLabel(other || {});
     const otherFloor = other ? getFloorLabel(other) : getFloorLabel(mine || {});
-    const mineZ = mineScore === null ? null : zScore(mineScore, mineStats.get(mineFloor), minStd);
-    const otherZ = otherScore === null ? null : zScore(otherScore, otherStats.get(otherFloor), minStd);
     const scoreDiff = mineScore === null || otherScore === null ? null : mineScore - otherScore;
-    const zDiff = mineZ === null || otherZ === null ? null : mineZ - otherZ;
     const button = Number(base.button);
     const mineLogPower = mineScore === null ? null : scoreToPoint(mineScore) * difficultyConstantForFloor(mineFloor, button);
     const otherLogPower = otherScore === null ? null : scoreToPoint(otherScore) * difficultyConstantForFloor(otherFloor, button);
@@ -5193,7 +5232,6 @@ function buildCompareRows() {
     const minePoint = mine && Number.isFinite(Number(mine.rating)) ? Number(mine.rating) : null;
     const otherPoint = other && Number.isFinite(Number(other.rating)) ? Number(other.rating) : null;
     const pointDiff = minePoint === null || otherPoint === null ? null : minePoint - otherPoint;
-    const isReversal = scoreDiff !== null && zDiff !== null && Math.sign(scoreDiff) !== 0 && Math.sign(zDiff) !== 0 && Math.sign(scoreDiff) !== Math.sign(zDiff);
     const floorName = getFloorLabel(base) || mineFloor || otherFloor;
     return {
       button: base.button,
@@ -5206,9 +5244,6 @@ function buildCompareRows() {
       mineScore,
       otherScore,
       scoreDiff,
-      mineZ,
-      otherZ,
-      zDiff,
       mineLogPower,
       otherLogPower,
       logPowerDiff,
@@ -5216,11 +5251,8 @@ function buildCompareRows() {
       otherPoint,
       pointDiff,
       absScoreDiff: scoreDiff === null ? null : Math.abs(scoreDiff),
-      absZDiff: zDiff === null ? null : Math.abs(zDiff),
       absLogPowerDiff: logPowerDiff === null ? null : Math.abs(logPowerDiff),
       absPointDiff: pointDiff === null ? null : Math.abs(pointDiff),
-      isReversal,
-      result: compareResult(scoreDiff, zDiff, mineScore, otherScore),
       mineMaxCombo: mine?.maxCombo === true,
       otherMaxCombo: other?.maxCombo === true,
       mineUpdatedAt: mine?.updatedAt || "",
@@ -5229,43 +5261,27 @@ function buildCompareRows() {
   }).filter((row) => floorIndex(row.floorName) >= 0);
 }
 
-function buildFloorStats(records) {
-  const grouped = new Map();
-  for (const record of records) {
-    const floorLabel = getFloorLabel(record);
-    const score = Number(record.score);
-    if (!floorLabel || !Number.isFinite(score)) continue;
-    if (!grouped.has(floorLabel)) grouped.set(floorLabel, []);
-    grouped.get(floorLabel).push(score);
-  }
-  const stats = new Map();
-  for (const [floorLabel, scores] of grouped) {
-    const avg = scores.reduce((sum, score) => sum + score, 0) / scores.length;
-    const variance = scores.reduce((sum, score) => sum + (score - avg) ** 2, 0) / scores.length;
-    stats.set(floorLabel, { avg, std: Math.sqrt(variance), count: scores.length });
-  }
-  return stats;
-}
-
-function zScore(score, stats, minStd) {
-  if (!stats || !Number.isFinite(score)) return null;
-  const std = Math.max(stats.std || 0, minStd);
-  return (score - stats.avg) / std;
-}
-
-function compareResult(scoreDiff, zDiff, mineScore, otherScore) {
-  const scoreWinner = scoreDiff > 0 ? "score 나" : scoreDiff < 0 ? "score 상대" : "score 동점";
-  const zWinner = zDiff > 0 ? "z 나" : zDiff < 0 ? "z 상대" : "z 동점";
-  return `${scoreWinner} / ${zWinner}`;
-}
-
 function renderLogPowerCalculator() {
   if (!logPowerCalculatorPanel) return;
+  const djPowerMode = calculatorMode.value === "djPower";
+  calculatorTitle.textContent = djPowerMode ? "DJPower 계산기" : "LogPower 계산기";
+  calculatorFloorControl.hidden = djPowerMode;
+  calculatorPatternControl.hidden = !djPowerMode;
+  calculatorLevelControl.hidden = !djPowerMode;
+  calculatorInverseTitle.textContent = djPowerMode ? "DJPower로 Score 찾기" : "LogPower로 Score 찾기";
+  calculatorInverseDescription.textContent = djPowerMode
+    ? "선택한 패턴과 레벨에서 목표 DJPower에 도달하는 최소 Score를 버튼별로 계산합니다."
+    : "입력한 LogPower에 도달하는 최소 Score를 floor별로 계산합니다.";
+  calculatorTargetLabel.textContent = djPowerMode ? "DJPower" : "LogPower";
   const floorLabel = logPowerCalculatorFloor.value;
   const rawScore = logPowerCalculatorScore.value.trim();
   const score = Math.min(100, Math.max(0, Number(rawScore)));
   const selectedButton = Number(logPowerCalculatorButton.value);
   const buttons = BUTTONS.includes(selectedButton) ? [selectedButton] : BUTTONS;
+  if (djPowerMode) {
+    renderDjPowerCalculator(buttons, rawScore, score);
+    return;
+  }
   const baseConstant = baseDifficultyConstantForFloor(floorLabel);
   const point = rawScore === "" ? NaN : scoreToPoint(score);
   const hasLiveScale = isValidButtonTop50BaseMax(state.buttonTop50BaseMax);
@@ -5292,11 +5308,76 @@ function renderLogPowerCalculator() {
   logPowerCalculatorBreakdown.innerHTML = `<span>Score Point <strong>${point.toFixed(4)}</strong>${capLabel}</span><span>floor 기본 상수 <strong>${baseConstant.toFixed(4)}</strong></span><span>${hasLiveScale ? "최신 곡 목록" : "내장값"} 기준 버튼별 TOP50 5000 보정</span>`;
 }
 
+function renderDjPowerCalculator(buttons, rawScore, score) {
+  const pattern = djPowerCalculatorPattern.value;
+  const level = Math.min(15, Math.max(1, Number(djPowerCalculatorLevel.value)));
+  const rawMax = maxDjPowerForPattern(pattern, level);
+  const scoreRatio = rawScore === "" ? NaN : djPowerScoreRatio(score);
+  logPowerCalculatorContext.textContent = `${buttons.length === 1 ? `${buttons[0]}B` : "전체 버튼"} · ${pattern} Lv.${level} · TOP100 만점 10000 보정`;
+  renderDjPowerScoreTable(buttons, pattern, level);
+  if (!Number.isFinite(rawMax) || !Number.isFinite(scoreRatio)) {
+    logPowerCalculatorResults.innerHTML = `<div class="achievementEmpty">패턴, 레벨과 score를 확인해 주세요.</div>`;
+    logPowerCalculatorBreakdown.textContent = "";
+    return;
+  }
+
+  const rawDjPower = rawMax * scoreRatio;
+  logPowerCalculatorResults.innerHTML = buttons.map((button) => {
+    const scale = getDjPowerTop100Scale(button);
+    const normalized = rawDjPower * scale.multiplier;
+    const normalizedMax = rawMax * scale.multiplier;
+    return `<article class="logPowerCalculatorCard" data-button="${button}">
+      <span>${button}B</span>
+      <strong>${normalized.toFixed(2)}</strong>
+      <small>원본 ${rawDjPower.toFixed(4)} · 최대 ${normalizedMax.toFixed(2)}</small>
+    </article>`;
+  }).join("");
+  logPowerCalculatorBreakdown.innerHTML = `<span>Score 보정률 <strong>${scoreRatio.toFixed(6)}</strong></span><span>원본 최대 DJPower <strong>${rawMax.toFixed(4)}</strong></span><span>원본 DJPower <strong>${rawDjPower.toFixed(4)}</strong></span><span>버튼별 베이직 70 + 뉴탭 30 이론상 합계 10000 보정</span>`;
+}
+
+function getDjPowerTop100Scale(button) {
+  return state.djPowerTop100MaxByButton?.[String(button)] || FALLBACK_DJPOWER_TOP100_MAX_BY_BUTTON[String(button)];
+}
+
+function renderDjPowerScoreTable(buttons, pattern, level) {
+  const rawTarget = logPowerCalculatorTarget.value.trim();
+  const target = Number(rawTarget);
+  const rawMax = maxDjPowerForPattern(pattern, level);
+  if (rawTarget === "" || !Number.isFinite(target) || target < 0 || !Number.isFinite(rawMax)) {
+    logPowerCalculatorScoreTable.innerHTML = `<tbody><tr><td class="empty">0 이상의 DJPower와 올바른 패턴·레벨을 입력해 주세요.</td></tr></tbody>`;
+    return;
+  }
+  const rows = buttons.map((button) => {
+    const scale = getDjPowerTop100Scale(button);
+    const normalizedMax = rawMax * scale.multiplier;
+    const score = requiredScoreForDjPower(target, rawMax, scale.multiplier);
+    const scoreText = target === 0
+      ? "90.00 미만"
+      : Number.isFinite(score) ? score.toFixed(2) : "도달 불가";
+    return `<tr><td>${button}B</td><td class="num">${normalizedMax.toFixed(2)}</td><td class="num${Number.isFinite(score) || target === 0 ? "" : " calculatorImpossible"}">${scoreText}</td></tr>`;
+  }).join("");
+  logPowerCalculatorScoreTable.innerHTML = `<thead><tr><th>버튼</th><th>최대 DJPower</th><th>최소 Score</th></tr></thead><tbody>${rows}</tbody>`;
+}
+
+function requiredScoreForDjPower(target, rawMax, multiplier) {
+  if (!Number.isFinite(target) || target < 0 || !Number.isFinite(rawMax) || rawMax <= 0 || !Number.isFinite(multiplier) || multiplier <= 0) return NaN;
+  if (target === 0) return 0;
+  if (target > rawMax * multiplier + 1e-9) return NaN;
+  let low = 90;
+  let high = 100;
+  for (let index = 0; index < 60; index += 1) {
+    const middle = (low + high) / 2;
+    if (djPowerScoreRatio(middle) * rawMax * multiplier >= target) high = middle;
+    else low = middle;
+  }
+  return Math.min(100, Math.ceil((high - 1e-9) * 100) / 100);
+}
+
 function buildDjPowerTop100Rows(records) {
   const selectedButton = buttonFilter.value;
   const buttons = selectedButton ? [selectedButton] : ["4", "5", "6", "8"];
   return buttons.flatMap((button) => {
-    const scale = state.djPowerTop100MaxByButton?.[String(button)] || FALLBACK_DJPOWER_TOP100_MAX_BY_BUTTON[String(button)];
+    const scale = getDjPowerTop100Scale(button);
     const multiplier = Number(scale?.multiplier);
     if (!Number.isFinite(multiplier) || multiplier <= 0) return [];
     const buttonRows = records.filter((row) => String(row.button) === String(button));
@@ -5642,18 +5723,13 @@ function filterRows(rows) {
     if (viewSelect.value === "records" && !isFloorInRecordsRange(row.floorName)) return false;
     if (viewSelect.value === "compare") {
       const mode = compareModeSelect.value;
-      const minZ = Number(compareMinZSelect.value) || 0;
       if (!isFloorInCompareRange(row.floorName)) return false;
-      if (minZ > 0 && (!Number.isFinite(row.absZDiff) || row.absZDiff < minZ)) return false;
       if (mode === "scoreMine" && !(row.scoreDiff > 0)) return false;
       if (mode === "scoreOther" && !(row.scoreDiff < 0)) return false;
-      if (mode === "zMine" && !(row.zDiff > 0)) return false;
-      if (mode === "zOther" && !(row.zDiff < 0)) return false;
       if (mode === "logPowerMine" && !(row.logPowerDiff > 0)) return false;
       if (mode === "logPowerOther" && !(row.logPowerDiff < 0)) return false;
       if (mode === "pointMine" && !(row.pointDiff > 0)) return false;
       if (mode === "pointOther" && !(row.pointDiff < 0)) return false;
-      if (mode === "reversal" && !row.isReversal) return false;
     }
     if (!query) return true;
     return JSON.stringify(row).toLowerCase().includes(query);
@@ -5680,7 +5756,7 @@ function isFloorInCompareRange(floorLabel) {
 
 function sortRows(rows) {
   if (viewSelect.value === "compare" && !state.sortKey) {
-    const sort = compareSortSelect.value || "absZDiff";
+    const sort = compareSortSelect.value || "absScoreDiff";
     const key = sort.replace(/Asc|Desc$/, "");
     const dir = sort.endsWith("Asc") ? 1 : -1;
     rows.sort((a, b) => compareForSort(a[key], b[key]) * dir || compare(a.button, b.button) || compare(a.floor, b.floor) || compare(a.name, b.name));
@@ -5714,13 +5790,12 @@ function renderCell(row, key) {
   const classes = [];
   if (key === "name") classes.push("nameCell");
   if (key === "name" && isRecentRecord(row.updatedAt)) classes.push("recentName");
-  if (["button", "rank", "floor", "score", "previousScore", "currentScore", "mineScore", "otherScore", "scoreDiff", "mineZ", "otherZ", "zDiff", "previousLogPower", "currentLogPower", "mineLogPower", "otherLogPower", "logPowerDiff", "minePoint", "otherPoint", "pointDiff", "scorePoint", "difficultyConstant", "floorMaxPoint", "logPower", "rating", "maxRating", "djpower", "maxDjpower", "rawDjPower", "normalizedDjPower", "normalizedMaxDjPower", "top50sum", "tierPoint", "nextRating", "djPowerSum", "djPowerConversion", "maxDjPower"].includes(key)) classes.push("num");
+  if (["button", "rank", "floor", "score", "previousScore", "currentScore", "mineScore", "otherScore", "scoreDiff", "previousLogPower", "currentLogPower", "mineLogPower", "otherLogPower", "logPowerDiff", "minePoint", "otherPoint", "pointDiff", "scorePoint", "difficultyConstant", "floorMaxPoint", "logPower", "rating", "maxRating", "djpower", "maxDjpower", "rawDjPower", "normalizedDjPower", "normalizedMaxDjPower", "top50sum", "tierPoint", "nextRating", "djPowerSum", "djPowerConversion", "maxDjPower"].includes(key)) classes.push("num");
   if (key === "pattern") classes.push("pattern");
   if (key === "level") classes.push("level");
   if (key === "score" && row.maxCombo === true) classes.push("comboScore");
-  if (["scoreDiff", "zDiff", "logPowerDiff", "pointDiff"].includes(key) && Number(value) > 0) classes.push("positiveDiff");
-  if (["scoreDiff", "zDiff", "logPowerDiff", "pointDiff"].includes(key) && Number(value) < 0) classes.push("negativeDiff");
-  if (key === "result" && row.isReversal) classes.push("reversalCell");
+  if (["scoreDiff", "logPowerDiff", "pointDiff"].includes(key) && Number(value) > 0) classes.push("positiveDiff");
+  if (["scoreDiff", "logPowerDiff", "pointDiff"].includes(key) && Number(value) < 0) classes.push("negativeDiff");
   if (key === "mineScore" && row.mineMaxCombo === true) classes.push("comboScore");
   if (key === "otherScore" && row.otherMaxCombo === true) classes.push("comboScore");
   if (key === "previousScore" && row.previousMaxCombo === true) classes.push("comboScore");
@@ -5765,7 +5840,6 @@ function clampInt(value, min, max) {
 function formatValue(value, key = "") {
   if (value === null || value === undefined) return "";
   if (["previousScore", "currentScore", "mineScore", "otherScore", "scoreDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
-  if (["mineZ", "otherZ", "zDiff", "absZDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
   if (["previousLogPower", "currentLogPower", "mineLogPower", "otherLogPower", "logPowerDiff", "absLogPowerDiff", "minePoint", "otherPoint", "pointDiff", "absPointDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
   if (["scorePoint", "difficultyConstant", "floorMaxPoint", "logPower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
   if (["rating", "djpower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);

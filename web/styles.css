@@ -1599,6 +1599,58 @@ main {
   margin-bottom: 12px;
 }
 
+.compareProfileSummary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+  gap: 8px;
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.compareProfileCard {
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--subtle);
+}
+
+.compareProfileCard h3 {
+  margin: 0 0 7px;
+  font-size: 14px;
+}
+
+.compareProfileNames,
+.compareProfileRow {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.compareProfileNames {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.compareProfileNames strong,
+.compareProfileRow strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compareProfileRow {
+  min-height: 28px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.compareProfileRow > span {
+  color: var(--muted);
+}
+
 .filters:empty {
   display: none;
 }
@@ -1738,11 +1790,11 @@ th {
   cursor: pointer;
 }
 
-tbody tr:nth-child(even) td:not(.recentName):not(.comboScore):not(.reversalCell) {
+tbody tr:nth-child(even) td:not(.recentName):not(.comboScore) {
   background: var(--table-alt);
 }
 
-tbody tr:hover td:not(.recentName):not(.comboScore):not(.reversalCell) {
+tbody tr:hover td:not(.recentName):not(.comboScore) {
   background: var(--accent-soft);
 }
 
@@ -1784,15 +1836,6 @@ td.negativeDiff {
   font-weight: 700;
 }
 
-td.reversalCell {
-  background: #fff0bd;
-  color: #7a4c00;
-  font-weight: 700;
-}
-
-tr:hover td.reversalCell {
-  background: #ffe390;
-}
 
 :root[data-theme="dark"] td.recentName {
   background: #584b21;
@@ -1810,14 +1853,6 @@ tr:hover td.reversalCell {
   color: #69d6a5;
 }
 
-:root[data-theme="dark"] td.reversalCell {
-  background: #51401e;
-  color: #f6cf72;
-}
-
-:root[data-theme="dark"] tr:hover td.reversalCell {
-  background: #655027;
-}
 
 .empty {
   padding: 28px;
