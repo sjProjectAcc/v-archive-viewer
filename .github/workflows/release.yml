@@ -10,8 +10,6 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
-    env:
-      VLOG_RELEASE_CHANNEL: public
     permissions:
       contents: write
     outputs:

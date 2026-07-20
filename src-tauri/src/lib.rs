@@ -140,10 +140,6 @@ struct UpdateInfo {
     latest_build: u64,
 }
 
-fn build_channel() -> &'static str {
-    option_env!("VLOG_RELEASE_CHANNEL").unwrap_or("public")
-}
-
 fn test_build_number() -> u64 {
     option_env!("VLOG_TEST_BUILD_NUMBER")
         .and_then(|value| value.parse().ok())
@@ -162,11 +158,7 @@ fn has_test_marker() -> bool {
 }
 
 fn update_channel() -> &'static str {
-    if build_channel() == "test" || has_test_marker() {
-        "test"
-    } else {
-        "public"
-    }
+    if has_test_marker() { "test" } else { "public" }
 }
 
 fn update_manifest_url() -> &'static str {
