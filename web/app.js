@@ -222,6 +222,9 @@ const achievementSelectVisibleButton = document.querySelector("#achievementSelec
 const achievementClearButton = document.querySelector("#achievementClearButton");
 const achievementImageButton = document.querySelector("#achievementImageButton");
 const achievementColumnsInput = document.querySelector("#achievementColumnsInput");
+const achievementAutoLogPowerInput = document.querySelector("#achievementAutoLogPowerInput");
+const achievementAutoHoursInput = document.querySelector("#achievementAutoHoursInput");
+const achievementAutoSelectButton = document.querySelector("#achievementAutoSelectButton");
 const achievementSelectionSummary = document.querySelector("#achievementSelectionSummary");
 const achievementList = document.querySelector("#achievementList");
 const selfComparePanel = document.querySelector("#selfComparePanel");
@@ -312,14 +315,20 @@ const chartAvgLegend = document.querySelector("#chartAvgLegend");
 const chartMinLegend = document.querySelector("#chartMinLegend");
 const chartImageButton = document.querySelector("#chartImageButton");
 const chartEl = document.querySelector("#floorScoreChart");
+let achievementDragActive = false;
+let achievementDragValue = true;
+let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "recent-achievements-v1";
+const UI_SCHEMA_VERSION = "achievement-auto-select-v1";
 const REQUIRED_UI_IDS = [
   "statusText",
   "chartPanel",
   "compareChartPanel",
   "historyPanel",
   "achievementPanel",
+  "achievementAutoLogPowerInput",
+  "achievementAutoHoursInput",
+  "achievementAutoSelectButton",
   "selfComparePanel",
   "tagsPanel",
   "debugPanel",
@@ -606,6 +615,10 @@ function wireEvents() {
     achievementColumnsInput.value = String(Math.min(4, Math.max(1, Number(achievementColumnsInput.value) || 1)));
     saveSettings();
   });
+  [achievementAutoLogPowerInput, achievementAutoHoursInput].forEach((input) => {
+    input.addEventListener("input", saveSettings);
+  });
+  achievementAutoSelectButton.addEventListener("click", autoSelectAchievements);
   achievementSelectVisibleButton.addEventListener("click", selectVisibleAchievements);
   achievementClearButton.addEventListener("click", () => {
     state.achievementSelected.clear();
@@ -620,6 +633,16 @@ function wireEvents() {
     else state.achievementSelected.delete(id);
     renderAchievementList();
   });
+  achievementList.addEventListener("pointerdown", startAchievementDragSelection);
+  achievementList.addEventListener("pointerover", continueAchievementDragSelection);
+  achievementList.addEventListener("dragstart", (event) => event.preventDefault());
+  achievementList.addEventListener("click", (event) => {
+    if (!achievementSuppressClick) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
+  document.addEventListener("pointerup", finishAchievementDragSelection);
+  document.addEventListener("pointercancel", finishAchievementDragSelection);
   [selfCompareStart, selfCompareEnd].forEach((input) => {
     input.addEventListener("input", () => {
       state.sortKey = null;
@@ -734,6 +757,8 @@ function applySavedSettings() {
   historyStartDate.value = settings.historyStartDate || "";
   historyEndDate.value = settings.historyEndDate || "";
   achievementColumnsInput.value = String(Math.min(4, Math.max(1, Number(settings.achievementColumns) || 1)));
+  achievementAutoLogPowerInput.value = String(Math.max(0, Number(settings.achievementAutoLogPower) || 1));
+  achievementAutoHoursInput.value = String(Math.max(1, Number(settings.achievementAutoHours) || 72));
   selfCompareStart.value = settings.selfCompareStart || "";
   selfCompareEnd.value = settings.selfCompareEnd || "";
   setIfOptionExists(tagsRecordModeSelect, settings.tagsRecordMode || "");
@@ -792,6 +817,8 @@ function saveSettings() {
     historyStartDate: historyStartDate.value,
     historyEndDate: historyEndDate.value,
     achievementColumns: achievementColumnsInput.value,
+    achievementAutoLogPower: achievementAutoLogPowerInput.value,
+    achievementAutoHours: achievementAutoHoursInput.value,
     selfCompareStart: selfCompareStart.value,
     selfCompareEnd: selfCompareEnd.value,
     tagsGenre: tagsGenreSelect.value,
@@ -2527,27 +2554,27 @@ function buildAchievementRows(entries) {
   }).sort((a, b) => new Date(b.currentUpdatedAt) - new Date(a.currentUpdatedAt) || b.scoreDiff - a.scoreDiff || compare(a.name, b.name));
 }
 
-function getVisibleAchievementRows() {
+function getFilteredAchievementRows() {
   const button = buttonFilter.value;
   const pattern = patternFilter.value;
   const query = searchInput.value.trim().toLowerCase();
-  const rows = state.achievementRows.filter((row) => {
+  return state.achievementRows.filter((row) => {
     if (button && String(row.button) !== button) return false;
     if (pattern && row.pattern !== pattern) return false;
     if (query && !JSON.stringify(row).toLowerCase().includes(query)) return false;
     return true;
   });
+}
+
+function getVisibleAchievementRows() {
+  const rows = getFilteredAchievementRows();
   const limit = Number(limitSelect.value);
   return limit > 0 ? rows.slice(0, limit) : rows;
 }
 
 function renderAchievementList() {
   const visibleRows = getVisibleAchievementRows();
-  const selectedCount = visibleRows.filter((row) => state.achievementSelected.has(row.id)).length;
-  achievementSelectionSummary.textContent = `${selectedCount}개 선택 · 현재 표시 ${visibleRows.length}개`;
-  achievementImageButton.disabled = selectedCount === 0;
-  achievementSelectVisibleButton.disabled = visibleRows.length === 0;
-  achievementClearButton.disabled = selectedCount === 0;
+  updateAchievementSelectionControls(visibleRows);
   achievementStatus.textContent = state.achievementRows.length
     ? `최근 등록순 ${state.achievementRows.length}개 성과 · History에서 수집된 인접 기록 비교`
     : "비교할 이전 기록이 없습니다. History 탭에서 히스토리를 먼저 수집해 주세요.";
@@ -2568,6 +2595,14 @@ function renderAchievementList() {
   }).join("");
 }
 
+function updateAchievementSelectionControls(visibleRows = getVisibleAchievementRows()) {
+  const selectedCount = visibleRows.filter((row) => state.achievementSelected.has(row.id)).length;
+  achievementSelectionSummary.textContent = `${selectedCount}개 선택 · 현재 표시 ${visibleRows.length}개`;
+  achievementImageButton.disabled = selectedCount === 0;
+  achievementSelectVisibleButton.disabled = visibleRows.length === 0;
+  achievementClearButton.disabled = selectedCount === 0;
+}
+
 function renderAchievementSide(score, logPower, maxCombo, updatedAt, className) {
   const label = className === "after" ? "이후" : "이전";
   return `<span class="achievementSide ${className}"><small>${label} · ${escapeHtml(formatDate(updatedAt))}</small><strong>${formatValue(score, "score")}</strong><span>logPower ${formatValue(logPower, "logPower")}</span>${maxCombo ? "<small>MAX COMBO</small>" : ""}</span>`;
@@ -2576,6 +2611,64 @@ function renderAchievementSide(score, logPower, maxCombo, updatedAt, className) 
 function selectVisibleAchievements() {
   for (const row of getVisibleAchievementRows()) state.achievementSelected.add(row.id);
   renderAchievementList();
+}
+
+function autoSelectAchievements() {
+  const minimumLogPower = Math.max(0, Number(achievementAutoLogPowerInput.value) || 0);
+  const recentHours = Math.max(1, Number(achievementAutoHoursInput.value) || 1);
+  achievementAutoLogPowerInput.value = String(minimumLogPower);
+  achievementAutoHoursInput.value = String(recentHours);
+  const cutoff = Date.now() - recentHours * 60 * 60 * 1000;
+  const matches = getFilteredAchievementRows().filter((row) => {
+    const updatedAt = new Date(row.currentUpdatedAt).getTime();
+    return Number.isFinite(updatedAt) && updatedAt >= cutoff && Number(row.logPowerDiff) >= minimumLogPower;
+  });
+  state.achievementSelected.clear();
+  for (const row of matches) state.achievementSelected.add(row.id);
+  saveSettings();
+  renderAchievementList();
+  achievementStatus.textContent = `최근 ${formatProfileNumber(recentHours)}시간 · logPower +${formatProfileNumber(minimumLogPower)} 이상 · ${matches.length}개 자동 선택`;
+}
+
+function startAchievementDragSelection(event) {
+  if (event.button !== 0) return;
+  const item = event.target.closest(".achievementItem");
+  if (!item) return;
+  event.preventDefault();
+  const checkbox = item.querySelector("[data-achievement-id]");
+  if (!checkbox) return;
+  const id = decodeURIComponent(checkbox.dataset.achievementId || "");
+  achievementDragActive = true;
+  achievementDragValue = !state.achievementSelected.has(id);
+  achievementSuppressClick = true;
+  achievementList.classList.add("dragSelecting");
+  applyAchievementDragSelection(item);
+}
+
+function continueAchievementDragSelection(event) {
+  if (!achievementDragActive) return;
+  const item = event.target.closest(".achievementItem");
+  if (item) applyAchievementDragSelection(item);
+}
+
+function applyAchievementDragSelection(item) {
+  const checkbox = item.querySelector("[data-achievement-id]");
+  if (!checkbox) return;
+  const id = decodeURIComponent(checkbox.dataset.achievementId || "");
+  if (achievementDragValue) state.achievementSelected.add(id);
+  else state.achievementSelected.delete(id);
+  checkbox.checked = achievementDragValue;
+  item.classList.toggle("selected", achievementDragValue);
+  updateAchievementSelectionControls();
+}
+
+function finishAchievementDragSelection() {
+  if (!achievementDragActive) return;
+  achievementDragActive = false;
+  achievementList.classList.remove("dragSelecting");
+  setTimeout(() => {
+    achievementSuppressClick = false;
+  }, 0);
 }
 
 async function renderSelfCompareView() {
@@ -4030,11 +4123,14 @@ function buildAchievementProfileSummary() {
 async function drawAchievementImage({ nickname, rows, columns, profile }) {
   const margin = 30;
   const gap = 16;
-  const headerH = 266;
-  const cardW = 1160;
-  const cardH = 348;
-  const rowCount = Math.ceil(rows.length / columns);
+  const cardW = 540;
+  const cardH = 400;
   const width = margin * 2 + columns * cardW + Math.max(0, columns - 1) * gap;
+  const profileGap = 10;
+  const profileColumns = Math.min(profile.buttons.length, Math.max(1, Math.floor((width - margin * 2 + profileGap) / 260)));
+  const profileRows = Math.ceil(profile.buttons.length / profileColumns);
+  const headerH = 166 + profileRows * 100 + Math.max(0, profileRows - 1) * profileGap;
+  const rowCount = Math.ceil(rows.length / columns);
   const height = margin * 2 + headerH + rowCount * cardH + Math.max(0, rowCount - 1) * gap;
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -4054,12 +4150,14 @@ async function drawAchievementImage({ nickname, rows, columns, profile }) {
   const buttonScope = profile.selectedButton ? ` · ${profile.selectedButton}B 선택` : "";
   ctx.fillText(`${rows.length}개 성과${buttonScope} · Records ${profile.records.toLocaleString()} · Updated ${profile.updated.toLocaleString()} · Since ${profile.since} · Errors ${profile.errors.toLocaleString()} · ${formatDate(new Date().toISOString())}`, margin, 128);
 
-  const profileGap = 10;
-  const profileW = (width - margin * 2 - profileGap * Math.max(0, profile.buttons.length - 1)) / Math.max(1, profile.buttons.length);
+  const profileAreaW = profile.buttons.length === 1 ? Math.min(cardW, width - margin * 2) : width - margin * 2;
+  const profileW = (profileAreaW - profileGap * Math.max(0, profileColumns - 1)) / profileColumns;
   for (let index = 0; index < profile.buttons.length; index += 1) {
     const item = profile.buttons[index];
-    const x = margin + index * (profileW + profileGap);
-    const y = 148;
+    const profileColumn = index % profileColumns;
+    const profileRow = Math.floor(index / profileColumns);
+    const x = margin + profileColumn * (profileW + profileGap);
+    const y = 148 + profileRow * (100 + profileGap);
     drawRoundRect(ctx, x, y, profileW, 100, 7, "#ffffff", "#d9dee7");
     ctx.fillStyle = "#1268b3";
     ctx.font = "900 21px Segoe UI, Malgun Gothic, Arial";
@@ -4087,10 +4185,10 @@ async function drawAchievementImage({ nickname, rows, columns, profile }) {
 function drawAchievementImageCard(ctx, row, jacket, x, y, w, h) {
   drawRoundRect(ctx, x, y, w, h, 8, "#ffffff", "#d9dee7");
   const inset = 10;
-  const songH = 132;
+  const songH = 140;
   drawRoundRect(ctx, x + inset, y + inset, w - inset * 2, songH, 7, "#f7f9fc", "#e2e7ef");
 
-  const jacketSize = 106;
+  const jacketSize = 112;
   const jacketX = x + 22;
   const jacketY = y + 23;
   if (jacket) {
@@ -4108,14 +4206,14 @@ function drawAchievementImageCard(ctx, row, jacket, x, y, w, h) {
   const textX = jacketX + jacketSize + 18;
   const textW = w - (textX - x) - 24;
   ctx.fillStyle = "#171a1f";
-  ctx.font = "900 27px Segoe UI, Malgun Gothic, Arial";
+  ctx.font = "900 23px Segoe UI, Malgun Gothic, Arial";
   drawTextFit(ctx, row.name, textX, y + 48, textW);
   ctx.fillStyle = "#586274";
-  ctx.font = "800 16px Segoe UI, Malgun Gothic, Arial";
+  ctx.font = "800 14px Segoe UI, Malgun Gothic, Arial";
   drawTextFit(ctx, `${row.button}B · ${row.pattern} · Lv.${row.level} · floor ${row.floorName}`, textX, y + 76, textW);
   ctx.fillStyle = "#1268b3";
-  ctx.font = "900 19px Segoe UI, Malgun Gothic, Arial";
-  drawTextFit(ctx, `Score ${formatSigned(row.scoreDiff, 2)} · LogPower ${formatSigned(row.logPowerDiff, 2)} · scorePoint ${formatSigned(row.scorePointDiff, 2)}`, textX, y + 106, textW);
+  ctx.font = "900 16px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, `Score ${formatSigned(row.scoreDiff, 2)} · LP ${formatSigned(row.logPowerDiff, 2)} · Point ${formatSigned(row.scorePointDiff, 2)}`, textX, y + 106, textW);
   ctx.fillStyle = "#586274";
   ctx.font = "800 14px Segoe UI, Malgun Gothic, Arial";
   drawTextFit(ctx, formatAchievementElapsed(row.previousUpdatedAt, row.currentUpdatedAt), textX, y + 129, textW);
@@ -4135,14 +4233,14 @@ function drawAchievementImageSide(ctx, label, updatedAt, score, scorePoint, logP
   ctx.fillText(label, x + 16, y + 30);
   ctx.fillStyle = "#586274";
   ctx.font = "700 13px Segoe UI, Malgun Gothic, Arial";
-  drawTextFit(ctx, formatDate(updatedAt), x + 88, y + 29, w - 104);
+  drawTextFit(ctx, formatDate(updatedAt), x + 16, y + 54, w - 32);
   ctx.fillStyle = after ? "#1268b3" : "#171a1f";
   ctx.font = "900 38px Segoe UI, Malgun Gothic, Arial";
-  ctx.fillText(formatValue(score, "score"), x + 16, y + 92);
+  ctx.fillText(formatValue(score, "score"), x + 16, y + 105);
   ctx.fillStyle = "#586274";
   ctx.font = "800 15px Segoe UI, Malgun Gothic, Arial";
-  ctx.fillText(`scorePoint ${formatProfileNumber(scorePoint)}`, x + 190, y + 72);
-  ctx.fillText(`logPower ${formatProfileNumber(logPower)}`, x + 190, y + 100);
+  ctx.fillText(`scorePoint ${formatProfileNumber(scorePoint)}`, x + 16, y + 143);
+  ctx.fillText(`logPower ${formatProfileNumber(logPower)}`, x + 16, y + 171);
   if (maxCombo) {
     ctx.fillStyle = "#1268b3";
     ctx.font = "900 16px Segoe UI, Malgun Gothic, Arial";
