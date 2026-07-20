@@ -43,6 +43,7 @@ const DEFAULT_NICKNAME = "lemoncube7";
 const API_BASE_URL = "https://v-archive.net";
 const SONG_DB_URL = `${API_BASE_URL}/db/v2/songs.json`;
 const BUTTONS = [4, 5, 6, 8];
+const MAX_ACHIEVEMENT_COLUMNS = 12;
 const DB_NAME = "vArchiveViewerCache";
 const DB_VERSION = 2;
 const PROFILE_STORE = "profiles";
@@ -612,7 +613,7 @@ function wireEvents() {
     renderHistoryView();
   });
   achievementColumnsInput.addEventListener("input", () => {
-    achievementColumnsInput.value = String(Math.min(4, Math.max(1, Number(achievementColumnsInput.value) || 1)));
+    achievementColumnsInput.value = String(Math.min(MAX_ACHIEVEMENT_COLUMNS, Math.max(1, Number(achievementColumnsInput.value) || 1)));
     saveSettings();
   });
   [achievementAutoLogPowerInput, achievementAutoHoursInput].forEach((input) => {
@@ -756,7 +757,7 @@ function applySavedSettings() {
   state.compareChartRanges = settings.compareChartRanges || {};
   historyStartDate.value = settings.historyStartDate || "";
   historyEndDate.value = settings.historyEndDate || "";
-  achievementColumnsInput.value = String(Math.min(4, Math.max(1, Number(settings.achievementColumns) || 1)));
+  achievementColumnsInput.value = String(Math.min(MAX_ACHIEVEMENT_COLUMNS, Math.max(1, Number(settings.achievementColumns) || 1)));
   achievementAutoLogPowerInput.value = String(Math.max(0, Number(settings.achievementAutoLogPower) || 1));
   achievementAutoHoursInput.value = String(Math.max(1, Number(settings.achievementAutoHours) || 72));
   selfCompareStart.value = settings.selfCompareStart || "";
@@ -893,7 +894,7 @@ function handleWheelControl(event) {
   } else {
     if (!control.value && control.type === "date") return;
     const stepCount = control.type === "number" || control.type === "range"
-      ? (event.shiftKey ? 10 : 5)
+      ? (control === achievementColumnsInput ? 1 : event.shiftKey ? 10 : 5)
       : 1;
     try {
       direction > 0 ? control.stepDown(stepCount) : control.stepUp(stepCount);
@@ -4071,7 +4072,7 @@ async function exportAchievementImage() {
     .filter((row) => !selectedButton || String(row.button) === selectedButton)
     .sort((a, b) => new Date(b.currentUpdatedAt) - new Date(a.currentUpdatedAt));
   if (!rows.length) return;
-  const columns = Math.min(rows.length, Math.min(4, Math.max(1, Number(achievementColumnsInput.value) || 1)));
+  const columns = Math.min(rows.length, Math.min(MAX_ACHIEVEMENT_COLUMNS, Math.max(1, Number(achievementColumnsInput.value) || 1)));
   setBusy(true, `최근 성과 ${rows.length}개 이미지 생성 중`);
   achievementImageButton.disabled = true;
   try {
