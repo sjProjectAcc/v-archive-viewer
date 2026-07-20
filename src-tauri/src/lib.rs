@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -115,7 +116,10 @@ struct AccountFileInfo {
 
 #[derive(Serialize, Deserialize)]
 struct AccountPathConfig {
-    path: String,
+    #[serde(default)]
+    paths: HashMap<String, String>,
+    #[serde(default)]
+    path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -193,28 +197,55 @@ fn account_config_path(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|error| format!("앱 설정 경로 확인 실패: {error}"))
 }
 
-fn save_account_path(app: &AppHandle, path: &Path) -> Result<(), String> {
+fn account_path_key(nickname: &str) -> String {
+    nickname.trim().to_lowercase()
+}
+
+fn save_account_path(app: &AppHandle, nickname: &str, path: &Path) -> Result<(), String> {
     let config_path = account_config_path(app)?;
     let parent = config_path
         .parent()
         .ok_or_else(|| "앱 설정 폴더 확인 실패".to_string())?;
     fs::create_dir_all(parent).map_err(|error| format!("앱 설정 폴더 생성 실패: {error}"))?;
-    let config = AccountPathConfig {
-        path: path.display().to_string(),
+    let mut config = if config_path.is_file() {
+        fs::read_to_string(&config_path)
+            .ok()
+            .and_then(|body| serde_json::from_str::<AccountPathConfig>(&body).ok())
+            .unwrap_or(AccountPathConfig {
+                paths: HashMap::new(),
+                path: None,
+            })
+    } else {
+        AccountPathConfig {
+            paths: HashMap::new(),
+            path: None,
+        }
     };
+    config
+        .paths
+        .insert(account_path_key(nickname), path.display().to_string());
+    config.path = None;
     let body = serde_json::to_string_pretty(&config)
         .map_err(|error| format!("account.txt 경로 저장 실패: {error}"))?;
     fs::write(config_path, body).map_err(|error| format!("account.txt 경로 저장 실패: {error}"))
 }
 
-fn configured_account_path(app: &AppHandle) -> Result<PathBuf, String> {
+fn configured_account_path(app: &AppHandle, nickname: &str) -> Result<PathBuf, String> {
     let config_path = account_config_path(app)?;
     if config_path.is_file() {
         let body = fs::read_to_string(&config_path)
             .map_err(|error| format!("account.txt 경로 설정 읽기 실패: {error}"))?;
         let config: AccountPathConfig = serde_json::from_str(&body)
             .map_err(|error| format!("account.txt 경로 설정 해석 실패: {error}"))?;
-        let path = PathBuf::from(config.path);
+        let configured_path = config
+            .paths
+            .get(&account_path_key(nickname))
+            .cloned()
+            .or(config.path);
+        let Some(configured_path) = configured_path else {
+            return Err(format!("{nickname}에 연결된 account.txt가 없습니다."));
+        };
+        let path = PathBuf::from(configured_path);
         if path.is_file() {
             return Ok(path);
         }
@@ -318,16 +349,22 @@ async fn login_with_token(
 async fn login_from_account_file(
     app: AppHandle,
     session: State<'_, ApiSession>,
+    nickname: String,
 ) -> Result<AccountFileInfo, String> {
-    let path = configured_account_path(&app)?;
+    let path = configured_account_path(&app, &nickname)?;
     let (user_no, token) = read_account(&path)?;
     let client = authenticated_client(&user_no, &token).await?;
     store_client(&session, client)?;
+    // Migrate the former single saved path to the currently verified nickname.
+    save_account_path(&app, &nickname, &path)?;
     Ok(account_file_info(&path, &user_no))
 }
 
 #[tauri::command]
-fn select_account_file(app: AppHandle) -> Result<Option<AccountFileInfo>, String> {
+fn select_account_file(
+    app: AppHandle,
+    nickname: String,
+) -> Result<Option<AccountFileInfo>, String> {
     let mut dialog = rfd::FileDialog::new()
         .add_filter("account.txt", &["txt"])
         .set_file_name("account.txt");
@@ -343,7 +380,7 @@ fn select_account_file(app: AppHandle) -> Result<Option<AccountFileInfo>, String
         .canonicalize()
         .map_err(|error| format!("account.txt 경로 확인 실패: {error}"))?;
     let (user_no, _) = read_account(&canonical)?;
-    save_account_path(&app, &canonical)?;
+    save_account_path(&app, &nickname, &canonical)?;
     Ok(Some(account_file_info(&canonical, &user_no)))
 }
 

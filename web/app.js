@@ -529,23 +529,6 @@ async function initDesktopBridge() {
   updateConditionalTabs();
   checkForDesktopUpdate();
 
-  const currentNickname = cacheKey(getCurrentNickname());
-  const linkedNickname = appStorageGetItem(HISTORY_ACCOUNT_NICKNAME_KEY) || "";
-  if (linkedNickname && linkedNickname !== currentNickname) {
-    historyAccountStatus.textContent = `${getCurrentNickname()} 계정 재연결 필요`;
-    historyAccountStatus.title = "마지막으로 연결한 닉네임과 현재 조회 닉네임이 다릅니다.";
-    state.historyAccountNickname = "";
-    appStorageRemoveItem(HISTORY_ACCOUNT_NICKNAME_KEY);
-    await window.__TAURI__.core.invoke("logout_history_account").catch(() => {});
-  }
-  try {
-    const account = await window.__TAURI__.core.invoke("login_from_account_file");
-    state.historyPendingAccount = account;
-    historyAccountStatus.textContent = "account.txt 계정 확인 중";
-    await completePendingHistoryAccount();
-  } catch {
-    historyAccountStatus.textContent = "account.txt 선택 필요";
-  }
 }
 
 async function checkForDesktopUpdate(announce = false) {
@@ -655,7 +638,7 @@ async function reconnectConfiguredHistoryAccount() {
   const nickname = cacheKey(state.payload?.nickname || getCurrentNickname());
   if (!invoke || !nickname || state.historyAccountNickname === nickname) return;
   try {
-    const account = await invoke("login_from_account_file");
+    const account = await invoke("login_from_account_file", { nickname });
     state.historyPendingAccount = account;
     historyAccountStatus.textContent = "account.txt 계정 확인 중";
     await completePendingHistoryAccount();
@@ -1670,14 +1653,16 @@ async function applyNickname() {
 async function disconnectHistoryAccountForNickname(nickname) {
   const nextNickname = cacheKey(nickname);
   const invoke = window.__TAURI__?.core?.invoke;
-  if (!state.historyAccountNickname) {
+  const linkedNickname = appStorageGetItem(HISTORY_ACCOUNT_NICKNAME_KEY) || "";
+  if (!state.historyAccountNickname && !linkedNickname) {
     if (invoke) historyAccountStatus.textContent = `${nickname} 계정 재연결 필요`;
     return;
   }
-  if (state.historyAccountNickname === nextNickname) return;
+  if (state.historyAccountNickname === nextNickname && linkedNickname === nextNickname) return;
   if (invoke) await invoke("logout_history_account");
   state.historyAccountNickname = "";
   state.historyPendingAccount = null;
+  appStorageRemoveItem(HISTORY_ACCOUNT_NICKNAME_KEY);
   historyAccountToken.value = "";
   historyAccountStatus.textContent = `${nickname} 계정 재연결 필요`;
   historyAccountStatus.title = "닉네임이 변경되어 기존 로그인 세션을 해제했습니다.";
@@ -2591,6 +2576,10 @@ async function loginHistoryAccount() {
 
   historyAccountLoginButton.disabled = true;
   try {
+    const identity = currentArchiveAccountIdentity();
+    if (!identity || String(userNo) !== identity.userNo) {
+      throw new Error(`회원 ${userNo}는 현재 조회 계정 ${identity?.nickname || getCurrentNickname()}과 다릅니다.`);
+    }
     await invoke("login_with_token", { userNo, token });
     historyAccountToken.value = "";
     const nickname = state.payload?.nickname || getCurrentNickname();
@@ -2613,9 +2602,10 @@ async function selectAccountFile() {
 
   historyAccountFileButton.disabled = true;
   try {
-    const selected = await invoke("select_account_file");
+    const nickname = cacheKey(state.payload?.nickname || getCurrentNickname());
+    const selected = await invoke("select_account_file", { nickname });
     if (!selected) return;
-    const account = await invoke("login_from_account_file");
+    const account = await invoke("login_from_account_file", { nickname });
     await connectVerifiedHistoryAccount(account);
     statusText.textContent = "account.txt를 연결하고 로그인했습니다.";
   } catch (error) {
