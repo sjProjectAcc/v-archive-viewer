@@ -18,6 +18,63 @@ const UPDATE_MANIFEST_URL: &str =
     "https://sjprojectacc.github.io/v-archive-viewer/desktop-version.json";
 const UPDATE_HOST: &str = "github.com";
 
+#[cfg(windows)]
+fn clear_webview_ui_cache_for_new_version() {
+    let Some(version) = serde_json::from_str::<Value>(include_str!("../tauri.conf.json"))
+        .ok()
+        .and_then(|config| {
+            config
+                .get("version")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+    else {
+        return;
+    };
+    let Some(roaming_data) = std::env::var_os("APPDATA") else {
+        return;
+    };
+    let marker_dir = PathBuf::from(roaming_data).join("net.varchive.viewer");
+    let marker_path = marker_dir.join("ui-cache-version.txt");
+    if fs::read_to_string(&marker_path)
+        .ok()
+        .is_some_and(|stored| stored.trim() == version)
+    {
+        return;
+    }
+
+    let Some(local_data) = std::env::var_os("LOCALAPPDATA") else {
+        return;
+    };
+    let webview_root = PathBuf::from(local_data)
+        .join("net.varchive.viewer")
+        .join("EBWebView");
+    let cache_paths = [
+        "Default\\Cache",
+        "Default\\Code Cache",
+        "Default\\GPUCache",
+        "Default\\Service Worker",
+        "GPUCache",
+        "GPUPersistentCache",
+        "GrShaderCache",
+        "ShaderCache",
+    ];
+    let cleared = cache_paths.iter().all(|relative| {
+        let path = webview_root.join(relative);
+        !path.exists() || fs::remove_dir_all(path).is_ok()
+    });
+    if !cleared {
+        return;
+    }
+
+    if fs::create_dir_all(&marker_dir).is_ok() {
+        let _ = fs::write(marker_path, version);
+    }
+}
+
+#[cfg(not(windows))]
+fn clear_webview_ui_cache_for_new_version() {}
+
 #[derive(Default)]
 struct ApiSession {
     client: Mutex<Option<Client>>,
@@ -463,6 +520,7 @@ mod tests {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    clear_webview_ui_cache_for_new_version();
     tauri::Builder::default()
         .manage(ApiSession::default())
         .invoke_handler(tauri::generate_handler![
