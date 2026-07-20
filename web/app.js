@@ -5340,7 +5340,7 @@ function renderDjPowerCalculator(buttons, rawScore, score) {
   const rawMax = maxDjPowerForPattern(pattern, level);
   const scoreRatio = rawScore === "" ? NaN : djPowerScoreRatio(score);
   logPowerCalculatorContext.textContent = `${buttons.length === 1 ? `${buttons[0]}B` : "전체 버튼"} · ${pattern} Lv.${level} · 보정 전 DJPower 기준`;
-  renderDjPowerScoreTable(buttons, pattern, level);
+  renderDjPowerScoreTable(pattern);
   if (!Number.isFinite(rawMax) || !Number.isFinite(scoreRatio)) {
     logPowerCalculatorResults.innerHTML = `<div class="achievementEmpty">패턴, 레벨과 score를 확인해 주세요.</div>`;
     logPowerCalculatorBreakdown.textContent = "";
@@ -5365,22 +5365,22 @@ function getDjPowerTop100Scale(button) {
   return state.djPowerTop100MaxByButton?.[String(button)] || FALLBACK_DJPOWER_TOP100_MAX_BY_BUTTON[String(button)];
 }
 
-function renderDjPowerScoreTable(buttons, pattern, level) {
+function renderDjPowerScoreTable(pattern) {
   const rawTarget = logPowerCalculatorTarget.value.trim();
   const target = Number(rawTarget);
-  const rawMax = maxDjPowerForPattern(pattern, level);
-  if (rawTarget === "" || !Number.isFinite(target) || target < 0 || !Number.isFinite(rawMax)) {
+  if (rawTarget === "" || !Number.isFinite(target) || target < 0) {
     logPowerCalculatorScoreTable.innerHTML = `<tbody><tr><td class="empty">0 이상의 DJPower와 올바른 패턴·레벨을 입력해 주세요.</td></tr></tbody>`;
     return;
   }
-  const rows = buttons.map((button) => {
+  const rows = Array.from({ length: 15 }, (_, index) => 15 - index).map((level) => {
+    const rawMax = maxDjPowerForPattern(pattern, level);
     const score = requiredScoreForDjPower(target, rawMax);
     const scoreText = target === 0
       ? "90.00 미만"
       : Number.isFinite(score) ? score.toFixed(2) : "도달 불가";
-    return `<tr><td>${button}B</td><td class="num">${rawMax.toFixed(4)}</td><td class="num${Number.isFinite(score) || target === 0 ? "" : " calculatorImpossible"}">${scoreText}</td></tr>`;
+    return `<tr><td>${pattern}</td><td class="num">${level}</td><td class="num">${rawMax.toFixed(4)}</td><td class="num${Number.isFinite(score) || target === 0 ? "" : " calculatorImpossible"}">${scoreText}</td></tr>`;
   }).join("");
-  logPowerCalculatorScoreTable.innerHTML = `<thead><tr><th>버튼</th><th>원본 최대 DJPower</th><th>최소 Score</th></tr></thead><tbody>${rows}</tbody>`;
+  logPowerCalculatorScoreTable.innerHTML = `<thead><tr><th>패턴</th><th>레벨</th><th>원본 최대 DJPower</th><th>최소 Score</th></tr></thead><tbody>${rows}</tbody>`;
 }
 
 function requiredScoreForDjPower(target, rawMax) {
