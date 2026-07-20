@@ -53,7 +53,8 @@ jobs:
           $asset = "v-archive-viewer-windows-x64.zip"
           New-Item -ItemType Directory -Force downloads | Out-Null
           Copy-Item release/README.txt downloads/README.txt
-          Compress-Archive -LiteralPath src-tauri/target/release/v-archive-viewer.exe,downloads/README.txt -DestinationPath "downloads/$asset" -CompressionLevel Optimal
+          Copy-Item release/v-archive-repair.bat downloads/v-archive-repair.bat
+          Compress-Archive -LiteralPath src-tauri/target/release/v-archive-viewer.exe,downloads/README.txt,downloads/v-archive-repair.bat -DestinationPath "downloads/$asset" -CompressionLevel Optimal
           "release_tag=$tag" >> $env:GITHUB_OUTPUT
           "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
           "DESKTOP_DOWNLOAD_URL=https://github.com/${{ github.repository }}/releases/download/$tag/$asset" >> $env:GITHUB_ENV

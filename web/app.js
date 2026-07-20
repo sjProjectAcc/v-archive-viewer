@@ -313,7 +313,23 @@ const chartMinLegend = document.querySelector("#chartMinLegend");
 const chartImageButton = document.querySelector("#chartImageButton");
 const chartEl = document.querySelector("#floorScoreChart");
 
+const UI_SCHEMA_VERSION = "recent-achievements-v1";
+const REQUIRED_UI_IDS = [
+  "statusText",
+  "chartPanel",
+  "compareChartPanel",
+  "historyPanel",
+  "achievementPanel",
+  "selfComparePanel",
+  "tagsPanel",
+  "debugPanel",
+  "readmePanel",
+  "overviewPanel",
+  "tableSection",
+];
+
 window.addEventListener("load", () => {
+  if (!ensureUiSchema()) return;
   renderAppVersion();
   initMobileEnvironment();
   initPwa();
@@ -323,6 +339,28 @@ window.addEventListener("load", () => {
   loadTop50ScaleCache();
   refresh(false);
 });
+
+function ensureUiSchema() {
+  const missing = REQUIRED_UI_IDS.filter((id) => !document.getElementById(id));
+  if (!missing.length) {
+    sessionStorage.removeItem("vArchiveUiSchemaRepair");
+    return true;
+  }
+
+  const isDesktop = Boolean(window.__TAURI__?.core?.invoke);
+  const repairedSchema = sessionStorage.getItem("vArchiveUiSchemaRepair");
+  if (isDesktop && repairedSchema !== UI_SCHEMA_VERSION) {
+    sessionStorage.setItem("vArchiveUiSchemaRepair", UI_SCHEMA_VERSION);
+    if (statusText) statusText.textContent = "업데이트된 화면을 다시 불러오는 중입니다...";
+    const url = new URL(location.href);
+    url.searchParams.set("ui-schema", UI_SCHEMA_VERSION);
+    location.replace(url.toString());
+    return false;
+  }
+
+  if (statusText) statusText.textContent = `화면 파일 버전 오류: ${missing.map((id) => `#${id}`).join(", ")}`;
+  return false;
+}
 
 function initMobileEnvironment() {
   const compactPointer = window.matchMedia("(pointer: coarse) and (max-width: 1024px)");
@@ -1825,16 +1863,20 @@ function renderActiveView() {
   const isDebug = viewSelect.value === "debug";
   const isReadme = viewSelect.value === "readme";
   const isOverview = viewSelect.value === "summaryInfo";
-  chartPanel.hidden = !isChart;
-  compareChartPanel.hidden = !isCompare;
-  historyPanel.hidden = !isHistory;
-  achievementPanel.hidden = !isAchievements;
-  selfComparePanel.hidden = !isSelfCompare;
-  tagsPanel.hidden = !isTags;
-  debugPanel.hidden = !isDebug;
-  readmePanel.hidden = !isReadme;
-  overviewPanel.hidden = !isOverview;
-  tableSection.hidden = isChart || isOverview || isDebug || isReadme || isTags || isAchievements;
+  [
+    [chartPanel, !isChart],
+    [compareChartPanel, !isCompare],
+    [historyPanel, !isHistory],
+    [achievementPanel, !isAchievements],
+    [selfComparePanel, !isSelfCompare],
+    [tagsPanel, !isTags],
+    [debugPanel, !isDebug],
+    [readmePanel, !isReadme],
+    [overviewPanel, !isOverview],
+    [tableSection, isChart || isOverview || isDebug || isReadme || isTags || isAchievements],
+  ].forEach(([element, hidden]) => {
+    if (element) element.hidden = hidden;
+  });
   updateCompareControls();
   hideTooltip();
   hideCompareChartTooltip();
