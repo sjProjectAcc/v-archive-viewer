@@ -494,17 +494,22 @@ async function checkForDesktopUpdate(announce = false) {
   try {
     const update = await invoke("check_for_update");
     const isTestBuild = update.channel === "test";
-    appVersionEl.textContent = `v${update.currentVersion}${isTestBuild ? " TEST" : ""}`;
-    appVersionEl.title = isTestBuild ? `데스크톱 테스트 빌드 ${update.currentVersion}` : `데스크톱 버전 ${update.currentVersion}`;
+    const testBuildLabel = isTestBuild ? ` TEST #${update.currentBuild || 0}` : "";
+    appVersionEl.textContent = `v${update.currentVersion}${testBuildLabel}`;
+    appVersionEl.title = isTestBuild ? `데스크톱 테스트 빌드 ${update.currentVersion} #${update.currentBuild || 0}` : `데스크톱 버전 ${update.currentVersion}`;
     if (!update.available) {
       if (announce) statusText.textContent = isTestBuild
-        ? `TEST 빌드입니다. 공개 채널 자동 업데이트는 사용하지 않습니다. (v${update.currentVersion})`
+        ? `최신 개발자 확인 버전입니다. (v${update.currentVersion} TEST #${update.currentBuild || 0})`
         : `현재 최신 버전입니다. (v${update.currentVersion})`;
       return;
     }
-    desktopUpdateButton.textContent = `업데이트 v${update.latestVersion}`;
+    desktopUpdateButton.textContent = isTestBuild
+      ? `TEST #${update.latestBuild} 업데이트`
+      : `업데이트 v${update.latestVersion}`;
     desktopUpdateButton.hidden = false;
-    if (announce) statusText.textContent = `v${update.latestVersion} 업데이트를 사용할 수 있습니다.`;
+    if (announce) statusText.textContent = isTestBuild
+      ? `개발자 확인 버전 TEST #${update.latestBuild} 업데이트를 사용할 수 있습니다.`
+      : `v${update.latestVersion} 업데이트를 사용할 수 있습니다.`;
   } catch (error) {
     desktopUpdateButton.hidden = true;
     if (announce) statusText.textContent = `업데이트 확인 실패: ${String(error)}`;

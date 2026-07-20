@@ -17,7 +17,9 @@ const API_BASE_URL: &str = "https://v-archive.net";
 const ACCOUNT_CONFIG_FILE: &str = "account-path.json";
 const UPDATE_MANIFEST_URL: &str =
     "https://sjprojectacc.github.io/v-archive-viewer/desktop-version.json";
+const TEST_UPDATE_MANIFEST_URL: &str = "https://github.com/sjProjectAcc/v-archive-viewer/releases/download/test-latest/test-desktop-version.json";
 const UPDATE_HOST: &str = "github.com";
+const TEST_MARKER_FILE: &str = "TEST.txt";
 const REPAIR_BATCH_BYTES: &[u8] = include_bytes!("../../release/v-archive-repair.bat");
 const HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const API_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -122,6 +124,8 @@ struct UpdateManifest {
     url: String,
     sha256: String,
     size: u64,
+    #[serde(default)]
+    build: u64,
 }
 
 #[derive(Serialize)]
@@ -132,10 +136,45 @@ struct UpdateInfo {
     available: bool,
     size: u64,
     channel: String,
+    current_build: u64,
+    latest_build: u64,
 }
 
 fn build_channel() -> &'static str {
     option_env!("VLOG_RELEASE_CHANNEL").unwrap_or("public")
+}
+
+fn test_build_number() -> u64 {
+    option_env!("VLOG_TEST_BUILD_NUMBER")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0)
+}
+
+fn has_test_marker() -> bool {
+    std::env::current_exe()
+        .ok()
+        .and_then(|executable| {
+            executable
+                .parent()
+                .map(|directory| directory.join(TEST_MARKER_FILE))
+        })
+        .is_some_and(|marker| marker.is_file())
+}
+
+fn update_channel() -> &'static str {
+    if build_channel() == "test" || has_test_marker() {
+        "test"
+    } else {
+        "public"
+    }
+}
+
+fn update_manifest_url() -> &'static str {
+    if update_channel() == "test" {
+        TEST_UPDATE_MANIFEST_URL
+    } else {
+        UPDATE_MANIFEST_URL
+    }
 }
 
 fn response_error(context: &str, status: reqwest::StatusCode, body: &str) -> String {
@@ -367,7 +406,7 @@ async fn fetch_update_manifest() -> Result<UpdateManifest, String> {
         .timeout(UPDATE_CHECK_TIMEOUT)
         .build()
         .map_err(|error| format!("업데이트 클라이언트 생성 실패: {error}"))?
-        .get(UPDATE_MANIFEST_URL)
+        .get(update_manifest_url())
         .header(reqwest::header::ACCEPT, "application/json")
         .header(reqwest::header::CACHE_CONTROL, "no-cache, no-store")
         .send()
@@ -387,27 +426,30 @@ async fn fetch_update_manifest() -> Result<UpdateManifest, String> {
 #[tauri::command]
 async fn check_for_update(app: AppHandle) -> Result<UpdateInfo, String> {
     let current_version = app.package_info().version.to_string();
-    if build_channel() == "test" {
-        return Ok(UpdateInfo {
-            latest_version: current_version.clone(),
-            current_version,
-            available: false,
-            size: 0,
-            channel: "test".to_string(),
-        });
-    }
-
     let manifest = fetch_update_manifest().await?;
+    let channel = update_channel();
+    let current_build = if channel == "test" {
+        test_build_number()
+    } else {
+        0
+    };
     let latest_version = semver::Version::parse(&manifest.version)
         .map_err(|error| format!("업데이트 버전 형식 오류: {error}"))?;
     let current_semver = semver::Version::parse(&current_version)
         .map_err(|error| format!("현재 버전 형식 오류: {error}"))?;
+    let available = if channel == "test" {
+        manifest.build > current_build
+    } else {
+        latest_version > current_semver
+    };
     Ok(UpdateInfo {
-        available: latest_version > current_semver,
+        available,
         current_version,
         latest_version: manifest.version,
         size: manifest.size,
-        channel: "public".to_string(),
+        channel: channel.to_string(),
+        current_build,
+        latest_build: manifest.build,
     })
 }
 
@@ -462,16 +504,19 @@ fn build_update_script(
 
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
-    if build_channel() == "test" {
-        return Err("TEST 빌드는 공개 채널 자동 업데이트를 사용하지 않습니다.".into());
-    }
     let manifest = fetch_update_manifest().await?;
+    let channel = update_channel();
     let current_version = app.package_info().version.to_string();
     let latest_version = semver::Version::parse(&manifest.version)
         .map_err(|error| format!("업데이트 버전 형식 오류: {error}"))?;
     let current_semver = semver::Version::parse(&current_version)
         .map_err(|error| format!("현재 버전 형식 오류: {error}"))?;
-    if latest_version <= current_semver {
+    let already_latest = if channel == "test" {
+        manifest.build <= test_build_number()
+    } else {
+        latest_version <= current_semver
+    };
+    if already_latest {
         return Err("이미 최신 버전입니다.".into());
     }
     if !manifest

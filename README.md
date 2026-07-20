@@ -58,7 +58,7 @@ npm run desktop:build
 
 ## 배포 채널
 
-- `test` 브랜치는 푸시할 때마다 개인 검증용 Windows ZIP을 Actions artifact로 만듭니다. 테스트 빌드는 `TEST` 표시가 붙고 공개 채널 자동 업데이트를 사용하지 않습니다.
+- `test` 브랜치는 푸시할 때마다 개인 검증용 Windows ZIP과 `test-latest` 프리릴리스를 만듭니다. 앱 옆에 `TEST.txt`가 있으면 개발자 확인 업데이트를 받고, 파일을 지우면 공개 업데이트 채널로 돌아갑니다.
 - `main` 브랜치는 변경 검증만 자동 실행합니다. 공개 웹, GitHub Release와 업데이트 매니페스트는 `Build, release, and deploy` 워크플로를 수동 실행할 때만 갱신됩니다.
 - 테스트가 끝난 변경은 `test`에서 `main`으로 PR을 합친 뒤 공개 배포합니다.
 

@@ -11,13 +11,14 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
     runs-on: windows-latest
     env:
       VLOG_RELEASE_CHANNEL: test
+      VLOG_TEST_BUILD_NUMBER: ${{ github.run_number }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -49,25 +50,50 @@ jobs:
         run: npm run desktop:build
 
       - name: Package test app
+        id: package
         shell: pwsh
         run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $zipName = "v-log-test-windows-x64.zip"
           New-Item -ItemType Directory -Force test-package | Out-Null
           Copy-Item src-tauri/target/release/v-archive-viewer.exe test-package/v-archive-viewer.exe
           @"
-          V-LOG TEST BUILD
+          V-LOG TEST BUILD $env:GITHUB_RUN_NUMBER
 
           Commit: $env:GITHUB_SHA
           Run: $env:GITHUB_RUN_NUMBER
 
-          This build is for private testing. Public-channel automatic updates are disabled.
+          The presence of this file opts the app into developer-preview updates.
+          Delete TEST.txt to return to the public update channel.
           Keep it in a separate folder from the public build.
-          "@ | Set-Content -Encoding UTF8 test-package/TEST-BUILD.txt
-          Compress-Archive -Path test-package/* -DestinationPath "v-log-test-windows-x64-$env:GITHUB_RUN_NUMBER.zip" -CompressionLevel Optimal
+          "@ | Set-Content -Encoding UTF8 test-package/TEST.txt
+          Compress-Archive -Path test-package/* -DestinationPath $zipName -CompressionLevel Optimal
+          $zip = Get-Item $zipName
+          $sha256 = (Get-FileHash -Algorithm SHA256 $zip.FullName).Hash.ToLowerInvariant()
+          $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/test-latest/$zipName"
+          @{ version=$version; build=[int64]$env:GITHUB_RUN_NUMBER; url=$url; sha256=$sha256; size=$zip.Length } |
+            ConvertTo-Json -Compress |
+            Set-Content -Encoding UTF8 test-desktop-version.json
+
+      - name: Publish developer preview
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = "Automated V-LOG developer preview from commit $env:GITHUB_SHA (build $env:GITHUB_RUN_NUMBER)."
+          if (gh release view test-latest --repo $env:GITHUB_REPOSITORY *> $null) {
+            gh release upload test-latest v-log-test-windows-x64.zip --repo $env:GITHUB_REPOSITORY --clobber
+            gh release upload test-latest test-desktop-version.json --repo $env:GITHUB_REPOSITORY --clobber
+            gh release edit test-latest --repo $env:GITHUB_REPOSITORY --prerelease --title "V-LOG Developer Preview" --notes $notes --target $env:GITHUB_SHA
+          } else {
+            gh release create test-latest v-log-test-windows-x64.zip --repo $env:GITHUB_REPOSITORY --prerelease --target $env:GITHUB_SHA --title "V-LOG Developer Preview" --notes $notes
+            gh release upload test-latest test-desktop-version.json --repo $env:GITHUB_REPOSITORY
+          }
 
       - name: Upload test ZIP
         uses: actions/upload-artifact@v4
         with:
           name: v-log-test-windows-x64-${{ github.run_number }}
-          path: v-log-test-windows-x64-${{ github.run_number }}.zip
+          path: v-log-test-windows-x64.zip
           retention-days: 14
           if-no-files-found: error
