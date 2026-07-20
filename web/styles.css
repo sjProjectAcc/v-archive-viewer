@@ -946,6 +946,17 @@ main {
   transition: r 100ms ease, stroke-width 100ms ease;
 }
 
+.historyLine {
+  pointer-events: none;
+}
+
+.historyLineHit {
+  stroke: transparent;
+  stroke-width: 14;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
 .historyPoint:hover,
 .historyPoint:focus {
   r: 6px;
@@ -1312,14 +1323,7 @@ main {
   fill: var(--surface);
   stroke: #b36c00;
   stroke-width: 2;
-  cursor: help;
-}
-
-.compareFloorTrendHit {
-  stroke: transparent;
-  stroke-width: 14;
-  pointer-events: stroke;
-  cursor: help;
+  cursor: crosshair;
 }
 
 .compareFloorTrendLine {
