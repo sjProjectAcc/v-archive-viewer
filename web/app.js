@@ -1979,7 +1979,9 @@ function renderCompareChart() {
       <text class="tickLabel" x="${x}" y="${height - 42}" text-anchor="middle">${label}</text>
       <text class="tickLabel" x="${pad.left - 12}" y="${y + 4}" text-anchor="end">${label}</text>`;
   }).join("");
-  const points = rows.map((row) => {
+  const visibleRows = rows.filter((row) => row.xValue >= range.min && row.xValue <= range.max && row.yValue >= range.min && row.yValue <= range.max);
+  const floorTrend = buildCompareFloorTrend(visibleRows, (center) => ({ x: xFor(center.xValue), y: yFor(center.yValue) }));
+  const points = visibleRows.map((row) => {
     const diff = row.xValue - row.yValue;
     const className = Math.abs(diff) < 1e-9 ? "compareTiePoint" : diff > 0 ? "compareMinePoint" : "compareOtherPoint";
     const info = encodeURIComponent(JSON.stringify({
@@ -2003,6 +2005,7 @@ function renderCompareChart() {
     ${grid}
     <g clip-path="url(#comparePlotClip)">
       <line class="compareEqual" x1="${xFor(range.min)}" y1="${yFor(range.min)}" x2="${xFor(range.max)}" y2="${yFor(range.max)}"></line>
+      ${floorTrend}
       ${points}
     </g>
     <text class="axisTitle" x="16" y="18">${escapeHtml(otherName)} · ${escapeHtml(metric.label)}</text>
@@ -2041,6 +2044,7 @@ function renderCompareVectorChart({ rows, metric, mineName, otherName, range, wi
       ${index === 0 ? "" : `<text class="compareVectorLabel" x="${otherStart.x - 8}" y="${otherStart.y + 18}" text-anchor="end">${label}</text>`}`;
   }).join("");
   const visibleRows = rows.filter((row) => row.xValue >= range.min && row.xValue <= range.max && row.yValue >= range.min && row.yValue <= range.max);
+  const floorTrend = buildCompareFloorTrend(visibleRows, (center) => pointFor(normalized(center.xValue), normalized(center.yValue)));
   const points = visibleRows.map((row) => {
     const point = pointFor(normalized(row.xValue), normalized(row.yValue));
     const diff = row.xValue - row.yValue;
@@ -2068,12 +2072,39 @@ function renderCompareVectorChart({ rows, metric, mineName, otherName, range, wi
     <line class="compareVectorMineAxis" x1="${bottom.x}" y1="${bottom.y}" x2="${right.x}" y2="${right.y}"></line>
     <line class="compareVectorOtherAxis" x1="${bottom.x}" y1="${bottom.y}" x2="${left.x}" y2="${left.y}"></line>
     <line class="compareEqual" x1="${bottom.x}" y1="${bottom.y}" x2="${top.x}" y2="${top.y}"></line>
-    <g clip-path="url(#compareVectorClip)">${points}</g>
+    <g clip-path="url(#compareVectorClip)">${floorTrend}${points}</g>
     <text class="axisTitle" x="${right.x - 4}" y="${right.y - 14}" text-anchor="end">${escapeHtml(mineName)}</text>
     <text class="axisTitle" x="${left.x + 4}" y="${left.y - 14}" text-anchor="start">${escapeHtml(otherName)}</text>
     <text class="axisTitle" x="${top.x}" y="${top.y - 14}" text-anchor="middle">합산 수준</text>
   </svg>`;
   bindCompareChartTooltips();
+}
+
+function buildCompareFloorTrend(rows, pointFor) {
+  const grouped = new Map();
+  for (const row of rows) {
+    const floor = row.floorName;
+    if (floorIndex(floor) < 0) continue;
+    if (!grouped.has(floor)) grouped.set(floor, { floor, xTotal: 0, yTotal: 0, count: 0 });
+    const group = grouped.get(floor);
+    group.xTotal += row.xValue;
+    group.yTotal += row.yValue;
+    group.count += 1;
+  }
+  const centers = [...grouped.values()]
+    .sort((a, b) => floorIndex(a.floor) - floorIndex(b.floor))
+    .map((group) => ({
+      floor: group.floor,
+      xValue: group.xTotal / group.count,
+      yValue: group.yTotal / group.count,
+    }))
+    .map((center) => ({ ...center, ...pointFor(center) }));
+  if (!centers.length) return "";
+  const line = centers.length > 1
+    ? `<polyline class="compareFloorTrend" points="${centers.map((center) => `${center.x.toFixed(2)},${center.y.toFixed(2)}`).join(" ")}"></polyline>`
+    : "";
+  const markers = centers.map((center) => `<circle class="compareFloorMidpoint" cx="${center.x.toFixed(2)}" cy="${center.y.toFixed(2)}" r="3.4"><title>floor ${escapeHtml(center.floor)}</title></circle>`).join("");
+  return line + markers;
 }
 
 function getCompareChartMetric() {

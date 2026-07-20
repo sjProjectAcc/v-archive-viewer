@@ -1299,6 +1299,31 @@ main {
   stroke-dasharray: 7 5;
 }
 
+.compareFloorTrend {
+  fill: none;
+  stroke: #b36c00;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.compareFloorMidpoint {
+  fill: var(--surface);
+  stroke: #b36c00;
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.compareFloorTrendLine {
+  border-color: #b36c00;
+}
+
+:root[data-theme="dark"] .compareFloorTrend,
+:root[data-theme="dark"] .compareFloorMidpoint {
+  stroke: #ffc96b;
+}
+
 .compareChartSquare {
   width: min(100%, 860px);
   aspect-ratio: 1;
