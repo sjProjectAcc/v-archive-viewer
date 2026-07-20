@@ -56,9 +56,9 @@ const HISTORY_STORE = "recordHistories";
 const SCORE_BASE = Math.pow(30, 1 / 10);
 const ANCHOR_FLOOR_LABEL = "15.2";
 const ANCHOR_DIFFICULTY_CONSTANT = 10;
-const FLOOR_STEP_RATIO = 10 / 9.05;
+const FLOOR_STEP_RATIO = 10 / 9;
 const TARGET_TOP50_MAX = 5000;
-const TOP50_SCALE_CACHE_KEY = "vArchiveTop50ScaleCache0905";
+const TOP50_SCALE_CACHE_KEY = "vArchiveTop50ScaleCache0900";
 const TOP50_SCALE_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 const TAGS_API_URL = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/song_tags_2?select=song_title%2Ctags%2Caka&limit=1000";
 const TAGS_ABILITY_API_URL = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/ability?select=id%2Cability_set&order=id";
@@ -839,7 +839,9 @@ function applySavedSettings() {
   tagsFacetSearchInput.value = settings.tagsFacetSearch || "";
   tagsGenreSelect.dataset.savedValue = settings.tagsGenre || "";
   state.tagsSelected = new Set(Array.isArray(settings.tagsSelected) ? settings.tagsSelected.filter(Boolean) : []);
-  setDebugRatio(settings.debugRatio || currentFloorRelation());
+  const savedDebugRatio = Number(settings.debugRatio);
+  const migratedDebugRatio = Math.abs(savedDebugRatio - 0.905) < 1e-9 ? currentFloorRelation() : settings.debugRatio;
+  setDebugRatio(migratedDebugRatio || currentFloorRelation());
   applyTheme(settings.theme || "light");
   restoreCompareChartRange(state.compareChartMetric);
   state.view = viewSelect.value;
@@ -2175,7 +2177,7 @@ function buildCompareFloorTrend(rows, pointFor, { metric, mineName, otherName })
     .map((center) => ({ ...center, ...pointFor(center) }));
   if (!centers.length) return "";
   const line = centers.length > 1
-    ? `<polyline class="compareFloorTrend" points="${centers.map((center) => `${center.x.toFixed(2)},${center.y.toFixed(2)}`).join(" ")}"></polyline>`
+    ? `<polyline class="compareFloorTrend" fill="none" points="${centers.map((center) => `${center.x.toFixed(2)},${center.y.toFixed(2)}`).join(" ")}"></polyline>`
     : "";
   const markers = centers.map((center) => {
     const info = encodeURIComponent(JSON.stringify({
@@ -3541,6 +3543,8 @@ function loadChartSvgImage(svg) {
     .top50Dot.comboDot{fill:#4eeeaf;stroke:#d08a18;stroke-width:2.2}.top50Dot.belowNextDot{fill:#e03b3b;stroke:#f0a83a;stroke-width:2.2}.historyPoint{stroke:#fff;stroke-width:2}
     .compareMinePoint{fill:rgba(23,63,103,.72);stroke:#0b2942}.compareOtherPoint{fill:rgba(192,53,53,.58);stroke:#8f2929}
     .compareTiePoint{fill:rgba(104,114,130,.58);stroke:#4d5664}.compareEqual{stroke:#687282;stroke-width:1.6;stroke-dasharray:7 5}
+    .compareFloorTrend{fill:none;stroke:#b36c00;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+    .compareFloorMidpoint{fill:#fff;stroke:#b36c00;stroke-width:2}
     .compareVectorBoundary{fill:rgba(18,104,179,.025);stroke:#9aa4b2;stroke-width:1.4}.compareVectorMineAxis{stroke:#23845f;stroke-width:2.4}
     .compareVectorOtherAxis{stroke:#c03535;stroke-width:2.4}.compareVectorLabel{fill:#687282;font:12px Segoe UI,Malgun Gothic,Arial}
     .emptyText{fill:#687282;font:14px Segoe UI,Malgun Gothic,Arial;text-anchor:middle}`;
