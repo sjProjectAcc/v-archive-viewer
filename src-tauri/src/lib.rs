@@ -17,6 +17,24 @@ const ACCOUNT_CONFIG_FILE: &str = "account-path.json";
 const UPDATE_MANIFEST_URL: &str =
     "https://sjprojectacc.github.io/v-archive-viewer/desktop-version.json";
 const UPDATE_HOST: &str = "github.com";
+const REPAIR_BATCH_BYTES: &[u8] = include_bytes!("../../release/v-archive-repair.bat");
+
+#[cfg(windows)]
+fn ensure_repair_batch_file() {
+    let Some(install_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|executable| executable.parent().map(Path::to_path_buf))
+    else {
+        return;
+    };
+    let repair_path = install_dir.join("v-archive-repair.bat");
+    if !repair_path.exists() {
+        let _ = fs::write(repair_path, REPAIR_BATCH_BYTES);
+    }
+}
+
+#[cfg(not(windows))]
+fn ensure_repair_batch_file() {}
 
 #[cfg(windows)]
 fn clear_webview_ui_cache_for_new_version() {
@@ -528,7 +546,7 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_update_script, encode_powershell_script};
+    use super::{REPAIR_BATCH_BYTES, build_update_script, encode_powershell_script};
     use std::path::Path;
 
     #[test]
@@ -554,10 +572,17 @@ mod tests {
         assert!(script.contains("-not (Test-Path -LiteralPath 'C:\\app\\v-archive-repair.bat')"));
         assert!(script.contains("Copy-Item -LiteralPath 'C:\\temp\\stage\\v-archive-repair.bat' -Destination 'C:\\app\\v-archive-repair.bat'"));
     }
+
+    #[test]
+    fn embedded_repair_batch_file_is_available_for_startup_recovery() {
+        assert!(REPAIR_BATCH_BYTES.len() > 100);
+        assert!(String::from_utf8_lossy(REPAIR_BATCH_BYTES).contains("powershell"));
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    ensure_repair_batch_file();
     clear_webview_ui_cache_for_new_version();
     tauri::Builder::default()
         .manage(ApiSession::default())
