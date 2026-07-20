@@ -291,6 +291,14 @@ const recentNicknamesEl = document.querySelector("#recentNicknames");
 const refreshButton = document.querySelector("#refreshButton");
 const fullRefreshButton = document.querySelector("#fullRefreshButton");
 const viewSelect = document.querySelector("#viewSelect");
+const viewTabs = document.querySelector("#viewTabs");
+const viewTabButtons = [...document.querySelectorAll(".viewTab")];
+const globalFilters = document.querySelector("#globalFilters");
+const buttonFilterControl = document.querySelector("#buttonFilterControl");
+const patternFilterControl = document.querySelector("#patternFilterControl");
+const searchFilterControl = document.querySelector("#searchFilterControl");
+const limitControl = document.querySelector("#limitControl");
+const nameWidthControl = document.querySelector("#nameWidthControl");
 const buttonFilter = document.querySelector("#buttonFilter");
 const patternFilter = document.querySelector("#patternFilter");
 const searchInput = document.querySelector("#searchInput");
@@ -332,9 +340,11 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "logpower-calculator-v1";
+const UI_SCHEMA_VERSION = "v-log-navigation-v2";
 const REQUIRED_UI_IDS = [
   "statusText",
+  "viewTabs",
+  "globalFilters",
   "chartPanel",
   "compareChartPanel",
   "historyPanel",
@@ -629,6 +639,10 @@ function wireEvents() {
     if (event.key === "Enter") applyNickname();
   });
   nicknameInput.addEventListener("input", () => saveCurrentNickname(nicknameInput.value));
+  viewTabButtons.forEach((button) => {
+    button.addEventListener("click", () => selectView(button.dataset.view));
+  });
+  viewTabs.addEventListener("keydown", handleViewTabKeydown);
   compareLoadButton.addEventListener("click", () => loadComparison(false));
   compareNicknameInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") loadComparison(false);
@@ -2038,6 +2052,8 @@ function renderActiveView() {
   ].forEach(([element, hidden]) => {
     if (element) element.hidden = hidden;
   });
+  updateViewNavigation();
+  updateContextualControls();
   updateCompareControls();
   hideTooltip();
   hideCompareChartTooltip();
@@ -3327,6 +3343,59 @@ function updateCompareControls() {
   });
 }
 
+function selectView(view) {
+  if (!view || viewSelect.value === view) return;
+  viewSelect.value = view;
+  state.view = view;
+  state.sortKey = null;
+  saveSettings();
+  render();
+}
+
+function updateViewNavigation() {
+  let activeButton = null;
+  viewTabButtons.forEach((button) => {
+    const active = button.dataset.view === viewSelect.value;
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+    if (active) activeButton = button;
+  });
+  if (!activeButton || activeButton.hidden) return;
+  const tabBounds = viewTabs.getBoundingClientRect();
+  const activeBounds = activeButton.getBoundingClientRect();
+  if (activeBounds.left < tabBounds.left || activeBounds.right > tabBounds.right) {
+    activeButton.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+}
+
+function handleViewTabKeydown(event) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  const available = viewTabButtons.filter((button) => !button.hidden);
+  const current = Math.max(0, available.indexOf(document.activeElement));
+  let next = current;
+  if (event.key === "ArrowLeft") next = (current - 1 + available.length) % available.length;
+  if (event.key === "ArrowRight") next = (current + 1) % available.length;
+  if (event.key === "Home") next = 0;
+  if (event.key === "End") next = available.length - 1;
+  event.preventDefault();
+  available[next]?.focus();
+  available[next]?.click();
+}
+
+function updateContextualControls() {
+  const view = viewSelect.value;
+  const filterViews = new Set(["chart", "compare", "top100", "records", "tags", "history", "achievements", "selfCompare", "floorMinScore", "debug", "errors"]);
+  const limitViews = new Set(["compare", "top100", "records", "history", "selfCompare", "floorMinScore", "errors"]);
+  const nameWidthViews = new Set(["compare", "top100", "records", "history", "selfCompare", "floorMinScore", "errors"]);
+  const showCommonFilters = filterViews.has(view);
+  buttonFilterControl.hidden = !showCommonFilters;
+  patternFilterControl.hidden = !showCommonFilters;
+  searchFilterControl.hidden = !showCommonFilters;
+  limitControl.hidden = !limitViews.has(view);
+  nameWidthControl.hidden = !nameWidthViews.has(view);
+  globalFilters.hidden = !showCommonFilters && view !== "compare" && view !== "records";
+}
+
 function renderSummary() {
   const summary = state.payload.summary || {};
   const sync = state.payload.sync || {};
@@ -3793,7 +3862,7 @@ function getChartMetric() {
     return {
       key,
       label: "logPower",
-      title: "Floor × logPower",
+      title: "Floor × LogPower",
       value: (row, floorLabel, button) => scoreToPoint(Number(row.score)) * difficultyConstantForFloor(floorLabel, button),
       floorMaxValue: (row, floorLabel, button) => 10 * difficultyConstantForFloor(floorLabel, button),
       floorMaxForFloor: (floorLabel, button) => 10 * difficultyConstantForFloor(floorLabel, button),

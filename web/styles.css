@@ -220,6 +220,55 @@ main {
   padding: 16px 18px 24px;
 }
 
+.viewTabs {
+  display: flex;
+  gap: 2px;
+  margin: 0 0 10px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: thin;
+}
+
+.viewTab {
+  flex: 0 0 auto;
+  height: 38px;
+  padding: 0 11px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.viewTab:hover {
+  background: var(--subtle);
+  color: var(--text);
+}
+
+.viewTab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.viewTabUtility {
+  font-weight: 500;
+}
+
+.viewSelectFallback {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .summary {
   display: grid;
   grid-template-columns: repeat(6, minmax(120px, 1fr));
@@ -1507,6 +1556,10 @@ main {
   margin-bottom: 12px;
 }
 
+.filters:empty {
+  display: none;
+}
+
 .compareOnly[hidden],
 .recordsOnly[hidden] {
   display: none;
@@ -1792,6 +1845,22 @@ tr:hover td.reversalCell {
     padding: 10px;
   }
 
+  .viewTabs {
+    margin-right: -10px;
+    margin-left: -10px;
+    padding: 0 8px;
+  }
+
+  .viewTab {
+    height: 36px;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+
+  .downloadButton {
+    display: none !important;
+  }
+
   .filters > label {
     flex: 1 1 calc(50% - 5px);
     min-width: 0;
@@ -1878,5 +1947,17 @@ tr:hover td.reversalCell {
   .readmePanel,
   .readmeGrid p {
     overflow-wrap: anywhere;
+  }
+
+  #floorScoreChart {
+    min-height: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  #floorScoreChart svg {
+    width: 820px;
+    max-width: none;
+    height: 320px;
   }
 }
