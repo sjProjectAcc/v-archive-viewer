@@ -1980,7 +1980,7 @@ function renderCompareChart() {
       <text class="tickLabel" x="${pad.left - 12}" y="${y + 4}" text-anchor="end">${label}</text>`;
   }).join("");
   const visibleRows = rows.filter((row) => row.xValue >= range.min && row.xValue <= range.max && row.yValue >= range.min && row.yValue <= range.max);
-  const floorTrend = buildCompareFloorTrend(visibleRows, (center) => ({ x: xFor(center.xValue), y: yFor(center.yValue) }));
+  const floorTrend = buildCompareFloorTrend(visibleRows, (center) => ({ x: xFor(center.xValue), y: yFor(center.yValue) }), { metric, mineName, otherName });
   const points = visibleRows.map((row) => {
     const diff = row.xValue - row.yValue;
     const className = Math.abs(diff) < 1e-9 ? "compareTiePoint" : diff > 0 ? "compareMinePoint" : "compareOtherPoint";
@@ -2005,8 +2005,8 @@ function renderCompareChart() {
     ${grid}
     <g clip-path="url(#comparePlotClip)">
       <line class="compareEqual" x1="${xFor(range.min)}" y1="${yFor(range.min)}" x2="${xFor(range.max)}" y2="${yFor(range.max)}"></line>
-      ${floorTrend}
       ${points}
+      ${floorTrend}
     </g>
     <text class="axisTitle" x="16" y="18">${escapeHtml(otherName)} · ${escapeHtml(metric.label)}</text>
     <text class="axisTitle" x="${width - 210}" y="${height - 14}">${escapeHtml(mineName)} · ${escapeHtml(metric.label)}</text>
@@ -2044,7 +2044,7 @@ function renderCompareVectorChart({ rows, metric, mineName, otherName, range, wi
       ${index === 0 ? "" : `<text class="compareVectorLabel" x="${otherStart.x - 8}" y="${otherStart.y + 18}" text-anchor="end">${label}</text>`}`;
   }).join("");
   const visibleRows = rows.filter((row) => row.xValue >= range.min && row.xValue <= range.max && row.yValue >= range.min && row.yValue <= range.max);
-  const floorTrend = buildCompareFloorTrend(visibleRows, (center) => pointFor(normalized(center.xValue), normalized(center.yValue)));
+  const floorTrend = buildCompareFloorTrend(visibleRows, (center) => pointFor(normalized(center.xValue), normalized(center.yValue)), { metric, mineName, otherName });
   const points = visibleRows.map((row) => {
     const point = pointFor(normalized(row.xValue), normalized(row.yValue));
     const diff = row.xValue - row.yValue;
@@ -2072,7 +2072,7 @@ function renderCompareVectorChart({ rows, metric, mineName, otherName, range, wi
     <line class="compareVectorMineAxis" x1="${bottom.x}" y1="${bottom.y}" x2="${right.x}" y2="${right.y}"></line>
     <line class="compareVectorOtherAxis" x1="${bottom.x}" y1="${bottom.y}" x2="${left.x}" y2="${left.y}"></line>
     <line class="compareEqual" x1="${bottom.x}" y1="${bottom.y}" x2="${top.x}" y2="${top.y}"></line>
-    <g clip-path="url(#compareVectorClip)">${floorTrend}${points}</g>
+    <g clip-path="url(#compareVectorClip)">${points}${floorTrend}</g>
     <text class="axisTitle" x="${right.x - 4}" y="${right.y - 14}" text-anchor="end">${escapeHtml(mineName)}</text>
     <text class="axisTitle" x="${left.x + 4}" y="${left.y - 14}" text-anchor="start">${escapeHtml(otherName)}</text>
     <text class="axisTitle" x="${top.x}" y="${top.y - 14}" text-anchor="middle">합산 수준</text>
@@ -2080,7 +2080,7 @@ function renderCompareVectorChart({ rows, metric, mineName, otherName, range, wi
   bindCompareChartTooltips();
 }
 
-function buildCompareFloorTrend(rows, pointFor) {
+function buildCompareFloorTrend(rows, pointFor, { metric, mineName, otherName }) {
   const grouped = new Map();
   for (const row of rows) {
     const floor = row.floorName;
@@ -2103,8 +2103,35 @@ function buildCompareFloorTrend(rows, pointFor) {
   const line = centers.length > 1
     ? `<polyline class="compareFloorTrend" points="${centers.map((center) => `${center.x.toFixed(2)},${center.y.toFixed(2)}`).join(" ")}"></polyline>`
     : "";
-  const markers = centers.map((center) => `<circle class="compareFloorMidpoint" cx="${center.x.toFixed(2)}" cy="${center.y.toFixed(2)}" r="3.4"><title>floor ${escapeHtml(center.floor)}</title></circle>`).join("");
-  return line + markers;
+  const segments = centers.slice(1).map((center, index) => {
+    const previous = centers[index];
+    const info = encodeURIComponent(JSON.stringify({
+      kind: "floorSegment",
+      metricKey: metric.key,
+      metric: metric.label,
+      mineName,
+      otherName,
+      from: previous,
+      to: center,
+    }));
+    return `<line class="compareFloorTrendHit" x1="${previous.x.toFixed(2)}" y1="${previous.y.toFixed(2)}" x2="${center.x.toFixed(2)}" y2="${center.y.toFixed(2)}" data-info="${info}" tabindex="0"></line>`;
+  }).join("");
+  const markers = centers.map((center) => {
+    const info = encodeURIComponent(JSON.stringify({
+      kind: "floorMidpoint",
+      floor: center.floor,
+      count: grouped.get(center.floor).count,
+      metricKey: metric.key,
+      metric: metric.label,
+      mineName,
+      otherName,
+      mineValue: center.xValue,
+      otherValue: center.yValue,
+      diff: center.xValue - center.yValue,
+    }));
+    return `<circle class="compareFloorMidpoint" cx="${center.x.toFixed(2)}" cy="${center.y.toFixed(2)}" r="3.4" data-info="${info}" tabindex="0"></circle>`;
+  }).join("");
+  return line + segments + markers;
 }
 
 function getCompareChartMetric() {
@@ -2161,7 +2188,7 @@ function formatCompareChartAxis(value, metricKey) {
 }
 
 function bindCompareChartTooltips() {
-  compareScatterChart.querySelectorAll(".compareChartPoint").forEach((point) => {
+  compareScatterChart.querySelectorAll(".compareChartPoint, .compareFloorTrendHit, .compareFloorMidpoint").forEach((point) => {
     point.addEventListener("pointermove", (event) => showCompareChartTooltip(event, point.dataset.info));
     point.addEventListener("pointerenter", (event) => showCompareChartTooltip(event, point.dataset.info));
     point.addEventListener("focus", (event) => showCompareChartTooltip(event, point.dataset.info));
@@ -2173,11 +2200,24 @@ function bindCompareChartTooltips() {
 function showCompareChartTooltip(event, encodedInfo) {
   if (!encodedInfo) return;
   const info = JSON.parse(decodeURIComponent(encodedInfo));
-  compareChartTooltip.innerHTML = `<strong>${escapeHtml(info.name)}</strong>
+  if (info.kind === "floorSegment") {
+    compareChartTooltip.innerHTML = `<strong>floor ${escapeHtml(info.from.floor)} → ${escapeHtml(info.to.floor)}</strong>
+      <span>${escapeHtml(info.metric)} 중점 연결</span>
+      <span>${escapeHtml(info.from.floor)} · ${escapeHtml(info.mineName)} ${escapeHtml(formatCompareMetricValue(info.from.xValue, info.metricKey))} · ${escapeHtml(info.otherName)} ${escapeHtml(formatCompareMetricValue(info.from.yValue, info.metricKey))}</span>
+      <span>${escapeHtml(info.to.floor)} · ${escapeHtml(info.mineName)} ${escapeHtml(formatCompareMetricValue(info.to.xValue, info.metricKey))} · ${escapeHtml(info.otherName)} ${escapeHtml(formatCompareMetricValue(info.to.yValue, info.metricKey))}</span>`;
+  } else if (info.kind === "floorMidpoint") {
+    compareChartTooltip.innerHTML = `<strong>floor ${escapeHtml(info.floor)} 중점</strong>
+      <span>공통 기록 ${escapeHtml(info.count)}개 · ${escapeHtml(info.metric)} 평균</span>
+      <span>${escapeHtml(info.mineName)} ${escapeHtml(formatCompareMetricValue(info.mineValue, info.metricKey))}</span>
+      <span>${escapeHtml(info.otherName)} ${escapeHtml(formatCompareMetricValue(info.otherValue, info.metricKey))}</span>
+      <span>차이 ${escapeHtml(formatSignedCompareMetric(info.diff, info.metricKey))}</span>`;
+  } else {
+    compareChartTooltip.innerHTML = `<strong>${escapeHtml(info.name)}</strong>
     <span>${escapeHtml(info.pattern)} · Lv.${escapeHtml(info.level)} · floor ${escapeHtml(info.floor)}</span>
     <span>${escapeHtml(info.mineName)} ${escapeHtml(formatCompareMetricValue(info.mineValue, info.metricKey))}</span>
     <span>${escapeHtml(info.otherName)} ${escapeHtml(formatCompareMetricValue(info.otherValue, info.metricKey))}</span>
     <span>차이 ${escapeHtml(formatSignedCompareMetric(info.diff, info.metricKey))}</span>`;
+  }
   compareChartTooltip.hidden = false;
   const x = (event.clientX || window.innerWidth / 2) + 14;
   const y = (event.clientY || window.innerHeight / 2) + 14;
