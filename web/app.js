@@ -49,8 +49,8 @@ const SONG_DB_URL = `${API_BASE_URL}/db/v2/songs.json`;
 const BUTTONS = [4, 5, 6, 8];
 const MAX_ACHIEVEMENT_COLUMNS = 12;
 const CHART_DOT_EDGE_INSET = 6.5;
-const HISTORY_REQUEST_DELAY_START = 900;
-const HISTORY_REQUEST_DELAY_MIN = 500;
+const HISTORY_REQUEST_DELAY_START = 800;
+const HISTORY_REQUEST_DELAY_MIN = 250;
 const HISTORY_REQUEST_DELAY_MAX = 15000;
 const NETWORK_REQUEST_TIMEOUT = 20000;
 const DB_NAME = "vArchiveViewerCache";
@@ -2690,7 +2690,7 @@ function adjustHistoryRequestDelay(currentDelay, { succeeded, retryCount = 0, ra
     const retryMultiplier = 1 + retryCount * 0.75;
     return Math.min(HISTORY_REQUEST_DELAY_MAX, Math.max(HISTORY_REQUEST_DELAY_START, Math.round(currentDelay * retryMultiplier)));
   }
-  return Math.max(HISTORY_REQUEST_DELAY_MIN, Math.round(currentDelay * 0.97));
+  return Math.max(HISTORY_REQUEST_DELAY_MIN, Math.round(currentDelay * 0.94));
 }
 
 function jitteredHistoryDelay(delayMs) {
