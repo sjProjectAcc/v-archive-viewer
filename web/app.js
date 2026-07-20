@@ -67,10 +67,10 @@ const TAGS_CACHE_KEY = "vArchiveSongTagsCacheV4";
 const TAGS_CACHE_SCHEMA_VERSION = 4;
 const TAGS_CACHE_TTL = 24 * 60 * 60 * 1000;
 const FALLBACK_BUTTON_TOP50_BASE_MAX = Object.freeze({
-  4: 4166.31349894268,
-  5: 3980.45017878281,
-  6: 4160.22135542487,
-  8: 4304.77927419081,
+  4: 4128.5712345679,
+  5: 3934.60154458162,
+  6: 4123.30844581619,
+  8: 4272.28322359396,
 });
 const TOP_IMAGE_COLUMNS = 5;
 const TOP_IMAGE_ROWS = 6;
@@ -256,6 +256,12 @@ const tagsSelectedSummary = document.querySelector("#tagsSelectedSummary");
 const tagsFacetList = document.querySelector("#tagsFacetList");
 const tagsResultSummary = document.querySelector("#tagsResultSummary");
 const tagsTable = document.querySelector("#tagsTable");
+const logPowerCalculatorPanel = document.querySelector("#logPowerCalculatorPanel");
+const logPowerCalculatorContext = document.querySelector("#logPowerCalculatorContext");
+const logPowerCalculatorFloor = document.querySelector("#logPowerCalculatorFloor");
+const logPowerCalculatorScore = document.querySelector("#logPowerCalculatorScore");
+const logPowerCalculatorResults = document.querySelector("#logPowerCalculatorResults");
+const logPowerCalculatorBreakdown = document.querySelector("#logPowerCalculatorBreakdown");
 const debugPanel = document.querySelector("#debugPanel");
 const debugRatioInput = document.querySelector("#debugRatioInput");
 const debugRatioRange = document.querySelector("#debugRatioRange");
@@ -325,7 +331,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "achievement-auto-select-v1";
+const UI_SCHEMA_VERSION = "logpower-calculator-v1";
 const REQUIRED_UI_IDS = [
   "statusText",
   "chartPanel",
@@ -337,6 +343,7 @@ const REQUIRED_UI_IDS = [
   "achievementAutoSelectButton",
   "selfComparePanel",
   "tagsPanel",
+  "logPowerCalculatorPanel",
   "debugPanel",
   "readmePanel",
   "overviewPanel",
@@ -580,6 +587,8 @@ function initFloorSelectors() {
   compareFloorMaxSelect.value = "17.3";
   recordsFloorMinSelect.value = "1.1";
   recordsFloorMaxSelect.value = "17.3";
+  logPowerCalculatorFloor.innerHTML = options;
+  logPowerCalculatorFloor.value = "16.1";
   viewSelect.value = "chart";
   applySavedSettings();
 }
@@ -769,6 +778,12 @@ function wireEvents() {
     saveSettings();
     renderDebugView();
   });
+  [logPowerCalculatorFloor, logPowerCalculatorScore].forEach((control) => {
+    control.addEventListener("input", () => {
+      saveSettings();
+      renderLogPowerCalculator();
+    });
+  });
   themeToggleButton.addEventListener("click", () => {
     applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
     saveSettings();
@@ -828,6 +843,8 @@ function applySavedSettings() {
   achievementAutoHoursInput.value = String(Math.max(1, Number(settings.achievementAutoHours) || 72));
   selfCompareStart.value = settings.selfCompareStart || "";
   selfCompareEnd.value = settings.selfCompareEnd || "";
+  setIfOptionExists(logPowerCalculatorFloor, settings.logPowerCalculatorFloor || "16.1");
+  logPowerCalculatorScore.value = settings.logPowerCalculatorScore || "99";
   setIfOptionExists(tagsRecordModeSelect, settings.tagsRecordMode || "");
   setIfOptionExists(tagsWeightSelect, settings.tagsWeight || "");
   tagsPatternOnlyInput.checked = Boolean(settings.tagsPatternOnly && buttonFilter.value);
@@ -890,6 +907,8 @@ function saveSettings() {
     achievementAutoHours: achievementAutoHoursInput.value,
     selfCompareStart: selfCompareStart.value,
     selfCompareEnd: selfCompareEnd.value,
+    logPowerCalculatorFloor: logPowerCalculatorFloor.value,
+    logPowerCalculatorScore: logPowerCalculatorScore.value,
     tagsGenre: tagsGenreSelect.value,
     tagsBpmMin: tagsBpmMinInput.value,
     tagsBpmMax: tagsBpmMaxInput.value,
@@ -1961,6 +1980,7 @@ function renderActiveView() {
   const isAchievements = viewSelect.value === "achievements";
   const isSelfCompare = viewSelect.value === "selfCompare";
   const isTags = viewSelect.value === "tags";
+  const isLogPowerCalculator = viewSelect.value === "logPowerCalculator";
   const isDebug = viewSelect.value === "debug";
   const isReadme = viewSelect.value === "readme";
   const isOverview = viewSelect.value === "summaryInfo";
@@ -1971,10 +1991,11 @@ function renderActiveView() {
     [achievementPanel, !isAchievements],
     [selfComparePanel, !isSelfCompare],
     [tagsPanel, !isTags],
+    [logPowerCalculatorPanel, !isLogPowerCalculator],
     [debugPanel, !isDebug],
     [readmePanel, !isReadme],
     [overviewPanel, !isOverview],
-    [tableSection, isChart || isOverview || isDebug || isReadme || isTags || isAchievements],
+    [tableSection, isChart || isOverview || isDebug || isReadme || isTags || isAchievements || isLogPowerCalculator],
   ].forEach(([element, hidden]) => {
     if (element) element.hidden = hidden;
   });
@@ -1991,6 +2012,7 @@ function renderActiveView() {
   }
   else if (isSelfCompare) renderSelfCompareView();
   else if (isTags) renderTagsView();
+  else if (isLogPowerCalculator) renderLogPowerCalculator();
   else if (isDebug) renderDebugView();
   else if (isOverview) renderOverview();
   else if (isReadme) return;
@@ -4993,6 +5015,38 @@ function compareResult(scoreDiff, zDiff, mineScore, otherScore) {
   const scoreWinner = scoreDiff > 0 ? "score 나" : scoreDiff < 0 ? "score 상대" : "score 동점";
   const zWinner = zDiff > 0 ? "z 나" : zDiff < 0 ? "z 상대" : "z 동점";
   return `${scoreWinner} / ${zWinner}`;
+}
+
+function renderLogPowerCalculator() {
+  if (!logPowerCalculatorPanel) return;
+  const floorLabel = logPowerCalculatorFloor.value;
+  const rawScore = logPowerCalculatorScore.value.trim();
+  const score = Math.min(100, Math.max(0, Number(rawScore)));
+  const selectedButton = Number(buttonFilter.value);
+  const buttons = BUTTONS.includes(selectedButton) ? [selectedButton] : BUTTONS;
+  const baseConstant = baseDifficultyConstantForFloor(floorLabel);
+  const point = rawScore === "" ? NaN : scoreToPoint(score);
+  const hasLiveScale = isValidButtonTop50BaseMax(state.buttonTop50BaseMax);
+
+  logPowerCalculatorContext.textContent = `${buttons.length === 1 ? `${buttons[0]}B` : "전체 버튼"} · floor ${floorLabel} · 관계값 ${currentFloorRelation().toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}`;
+  if (!Number.isFinite(point) || !Number.isFinite(baseConstant)) {
+    logPowerCalculatorResults.innerHTML = `<div class="achievementEmpty">floor와 score를 확인해 주세요.</div>`;
+    logPowerCalculatorBreakdown.textContent = "";
+    return;
+  }
+
+  logPowerCalculatorResults.innerHTML = buttons.map((button) => {
+    const difficultyConstant = difficultyConstantForFloor(floorLabel, button);
+    const logPower = point * difficultyConstant;
+    const floorMax = 10 * difficultyConstant;
+    return `<article class="logPowerCalculatorCard" data-button="${button}">
+      <span>${button}B</span>
+      <strong>${logPower.toFixed(2)}</strong>
+      <small>상수 ${difficultyConstant.toFixed(4)} · 최대 ${floorMax.toFixed(2)}</small>
+    </article>`;
+  }).join("");
+  const capLabel = score > 99.9 ? " · 99.9로 상한 적용" : "";
+  logPowerCalculatorBreakdown.innerHTML = `<span>Score Point <strong>${point.toFixed(4)}</strong>${capLabel}</span><span>floor 기본 상수 <strong>${baseConstant.toFixed(4)}</strong></span><span>${hasLiveScale ? "최신 곡 목록" : "내장값"} 기준 버튼별 TOP50 5000 보정</span>`;
 }
 
 function scoreToPoint(score) {

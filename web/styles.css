@@ -723,6 +723,58 @@ main {
   font-size: 12px;
 }
 
+.logPowerCalculatorControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.logPowerCalculatorControls select,
+.logPowerCalculatorControls input {
+  width: 130px;
+}
+
+.logPowerCalculatorResults {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.logPowerCalculatorCard {
+  min-height: 116px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-top: 4px solid #1268b3;
+  border-radius: 6px;
+  background: var(--subtle);
+}
+
+.logPowerCalculatorCard[data-button="5"] { border-top-color: #23845f; }
+.logPowerCalculatorCard[data-button="6"] { border-top-color: #7b61c9; }
+.logPowerCalculatorCard[data-button="8"] { border-top-color: #c07b24; }
+
+.logPowerCalculatorCard span,
+.logPowerCalculatorCard small {
+  display: block;
+  color: var(--muted);
+}
+
+.logPowerCalculatorCard strong {
+  display: block;
+  margin: 8px 0 6px;
+  font-size: 30px;
+}
+
+.logPowerCalculatorBreakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .readmePanel header {
   padding-bottom: 12px;
   border-bottom: 1px solid var(--line);
