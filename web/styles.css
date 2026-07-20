@@ -1599,6 +1599,11 @@ main {
   margin-bottom: 12px;
 }
 
+.compareChartPanel:not(.compareVectorMode) .compareVectorScale {
+  display: none;
+}
+
+
 .compareProfileSummary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
