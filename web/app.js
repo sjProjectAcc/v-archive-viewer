@@ -935,7 +935,7 @@ function applySavedSettings() {
   logPowerCalculatorTarget.value = settings.logPowerCalculatorTarget || "50";
   setIfOptionExists(tagsRecordModeSelect, settings.tagsRecordMode || "");
   setIfOptionExists(tagsWeightSelect, settings.tagsWeight || "");
-  tagsPatternOnlyInput.checked = settings.tagsPatternOnly !== false;
+  tagsPatternOnlyInput.checked = settings.tagsPatternOnlyDefaultV1 ? settings.tagsPatternOnly !== false : true;
   tagsScPatternOnlyInput.checked = Boolean(settings.tagsScPatternOnly ?? settings.tagsExcludeMx);
   setIfOptionExists(tagsMatchModeSelect, settings.tagsMatchMode || "all");
   setIfOptionExists(tagsSortSelect, settings.tagsSort || "name");
@@ -1005,6 +1005,7 @@ function saveSettings() {
     tagsRecordMode: tagsRecordModeSelect.value,
     tagsWeight: tagsWeightSelect.value,
     tagsPatternOnly: tagsPatternOnlyInput.checked,
+    tagsPatternOnlyDefaultV1: true,
     tagsScPatternOnly: tagsScPatternOnlyInput.checked,
     tagsMatchMode: tagsMatchModeSelect.value,
     tagsSort: tagsSortSelect.value,
