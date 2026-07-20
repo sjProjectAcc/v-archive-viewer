@@ -80,7 +80,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $notes = "Automated V-LOG developer preview from commit $env:GITHUB_SHA (build $env:GITHUB_RUN_NUMBER)."
-          if (gh release view test-latest --repo $env:GITHUB_REPOSITORY *> $null) {
+          gh release view test-latest --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
             gh release upload test-latest v-log-test-windows-x64.zip --repo $env:GITHUB_REPOSITORY --clobber
             gh release upload test-latest test-desktop-version.json --repo $env:GITHUB_REPOSITORY --clobber
             gh release edit test-latest --repo $env:GITHUB_REPOSITORY --prerelease --title "V-LOG Developer Preview" --notes $notes --target $env:GITHUB_SHA
