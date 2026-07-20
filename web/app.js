@@ -2543,7 +2543,7 @@ function getVisibleAchievementRows() {
 
 function renderAchievementList() {
   const visibleRows = getVisibleAchievementRows();
-  const selectedCount = state.achievementSelected.size;
+  const selectedCount = visibleRows.filter((row) => state.achievementSelected.has(row.id)).length;
   achievementSelectionSummary.textContent = `${selectedCount}개 선택 · 현재 표시 ${visibleRows.length}개`;
   achievementImageButton.disabled = selectedCount === 0;
   achievementSelectVisibleButton.disabled = visibleRows.length === 0;
@@ -3972,8 +3972,10 @@ async function generateTopImage(button) {
 async function exportAchievementImage() {
   if (!state.payload || !state.achievementSelected.size) return;
   const selectedIds = state.achievementSelected;
+  const selectedButton = buttonFilter.value;
   const rows = state.achievementRows
     .filter((row) => selectedIds.has(row.id))
+    .filter((row) => !selectedButton || String(row.button) === selectedButton)
     .sort((a, b) => new Date(b.currentUpdatedAt) - new Date(a.currentUpdatedAt));
   if (!rows.length) return;
   const columns = Math.min(rows.length, Math.min(4, Math.max(1, Number(achievementColumnsInput.value) || 1)));
@@ -3992,19 +3994,24 @@ async function exportAchievementImage() {
     statusText.textContent = `최근 성과 이미지 생성 오류: ${error.message || error}`;
   } finally {
     setBusy(false);
-    achievementImageButton.disabled = state.achievementSelected.size === 0;
+    achievementImageButton.disabled = !getVisibleAchievementRows().some((row) => state.achievementSelected.has(row.id));
   }
 }
 
 function buildAchievementProfileSummary() {
   const tiers = new Map((state.payload?.tiers || []).map((row) => [Number(row.button), row]));
   const djClasses = new Map((state.payload?.djClasses || []).map((row) => [Number(row.button), row]));
+  const selectedButton = Number(buttonFilter.value);
+  const buttons = selectedButton ? [selectedButton] : BUTTONS;
   return {
-    records: Number(state.payload?.summary?.records ?? state.payload?.records?.length ?? 0),
+    records: selectedButton
+      ? Number(state.payload?.summary?.byButton?.[String(selectedButton)]?.records ?? 0)
+      : Number(state.payload?.summary?.records ?? state.payload?.records?.length ?? 0),
     updated: Number(state.payload?.sync?.updatedRecords ?? 0),
     since: state.payload?.sync?.since || "full",
     errors: Number(state.payload?.summary?.errors ?? 0),
-    buttons: BUTTONS.map((button) => {
+    selectedButton,
+    buttons: buttons.map((button) => {
       const tier = tiers.get(button);
       const djClass = djClasses.get(button);
       return {
@@ -4025,7 +4032,7 @@ async function drawAchievementImage({ nickname, rows, columns, profile }) {
   const gap = 16;
   const headerH = 266;
   const cardW = 1160;
-  const cardH = 252;
+  const cardH = 348;
   const rowCount = Math.ceil(rows.length / columns);
   const width = margin * 2 + columns * cardW + Math.max(0, columns - 1) * gap;
   const height = margin * 2 + headerH + rowCount * cardH + Math.max(0, rowCount - 1) * gap;
@@ -4044,10 +4051,11 @@ async function drawAchievementImage({ nickname, rows, columns, profile }) {
   ctx.fillText(nickname, margin, 98);
   ctx.fillStyle = "#586274";
   ctx.font = "600 19px Segoe UI, Malgun Gothic, Arial";
-  ctx.fillText(`${rows.length}개 성과 · Records ${profile.records.toLocaleString()} · Updated ${profile.updated.toLocaleString()} · Since ${profile.since} · Errors ${profile.errors.toLocaleString()} · ${formatDate(new Date().toISOString())}`, margin, 128);
+  const buttonScope = profile.selectedButton ? ` · ${profile.selectedButton}B 선택` : "";
+  ctx.fillText(`${rows.length}개 성과${buttonScope} · Records ${profile.records.toLocaleString()} · Updated ${profile.updated.toLocaleString()} · Since ${profile.since} · Errors ${profile.errors.toLocaleString()} · ${formatDate(new Date().toISOString())}`, margin, 128);
 
   const profileGap = 10;
-  const profileW = (width - margin * 2 - profileGap * 3) / 4;
+  const profileW = (width - margin * 2 - profileGap * Math.max(0, profile.buttons.length - 1)) / Math.max(1, profile.buttons.length);
   for (let index = 0; index < profile.buttons.length; index += 1) {
     const item = profile.buttons[index];
     const x = margin + index * (profileW + profileGap);
@@ -4078,16 +4086,13 @@ async function drawAchievementImage({ nickname, rows, columns, profile }) {
 
 function drawAchievementImageCard(ctx, row, jacket, x, y, w, h) {
   drawRoundRect(ctx, x, y, w, h, 8, "#ffffff", "#d9dee7");
-  const sideW = 258;
-  const centerX = x + sideW + 12;
-  const centerW = w - sideW * 2 - 24;
-  drawAchievementImageSide(ctx, "이전", row.previousUpdatedAt, row.previousScore, row.previousScorePoint, row.previousLogPower, row.previousMaxCombo, x + 10, y + 10, sideW - 10, h - 20, false);
-  drawAchievementImageSide(ctx, "이후", row.currentUpdatedAt, row.currentScore, row.currentScorePoint, row.currentLogPower, row.currentMaxCombo, x + w - sideW, y + 10, sideW - 10, h - 20, true);
-  drawRoundRect(ctx, centerX, y + 10, centerW, h - 20, 7, "#f7f9fc", "#e2e7ef");
+  const inset = 10;
+  const songH = 132;
+  drawRoundRect(ctx, x + inset, y + inset, w - inset * 2, songH, 7, "#f7f9fc", "#e2e7ef");
 
-  const jacketSize = 178;
-  const jacketX = centerX + 14;
-  const jacketY = y + 37;
+  const jacketSize = 106;
+  const jacketX = x + 22;
+  const jacketY = y + 23;
   if (jacket) {
     ctx.save();
     roundedClip(ctx, jacketX, jacketY, jacketSize, jacketSize, 7);
@@ -4097,49 +4102,51 @@ function drawAchievementImageCard(ctx, row, jacket, x, y, w, h) {
     drawRoundRect(ctx, jacketX, jacketY, jacketSize, jacketSize, 7, "#e8edf3", "#d3dae5");
     ctx.fillStyle = "#687282";
     ctx.font = "800 15px Segoe UI, Malgun Gothic, Arial";
-    drawTextFit(ctx, "NO JACKET", jacketX + 16, jacketY + 96, jacketSize - 32);
+    drawTextFit(ctx, "NO JACKET", jacketX + 12, jacketY + 60, jacketSize - 24);
   }
 
   const textX = jacketX + jacketSize + 18;
-  const textW = centerW - jacketSize - 50;
+  const textW = w - (textX - x) - 24;
   ctx.fillStyle = "#171a1f";
-  ctx.font = "900 24px Segoe UI, Malgun Gothic, Arial";
-  drawTextFit(ctx, row.name, textX, y + 58, textW);
+  ctx.font = "900 27px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, row.name, textX, y + 48, textW);
   ctx.fillStyle = "#586274";
   ctx.font = "800 16px Segoe UI, Malgun Gothic, Arial";
-  drawTextFit(ctx, `${row.button}B · ${row.pattern} · Lv.${row.level} · floor ${row.floorName}`, textX, y + 88, textW);
+  drawTextFit(ctx, `${row.button}B · ${row.pattern} · Lv.${row.level} · floor ${row.floorName}`, textX, y + 76, textW);
   ctx.fillStyle = "#1268b3";
-  ctx.font = "900 22px Segoe UI, Malgun Gothic, Arial";
-  drawTextFit(ctx, `Score ${formatSigned(row.scoreDiff, 2)}`, textX, y + 128, textW);
-  ctx.font = "900 20px Segoe UI, Malgun Gothic, Arial";
-  drawTextFit(ctx, `LogPower ${formatSigned(row.logPowerDiff, 2)}`, textX, y + 158, textW);
-  ctx.fillStyle = "#687282";
-  ctx.font = "700 15px Segoe UI, Malgun Gothic, Arial";
-  drawTextFit(ctx, `scorePoint ${formatSigned(row.scorePointDiff, 2)}`, textX, y + 187, textW);
-  ctx.fillStyle = "#171a1f";
-  ctx.font = "800 15px Segoe UI, Malgun Gothic, Arial";
-  drawTextFit(ctx, formatAchievementElapsed(row.previousUpdatedAt, row.currentUpdatedAt), textX, y + 214, textW);
+  ctx.font = "900 19px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, `Score ${formatSigned(row.scoreDiff, 2)} · LogPower ${formatSigned(row.logPowerDiff, 2)} · scorePoint ${formatSigned(row.scorePointDiff, 2)}`, textX, y + 106, textW);
+  ctx.fillStyle = "#586274";
+  ctx.font = "800 14px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, formatAchievementElapsed(row.previousUpdatedAt, row.currentUpdatedAt), textX, y + 129, textW);
+
+  const compareY = y + inset + songH + 10;
+  const sideGap = 10;
+  const sideW = (w - inset * 2 - sideGap) / 2;
+  const sideH = h - (compareY - y) - inset;
+  drawAchievementImageSide(ctx, "이전", row.previousUpdatedAt, row.previousScore, row.previousScorePoint, row.previousLogPower, row.previousMaxCombo, x + inset, compareY, sideW, sideH, false);
+  drawAchievementImageSide(ctx, "현재", row.currentUpdatedAt, row.currentScore, row.currentScorePoint, row.currentLogPower, row.currentMaxCombo, x + inset + sideW + sideGap, compareY, sideW, sideH, true);
 }
 
 function drawAchievementImageSide(ctx, label, updatedAt, score, scorePoint, logPower, maxCombo, x, y, w, h, after) {
   drawRoundRect(ctx, x, y, w, h, 7, after ? "#eef6fc" : "#f7f9fc", after ? "#b9d7ee" : "#e2e7ef");
   ctx.fillStyle = after ? "#1268b3" : "#687282";
   ctx.font = "900 19px Segoe UI, Malgun Gothic, Arial";
-  ctx.fillText(label, x + 14, y + 28);
+  ctx.fillText(label, x + 16, y + 30);
   ctx.fillStyle = "#586274";
   ctx.font = "700 13px Segoe UI, Malgun Gothic, Arial";
-  drawTextFit(ctx, formatDate(updatedAt), x + 14, y + 52, w - 28);
+  drawTextFit(ctx, formatDate(updatedAt), x + 88, y + 29, w - 104);
   ctx.fillStyle = after ? "#1268b3" : "#171a1f";
-  ctx.font = "900 34px Segoe UI, Malgun Gothic, Arial";
-  ctx.fillText(formatValue(score, "score"), x + 14, y + 99);
+  ctx.font = "900 38px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText(formatValue(score, "score"), x + 16, y + 92);
   ctx.fillStyle = "#586274";
   ctx.font = "800 15px Segoe UI, Malgun Gothic, Arial";
-  ctx.fillText(`scorePoint ${formatProfileNumber(scorePoint)}`, x + 14, y + 132);
-  ctx.fillText(`logPower ${formatProfileNumber(logPower)}`, x + 14, y + 160);
+  ctx.fillText(`scorePoint ${formatProfileNumber(scorePoint)}`, x + 190, y + 72);
+  ctx.fillText(`logPower ${formatProfileNumber(logPower)}`, x + 190, y + 100);
   if (maxCombo) {
     ctx.fillStyle = "#1268b3";
     ctx.font = "900 16px Segoe UI, Malgun Gothic, Arial";
-    ctx.fillText("MAX COMBO", x + 14, y + 196);
+    ctx.fillText("MAX COMBO", x + 16, y + h - 18);
   }
 }
 
