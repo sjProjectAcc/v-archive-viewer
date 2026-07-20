@@ -220,6 +220,8 @@
       <div class="legend">
         <span><i class="dot"></i>기록</span>
         <span id="chartTop50Legend" hidden><i class="dot top50"></i>버튼별 TOP50</span>
+        <span id="chartDjBasicLegend" hidden><i class="dot djBasic"></i>베이직 TOP70</span>
+        <span id="chartDjNewLegend" hidden><i class="dot djNew"></i>뉴탭 TOP30</span>
         <span><i class="dot combo"></i>MAX COMBO</span>
         <span id="chartBelowLegend"><i class="dot below"></i>상위 floor 최저 미만</span>
         <span><i class="line max"></i><b id="chartMaxLegend">floor 최고</b></span>
@@ -243,14 +245,6 @@
               <option value="vector">차이-합 벡터</option>
               <option value="xy">일반 XY</option>
             </select>
-          </label>
-          <label class="compareVectorScale">
-            내 벡터 배율
-            <input id="compareChartMineScaleInput" type="number" min="0.2" max="4" step="0.05" value="1">
-          </label>
-          <label class="compareVectorScale">
-            상대 벡터 배율
-            <input id="compareChartOtherScaleInput" type="number" min="0.2" max="4" step="0.05" value="1">
           </label>
           <label class="checkLabel compareVectorScale">
             개별 scale

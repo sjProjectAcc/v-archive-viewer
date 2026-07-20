@@ -983,6 +983,16 @@ main {
   opacity: 1;
 }
 
+.dot.djBasic {
+  background: #f0a83a;
+  opacity: 1;
+}
+
+.dot.djNew {
+  background: #8d63c7;
+  opacity: 1;
+}
+
 .chartLegend .maxLineKey {
   border-color: var(--max);
 }
@@ -1302,6 +1312,18 @@ main {
   stroke-width: 1.2;
 }
 
+.djBasicDot {
+  fill: #f0a83a;
+  stroke: #8a5300;
+  stroke-width: 1.4;
+}
+
+.djNewDot {
+  fill: #8d63c7;
+  stroke: #583884;
+  stroke-width: 1.4;
+}
+
 .comboDot {
   fill: var(--combo);
   stroke: #159b72;
@@ -1395,6 +1417,16 @@ main {
 :root[data-theme="dark"] .top50Dot {
   fill: #ffc35c;
   stroke: #fff0bd;
+}
+
+:root[data-theme="dark"] .djBasicDot {
+  fill: #ffc35c;
+  stroke: #fff0bd;
+}
+
+:root[data-theme="dark"] .djNewDot {
+  fill: #bd9aef;
+  stroke: #f0e5ff;
 }
 
 :root[data-theme="dark"] .comboDot {
