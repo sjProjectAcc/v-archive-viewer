@@ -4466,6 +4466,7 @@ function renderCompareProfileSummary() {
       <h3>${button}B</h3>
       <div class="compareProfileNames"><span></span><strong title="${escapeHtml(mineName)}">${escapeHtml(mineName)}</strong><strong title="${escapeHtml(otherName)}">${escapeHtml(otherName)}</strong></div>
       ${renderCompareProfileRow("LogPower", mineLogPower.toFixed(2), otherLogPower.toFixed(2))}
+      ${renderCompareLogPowerRatio(mineLogPower, otherLogPower)}
       ${renderCompareProfileRow("DJClass", formatDjClassLabel(mineClass), formatDjClassLabel(otherClass))}
       ${renderCompareProfileRow("Tier", formatTierLabel(mineTier), formatTierLabel(otherTier))}
     </article>`;
@@ -4475,6 +4476,18 @@ function renderCompareProfileSummary() {
 
 function renderCompareProfileRow(label, mine, other) {
   return `<div class="compareProfileRow"><span>${escapeHtml(label)}</span><strong>${escapeHtml(mine)}</strong><strong>${escapeHtml(other)}</strong></div>`;
+}
+
+function renderCompareLogPowerRatio(mineLogPower, otherLogPower) {
+  if (!Number.isFinite(mineLogPower) || !Number.isFinite(otherLogPower)) {
+    return `<div class="compareLogPowerRatio"><span>LogPower 배율</span><strong>비교 불가</strong></div>`;
+  }
+  if (Math.abs(otherLogPower) < 1e-9) {
+    const label = Math.abs(mineLogPower) < 1e-9 ? "동일" : "상대 0";
+    return `<div class="compareLogPowerRatio"><span>LogPower 배율</span><strong>${label}</strong></div>`;
+  }
+  const ratio = mineLogPower / otherLogPower;
+  return `<div class="compareLogPowerRatio" title="내 LogPower ÷ 상대 LogPower"><span>LogPower 배율</span><strong>내 ×${ratio.toFixed(2)}</strong></div>`;
 }
 
 function formatDjClassLabel(row) {

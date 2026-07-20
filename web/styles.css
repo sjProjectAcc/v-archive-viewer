@@ -1651,6 +1651,29 @@ main {
   color: var(--muted);
 }
 
+.compareLogPowerRatio {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.compareLogPowerRatio span {
+  color: var(--muted);
+}
+
+.compareLogPowerRatio strong {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
 .filters:empty {
   display: none;
 }
