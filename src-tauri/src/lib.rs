@@ -85,6 +85,7 @@ struct ApiSession {
 struct AccountFileInfo {
     path: String,
     file_name: String,
+    user_no: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -114,7 +115,7 @@ fn response_error(context: &str, status: reqwest::StatusCode, body: &str) -> Str
     format!("{context}: HTTP {status} {summary}")
 }
 
-fn account_file_info(path: &Path) -> AccountFileInfo {
+fn account_file_info(path: &Path, user_no: &str) -> AccountFileInfo {
     AccountFileInfo {
         path: path.display().to_string(),
         file_name: path
@@ -122,6 +123,7 @@ fn account_file_info(path: &Path) -> AccountFileInfo {
             .and_then(|name| name.to_str())
             .unwrap_or("account.txt")
             .to_string(),
+        user_no: user_no.to_string(),
     }
 }
 
@@ -260,7 +262,7 @@ async fn login_from_account_file(
     let (user_no, token) = read_account(&path)?;
     let client = authenticated_client(&user_no, &token).await?;
     store_client(&session, client)?;
-    Ok(account_file_info(&path))
+    Ok(account_file_info(&path, &user_no))
 }
 
 #[tauri::command]
@@ -279,9 +281,9 @@ fn select_account_file(app: AppHandle) -> Result<Option<AccountFileInfo>, String
     let canonical = path
         .canonicalize()
         .map_err(|error| format!("account.txt 경로 확인 실패: {error}"))?;
-    read_account(&canonical)?;
+    let (user_no, _) = read_account(&canonical)?;
     save_account_path(&app, &canonical)?;
-    Ok(Some(account_file_info(&canonical)))
+    Ok(Some(account_file_info(&canonical, &user_no)))
 }
 
 #[tauri::command]
@@ -376,6 +378,45 @@ fn encode_powershell_script(script: &str) -> Vec<u8> {
     bytes
 }
 
+fn build_update_script(
+    zip_path: &Path,
+    stage_path: &Path,
+    current_exe: &Path,
+    install_dir: &Path,
+    log_path: &Path,
+    process_id: u32,
+) -> String {
+    let zip = powershell_quote(zip_path);
+    let stage = powershell_quote(stage_path);
+    let target = powershell_quote(current_exe);
+    let source = powershell_quote(&stage_path.join("v-archive-viewer.exe"));
+    let repair_target = powershell_quote(&install_dir.join("v-archive-repair.bat"));
+    let repair_source = powershell_quote(&stage_path.join("v-archive-repair.bat"));
+    let working_dir = powershell_quote(install_dir);
+    let log = powershell_quote(log_path);
+    [
+        "$ErrorActionPreference = 'Stop'".to_string(),
+        format!("$log = {log}"),
+        "try {".to_string(),
+        format!(
+            "  while (Get-Process -Id {process_id} -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 250 }}"
+        ),
+        format!("  if (Test-Path -LiteralPath {stage}) {{ Remove-Item -LiteralPath {stage} -Recurse -Force }}"),
+        format!("  Expand-Archive -LiteralPath {zip} -DestinationPath {stage} -Force"),
+        format!("  if (-not (Test-Path -LiteralPath {source})) {{ throw '업데이트 EXE를 찾을 수 없습니다.' }}"),
+        format!("  Copy-Item -LiteralPath {source} -Destination {target} -Force"),
+        format!("  if ((-not (Test-Path -LiteralPath {repair_target})) -and (Test-Path -LiteralPath {repair_source})) {{ Copy-Item -LiteralPath {repair_source} -Destination {repair_target} }}"),
+        format!("  Start-Process -FilePath {target} -WorkingDirectory {working_dir}"),
+        format!("  Remove-Item -LiteralPath {zip} -Force -ErrorAction SilentlyContinue"),
+        format!("  Remove-Item -LiteralPath {stage} -Recurse -Force -ErrorAction SilentlyContinue"),
+        "} catch {".to_string(),
+        "  $_ | Out-String | Set-Content -LiteralPath $log -Encoding UTF8".to_string(),
+        format!("  Start-Process -FilePath {target} -WorkingDirectory {working_dir} -ErrorAction SilentlyContinue"),
+        "}".to_string(),
+    ]
+    .join("\r\n")
+}
+
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
     let manifest = fetch_update_manifest().await?;
@@ -450,33 +491,14 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
     let _ = fs::remove_file(&log_path);
     fs::write(&zip_path, &bytes).map_err(|error| format!("업데이트 파일 저장 실패: {error}"))?;
 
-    let zip = powershell_quote(&zip_path);
-    let stage = powershell_quote(&stage_path);
-    let target = powershell_quote(&current_exe);
-    let source = powershell_quote(&stage_path.join("v-archive-viewer.exe"));
-    let working_dir = powershell_quote(install_dir);
-    let log = powershell_quote(&log_path);
-    let script = [
-        "$ErrorActionPreference = 'Stop'".to_string(),
-        format!("$log = {log}"),
-        "try {".to_string(),
-        format!(
-            "  while (Get-Process -Id {} -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 250 }}",
-            std::process::id()
-        ),
-        format!("  if (Test-Path -LiteralPath {stage}) {{ Remove-Item -LiteralPath {stage} -Recurse -Force }}"),
-        format!("  Expand-Archive -LiteralPath {zip} -DestinationPath {stage} -Force"),
-        format!("  if (-not (Test-Path -LiteralPath {source})) {{ throw '업데이트 EXE를 찾을 수 없습니다.' }}"),
-        format!("  Copy-Item -LiteralPath {source} -Destination {target} -Force"),
-        format!("  Start-Process -FilePath {target} -WorkingDirectory {working_dir}"),
-        format!("  Remove-Item -LiteralPath {zip} -Force -ErrorAction SilentlyContinue"),
-        format!("  Remove-Item -LiteralPath {stage} -Recurse -Force -ErrorAction SilentlyContinue"),
-        "} catch {".to_string(),
-        "  $_ | Out-String | Set-Content -LiteralPath $log -Encoding UTF8".to_string(),
-        format!("  Start-Process -FilePath {target} -WorkingDirectory {working_dir} -ErrorAction SilentlyContinue"),
-        "}".to_string(),
-    ]
-    .join("\r\n");
+    let script = build_update_script(
+        &zip_path,
+        &stage_path,
+        &current_exe,
+        install_dir,
+        &log_path,
+        std::process::id(),
+    );
     fs::write(&script_path, encode_powershell_script(&script))
         .map_err(|error| format!("업데이트 실행 스크립트 생성 실패: {error}"))?;
 
@@ -506,7 +528,8 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::encode_powershell_script;
+    use super::{build_update_script, encode_powershell_script};
+    use std::path::Path;
 
     #[test]
     fn powershell_script_has_utf8_bom_and_preserves_korean_paths() {
@@ -515,6 +538,21 @@ mod tests {
 
         assert_eq!(&encoded[..3], &[0xEF, 0xBB, 0xBF]);
         assert_eq!(&encoded[3..], script.as_bytes());
+    }
+
+    #[test]
+    fn update_script_restores_missing_repair_batch_file() {
+        let script = build_update_script(
+            Path::new("C:\\temp\\update.zip"),
+            Path::new("C:\\temp\\stage"),
+            Path::new("C:\\app\\v-archive-viewer.exe"),
+            Path::new("C:\\app"),
+            Path::new("C:\\temp\\update.log"),
+            1234,
+        );
+
+        assert!(script.contains("-not (Test-Path -LiteralPath 'C:\\app\\v-archive-repair.bat')"));
+        assert!(script.contains("Copy-Item -LiteralPath 'C:\\temp\\stage\\v-archive-repair.bat' -Destination 'C:\\app\\v-archive-repair.bat'"));
     }
 }
 
