@@ -287,7 +287,7 @@
     <section class="historyPanel" id="historyPanel" hidden>
       <div class="historyHeader">
         <div>
-          <h2>LogPower 성장 기록</h2>
+          <h2>성장 기록</h2>
           <p id="historyStatus">수집된 히스토리가 없습니다.</p>
         </div>
         <div class="historyActions">
@@ -312,6 +312,13 @@
         <span id="historyAccountStatus" class="accountFileStatus">account.txt 미설정</span>
       </div>
       <div class="historyRangeControls">
+        <label>
+          그래프
+          <select id="historyMetricSelect">
+            <option value="logPower">LogPower</option>
+            <option value="djPower">DJPower</option>
+          </select>
+        </label>
         <label>
           시작일
           <input id="historyStartDate" type="date">

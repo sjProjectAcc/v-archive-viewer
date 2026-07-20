@@ -19,6 +19,7 @@ const state = {
   compareChartRanges: {},
   historyEntries: [],
   historyRows: [],
+  historyMetric: "logPower",
   achievementRows: [],
   achievementSelected: new Set(),
   achievementRenderToken: 0,
@@ -248,6 +249,7 @@ const historyAccountToken = document.querySelector("#historyAccountToken");
 const historyAccountLoginButton = document.querySelector("#historyAccountLoginButton");
 const historyAccountFileButton = document.querySelector("#historyAccountFileButton");
 const historyAccountStatus = document.querySelector("#historyAccountStatus");
+const historyMetricSelect = document.querySelector("#historyMetricSelect");
 const historyStartDate = document.querySelector("#historyStartDate");
 const historyEndDate = document.querySelector("#historyEndDate");
 const historyRangeResetButton = document.querySelector("#historyRangeResetButton");
@@ -761,6 +763,11 @@ function wireEvents() {
   });
   historyResetButton.addEventListener("click", resetRecordHistories);
   historyImageButton.addEventListener("click", exportHistoryImage);
+  historyMetricSelect.addEventListener("change", () => {
+    state.historyMetric = historyMetricSelect.value;
+    saveSettings();
+    renderHistoryView();
+  });
   [historyStartDate, historyEndDate].forEach((input) => {
     input.addEventListener("input", () => {
       saveSettings();
@@ -923,6 +930,8 @@ function applySavedSettings() {
   state.compareChartRanges = settings.compareChartRanges || {};
   historyStartDate.value = settings.historyStartDate || "";
   historyEndDate.value = settings.historyEndDate || "";
+  setIfOptionExists(historyMetricSelect, settings.historyMetric || "logPower");
+  state.historyMetric = historyMetricSelect.value;
   achievementColumnsInput.value = String(Math.min(MAX_ACHIEVEMENT_COLUMNS, Math.max(1, Number(settings.achievementColumns) || 1)));
   achievementAutoLogPowerInput.value = String(Math.max(0, Number(settings.achievementAutoLogPower) || 1));
   achievementAutoHoursInput.value = String(Math.max(1, Number(settings.achievementAutoHours) || 72));
@@ -990,6 +999,7 @@ function saveSettings() {
     chartXRangeByMode: state.chartXRangeByMode,
     historyStartDate: historyStartDate.value,
     historyEndDate: historyEndDate.value,
+    historyMetric: historyMetricSelect.value,
     achievementColumns: achievementColumnsInput.value,
     achievementAutoLogPower: achievementAutoLogPowerInput.value,
     achievementAutoHours: achievementAutoHoursInput.value,
@@ -2808,7 +2818,7 @@ async function resetRecordHistories() {
     historyEndDate.value = "";
     saveSettings();
     historyStatus.textContent = `${nickname}의 히스토리를 초기화했습니다.`;
-    renderLogPowerHistoryChart([]);
+    renderHistoryChart([]);
     renderTable();
   } catch (error) {
     historyStatus.textContent = `히스토리 초기화 오류: ${error.message || error}`;
@@ -2833,7 +2843,7 @@ async function renderHistoryView(options = {}) {
       historyStatus.textContent = `${state.historyEntries.length}/${targetKeys.size}개 패턴 · ${eventCount}개 기록`;
       setHistoryProgress(0, 0);
     }
-    renderLogPowerHistoryChart(state.historyEntries);
+    renderHistoryChart(state.historyEntries);
     renderTable();
   } catch (error) {
     historyStatus.textContent = `히스토리 캐시 오류: ${error.message || error}`;
@@ -3227,6 +3237,53 @@ function buildLogPowerHistorySeries(entries) {
   return constrainHistorySeries(series, getHistoryTimeRange());
 }
 
+function buildDjPowerHistorySeries(entries) {
+  const selectedButton = buttonFilter.value;
+  const selectedPattern = patternFilter.value;
+  const buttons = selectedButton ? [Number(selectedButton)] : BUTTONS;
+  const series = new Map(buttons.map((button) => [button, []]));
+  const valuesByButton = new Map(buttons.map((button) => [button, new Map()]));
+  const events = [];
+
+  for (const entry of entries) {
+    const button = Number(entry.button);
+    if (!series.has(button) || (selectedPattern && entry.pattern !== selectedPattern)) continue;
+    const multiplier = Number(getDjPowerTop100Scale(button)?.multiplier);
+    const rawMax = maxDjPowerForPattern(entry.pattern, entry.level);
+    if (!Number.isFinite(multiplier) || multiplier <= 0 || !Number.isFinite(rawMax)) continue;
+    for (const event of entry.history || []) {
+      const time = new Date(event.ymdt).getTime();
+      const value = djPowerScoreRatio(Number(event.score)) * rawMax * multiplier;
+      if (Number.isFinite(time) && Number.isFinite(value)) {
+        events.push({ button, key: entry.id, time, value, newTab: isNewTabRecord(entry) });
+      }
+    }
+  }
+  events.sort((a, b) => a.time - b.time);
+
+  for (const event of events) {
+    const values = valuesByButton.get(event.button);
+    values.set(event.key, event);
+    const basic = [];
+    const newTab = [];
+    for (const value of values.values()) (value.newTab ? newTab : basic).push(value.value);
+    const sum = [...basic].sort((a, b) => b - a).slice(0, 70)
+      .concat([...newTab].sort((a, b) => b - a).slice(0, 30))
+      .reduce((total, value) => total + value, 0);
+    const points = series.get(event.button);
+    const previous = points[points.length - 1];
+    if (!previous || Math.abs(previous.value - sum) > 0.0001) points.push({ time: event.time, value: sum });
+  }
+  return constrainHistorySeries(series, getHistoryTimeRange());
+}
+
+function getHistoryMetric() {
+  if (state.historyMetric === "djPower") {
+    return { label: "DJPower TOP100", fileName: "djpower-top100", buildSeries: buildDjPowerHistorySeries };
+  }
+  return { label: "Top50 LogPower", fileName: "logpower", buildSeries: buildLogPowerHistorySeries };
+}
+
 function constrainHistorySeries(series, range) {
   if (range.start === -Infinity && range.end === Infinity) return series;
   const constrained = new Map();
@@ -3241,9 +3298,10 @@ function constrainHistorySeries(series, range) {
   return constrained;
 }
 
-function renderLogPowerHistoryChart(entries) {
+function renderHistoryChart(entries) {
   hideHistoryTooltip();
-  const series = buildLogPowerHistorySeries(entries);
+  const metric = getHistoryMetric();
+  const series = metric.buildSeries(entries);
   const allPoints = [...series.values()].flat();
   const colors = { 4: "#1268b3", 5: "#23845f", 6: "#7b61c9", 8: "#c03535" };
   const width = 1200;
@@ -3254,7 +3312,7 @@ function renderLogPowerHistoryChart(entries) {
 
   if (!allPoints.length) {
     historyImageButton.disabled = true;
-    historyLogPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="logPower history"><rect class="chartBg" width="${width}" height="${height}"></rect><text class="emptyText" x="${width / 2}" y="${height / 2}">수집된 히스토리가 없습니다.</text></svg>`;
+    historyLogPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${metric.label} history"><rect class="chartBg" width="${width}" height="${height}"></rect><text class="emptyText" x="${width / 2}" y="${height / 2}">수집된 히스토리가 없습니다.</text></svg>`;
     historyLegend.innerHTML = "";
     return;
   }
@@ -3286,15 +3344,15 @@ function renderLogPowerHistoryChart(entries) {
   }).join("");
   const lineHits = [...series.entries()].map(([button, points]) => points.slice(1).map((point, index) => {
     const previous = points[index];
-    const info = encodeURIComponent(JSON.stringify({ button, from: previous, to: point }));
+    const info = encodeURIComponent(JSON.stringify({ button, from: previous, to: point, metric: metric.label }));
     return `<line class="historyLineHit" x1="${xFor(previous.time).toFixed(2)}" y1="${yFor(previous.value).toFixed(2)}" x2="${xFor(point.time).toFixed(2)}" y2="${yFor(point.value).toFixed(2)}" data-info="${info}" tabindex="0"></line>`;
   }).join("")).join("");
   const pointDots = [...series.entries()].map(([button, points]) => points.map((point) => {
-    const info = encodeURIComponent(JSON.stringify({ button, time: point.time, value: point.value }));
+    const info = encodeURIComponent(JSON.stringify({ button, time: point.time, value: point.value, metric: metric.label }));
     return `<circle class="historyPoint" cx="${xFor(point.time).toFixed(2)}" cy="${yFor(point.value).toFixed(2)}" r="4" fill="${colors[button]}" tabindex="0" data-button="${button}" data-info="${info}"></circle>`;
   }).join("")).join("");
 
-  historyLogPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top50 logPower history"><defs><clipPath id="historyPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" width="${width}" height="${height}"></rect>${yGrid}${xGrid}<g clip-path="url(#historyPlotClip)">${lines}${lineHits}${pointDots}</g><text class="axisTitle" x="16" y="18">Top50 logPower</text></svg>`;
+  historyLogPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${metric.label} history"><defs><clipPath id="historyPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" width="${width}" height="${height}"></rect>${yGrid}${xGrid}<g clip-path="url(#historyPlotClip)">${lines}${lineHits}${pointDots}</g><text class="axisTitle" x="16" y="18">${metric.label}</text></svg>`;
   historyLegend.innerHTML = [...series.entries()]
     .filter(([, points]) => points.length)
     .map(([button, points]) => `<span><i style="background:${colors[button]}"></i>${button}B ${points[points.length - 1].value.toFixed(2)}</span>`)
@@ -3358,14 +3416,14 @@ function showHistoryLineTooltip(event, line) {
   }
   const time = info.from.time + (info.to.time - info.from.time) * ratio;
   const value = info.from.value + (info.to.value - info.from.value) * ratio;
-  showHistoryTooltip(event, encodeURIComponent(JSON.stringify({ button: info.button, time, value })));
+  showHistoryTooltip(event, encodeURIComponent(JSON.stringify({ button: info.button, time, value, metric: info.metric })));
 }
 
 function showHistoryTooltip(event, encodedInfo) {
   if (!encodedInfo) return;
   const info = JSON.parse(decodeURIComponent(encodedInfo));
   historyTooltip.innerHTML = `
-    <strong>${escapeHtml(info.button)}B Top50 logPower</strong>
+    <strong>${escapeHtml(info.button)}B ${escapeHtml(info.metric || getHistoryMetric().label)}</strong>
     <span>${escapeHtml(Number(info.value).toFixed(2))}</span>
     <span>${escapeHtml(formatDate(new Date(info.time).toISOString()))}</span>`;
   historyTooltip.hidden = false;
@@ -3389,7 +3447,7 @@ async function exportHistoryImage() {
     const canvas = await drawHistoryImage(svg);
     const nickname = state.payload.nickname || getCurrentNickname() || "user";
     const safeNickname = nickname.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-");
-    const copied = await saveCanvasImage(canvas, `v-archive-${safeNickname}-logpower-history.png`);
+    const copied = await saveCanvasImage(canvas, `v-archive-${safeNickname}-${getHistoryMetric().fileName}-history.png`);
     statusText.textContent = `히스토리 이미지를 다운로드했습니다.${copied ? " 클립보드에도 복사했습니다." : ""}`;
   } catch (error) {
     statusText.textContent = `히스토리 이미지 생성 오류: ${error.message || error}`;
@@ -3418,7 +3476,8 @@ async function drawHistoryImage(svg) {
   const nickname = state.payload.nickname || getCurrentNickname();
   const buttonLabel = buttonFilter.value ? `${buttonFilter.value}B` : "전체 버튼";
   const patternLabel = patternFilter.value || "전체 패턴";
-  const series = buildLogPowerHistorySeries(state.historyEntries);
+  const metric = getHistoryMetric();
+  const series = metric.buildSeries(state.historyEntries);
   const times = [...series.values()].flat().map((point) => point.time).filter(Number.isFinite);
   const rangeLabel = times.length
     ? `${formatDate(new Date(Math.min(...times)).toISOString())} - ${formatDate(new Date(Math.max(...times)).toISOString())}`
@@ -3428,7 +3487,7 @@ async function drawHistoryImage(svg) {
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = "#171a1f";
   ctx.font = "700 30px Segoe UI, Malgun Gothic, Arial";
-  ctx.fillText(`${nickname} · Top50 logPower History`, margin, margin + 34);
+  ctx.fillText(`${nickname} · ${metric.label} History`, margin, margin + 34);
   ctx.fillStyle = "#687282";
   ctx.font = "16px Segoe UI, Malgun Gothic, Arial";
   ctx.fillText(`${buttonLabel} · ${patternLabel} · ${rangeLabel}`, margin, margin + 66);
