@@ -223,6 +223,7 @@ const compareChartDescription = document.querySelector("#compareChartDescription
 const compareChartModeSelect = document.querySelector("#compareChartModeSelect");
 const compareChartMineScaleInput = document.querySelector("#compareChartMineScaleInput");
 const compareChartOtherScaleInput = document.querySelector("#compareChartOtherScaleInput");
+const compareChartIndividualScaleInput = document.querySelector("#compareChartIndividualScaleInput");
 const compareChartMetricSelect = document.querySelector("#compareChartMetricSelect");
 const compareChartMinInput = document.querySelector("#compareChartMinInput");
 const compareChartMaxInput = document.querySelector("#compareChartMaxInput");
@@ -720,9 +721,20 @@ function wireEvents() {
   [compareChartMineScaleInput, compareChartOtherScaleInput].forEach((input) => {
     input.addEventListener("input", () => {
       input.value = String(clampCompareVectorScale(input.value));
+      if (!compareChartIndividualScaleInput.checked) {
+        compareChartOtherScaleInput.value = compareChartMineScaleInput.value;
+      }
       saveSettings();
       renderCompareChart();
     });
+  });
+  compareChartIndividualScaleInput.addEventListener("change", () => {
+    if (!compareChartIndividualScaleInput.checked) {
+      compareChartOtherScaleInput.value = compareChartMineScaleInput.value;
+    }
+    updateCompareVectorScaleControls();
+    saveSettings();
+    renderCompareChart();
   });
   [compareChartMinInput, compareChartMaxInput, compareChartOtherMinInput, compareChartOtherMaxInput].forEach((input) => {
     input.addEventListener("input", () => {
@@ -923,6 +935,9 @@ function applySavedSettings() {
   setIfOptionExists(compareChartModeSelect, settings.compareChartMode || "vector");
   compareChartMineScaleInput.value = String(clampCompareVectorScale(settings.compareChartMineScale ?? 1));
   compareChartOtherScaleInput.value = String(clampCompareVectorScale(settings.compareChartOtherScale ?? 1));
+  compareChartIndividualScaleInput.checked = settings.compareChartIndividualScale === true;
+  if (!compareChartIndividualScaleInput.checked) compareChartOtherScaleInput.value = compareChartMineScaleInput.value;
+  updateCompareVectorScaleControls();
   state.compareChartMetric = compareChartMetricSelect.value;
   state.compareChartRanges = settings.compareChartRanges || {};
   historyStartDate.value = settings.historyStartDate || "";
@@ -981,6 +996,7 @@ function saveSettings() {
     compareChartMode: compareChartModeSelect.value,
     compareChartMineScale: compareChartMineScaleInput.value,
     compareChartOtherScale: compareChartOtherScaleInput.value,
+    compareChartIndividualScale: compareChartIndividualScaleInput.checked,
     compareChartRanges: state.compareChartRanges,
     limitSelect: limitSelect.value,
     nameWidth: nameWidthInput.value,
@@ -2440,6 +2456,10 @@ function clampCompareVectorScale(value) {
   const scale = Number(value);
   if (!Number.isFinite(scale)) return 1;
   return Math.min(4, Math.max(0.2, Number(scale.toFixed(2))));
+}
+
+function updateCompareVectorScaleControls() {
+  compareChartOtherScaleInput.disabled = !compareChartIndividualScaleInput.checked;
 }
 
 function getManualCompareChartRange(minInput, maxInput, fallback) {
