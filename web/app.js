@@ -45,6 +45,9 @@ const SONG_DB_URL = `${API_BASE_URL}/db/v2/songs.json`;
 const BUTTONS = [4, 5, 6, 8];
 const MAX_ACHIEVEMENT_COLUMNS = 12;
 const CHART_DOT_EDGE_INSET = 6.5;
+const HISTORY_REQUEST_DELAY_START = 900;
+const HISTORY_REQUEST_DELAY_MIN = 150;
+const HISTORY_REQUEST_DELAY_MAX = 6000;
 const DB_NAME = "vArchiveViewerCache";
 const DB_VERSION = 2;
 const PROFILE_STORE = "profiles";
@@ -2394,13 +2397,24 @@ async function fetchHistoryWithRetry(invoke, record) {
       if (response?.success !== true || !Array.isArray(response.history)) {
         throw new Error(`API 응답 오류: ${JSON.stringify(response).slice(0, 240)}`);
       }
-      return response;
+      return { response, retryCount: attempt };
     } catch (error) {
       lastError = error;
       if (attempt < 2) await delay(1200 * (attempt + 1));
     }
   }
   throw lastError;
+}
+
+function adjustHistoryRequestDelay(currentDelay, { succeeded, retryCount = 0 }) {
+  if (!succeeded) {
+    return Math.min(HISTORY_REQUEST_DELAY_MAX, Math.max(HISTORY_REQUEST_DELAY_START, Math.round(currentDelay * 2)));
+  }
+  if (retryCount > 0) {
+    const retryMultiplier = 1 + retryCount * 0.75;
+    return Math.min(HISTORY_REQUEST_DELAY_MAX, Math.max(HISTORY_REQUEST_DELAY_START, Math.round(currentDelay * retryMultiplier)));
+  }
+  return Math.max(HISTORY_REQUEST_DELAY_MIN, Math.round(currentDelay * 0.94));
 }
 
 function setHistoryProgress(done, total) {
@@ -2427,6 +2441,7 @@ async function collectRecordHistories(options = {}) {
   historyStopButton.disabled = false;
   let completed = 0;
   let failed = 0;
+  let requestDelay = HISTORY_REQUEST_DELAY_START;
 
   try {
     const existing = await loadRecordHistories(nickname);
@@ -2447,9 +2462,13 @@ async function collectRecordHistories(options = {}) {
     setHistoryProgress(0, queue.length);
     for (const record of queue) {
       if (state.historyStopRequested) break;
-      historyStatus.textContent = `수집 ${completed + 1}/${queue.length} · 캐시 ${cachedCount} · 실패 ${failed} · ${record.button}B ${record.name || record.title} ${record.pattern}`;
+      historyStatus.textContent = `수집 ${completed + 1}/${queue.length} · 캐시 ${cachedCount} · 실패 ${failed} · 간격 ${requestDelay}ms · ${record.button}B ${record.name || record.title} ${record.pattern}`;
+      let succeeded = false;
+      let retryCount = 0;
       try {
-        const response = await fetchHistoryWithRetry(invoke, record);
+        const result = await fetchHistoryWithRetry(invoke, record);
+        const response = result.response;
+        retryCount = result.retryCount;
         const history = normalizeHistoryEvents(response, record);
         const entry = {
           id: historyCacheId(nickname, record),
@@ -2466,14 +2485,16 @@ async function collectRecordHistories(options = {}) {
           history,
         };
         await saveRecordHistory(entry);
+        succeeded = true;
       } catch (error) {
         failed += 1;
         console.error("History collection failed", recordKey(record), error);
       }
+      requestDelay = adjustHistoryRequestDelay(requestDelay, { succeeded, retryCount });
       completed += 1;
       setHistoryProgress(completed, queue.length);
       if (completed % 10 === 0 && viewSelect.value === "history") await renderHistoryView();
-      await delay(250);
+      if (!state.historyStopRequested && completed < queue.length) await delay(requestDelay);
     }
 
     const stopped = state.historyStopRequested;
