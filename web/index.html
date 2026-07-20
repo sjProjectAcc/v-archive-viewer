@@ -3,20 +3,22 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https://djmax.gg data: blob:; connect-src 'self' https://v-archive.net https://djmax.gg https://fjwuuodmtttqohxsycvp.supabase.co; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="referrer" content="no-referrer">
   <meta name="theme-color" content="#171a1f">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
-  <title>V-ARCHIVE Viewer</title>
+  <title>V-LOG</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <header class="topbar">
     <div>
       <div class="titleRow">
-        <h1>V-ARCHIVE Viewer</h1>
+        <h1>V-LOG</h1>
         <span id="appVersion" class="appVersion">local</span>
       </div>
       <p id="statusText">준비 중</p>
@@ -444,7 +446,7 @@
     </section>
 
     <section class="readmePanel" id="readmePanel" hidden>
-      <header><h2>V-ARCHIVE Viewer README</h2><p>V-ARCHIVE 기록을 내 기기에서 조회·분석하고, 표와 그래프로 정리하는 도구입니다.</p></header>
+      <header><h2>V-LOG README</h2><p>V-ARCHIVE 기록을 내 기기에서 조회·분석하고, 표와 그래프로 정리하는 도구입니다.</p></header>
       <div class="readmeGrid">
         <section><h3>1. 시작하기</h3><p>닉네임을 입력하고 새로고침을 누르면 4B·5B·6B·8B 기록을 불러옵니다. 최근 조회한 닉네임은 입력란 아래에 저장되어 다시 클릭할 수 있습니다.</p><ul><li>지원되는 모바일 브라우저에서는 앱 설치 버튼이나 홈 화면에 추가 기능으로 PWA를 설치할 수 있습니다.</li><li>상단의 버튼·패턴·검색 조건은 현재 탭의 표와 그래프에 공통 적용됩니다.</li><li>표시 개수는 긴 표와 LogPower 순위의 출력 범위를 조절합니다.</li><li>F5는 화면만 다시 그리는 것이 아니라 일반 새로고침과 같은 데이터 갱신을 실행합니다.</li></ul></section>
         <section><h3>2. 데이터와 캐시</h3><p>기록은 브라우저 또는 데스크톱 앱이 V-ARCHIVE API에 직접 요청합니다. 별도의 중계 서버에 계정 기록을 저장하지 않습니다.</p><ul><li>프로필과 마지막 수집 시점은 IndexedDB에 저장됩니다.</li><li>필터·그래프 범위·테마·최근 닉네임은 localStorage에 저장됩니다.</li><li>캐시는 사용자 기기와 실행 환경별로 분리되므로 다른 PC나 브라우저에는 자동 동기화되지 않습니다.</li></ul></section>

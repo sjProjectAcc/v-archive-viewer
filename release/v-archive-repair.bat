@@ -9,9 +9,9 @@ if not defined VARCHIVE_WEBVIEW_DIR set "VARCHIVE_WEBVIEW_DIR=%LOCALAPPDATA%\net
 if /I "%~1"=="cache" goto cache
 if /I "%~1"=="reinstall" goto reinstall
 
-title V-ARCHIVE Viewer Recovery
+title V-LOG Recovery
 echo.
-echo V-ARCHIVE Viewer Recovery
+echo V-LOG Recovery
 echo [1] Clear UI cache and restart
 echo [2] Force download and reinstall the latest version
 echo [Q] Quit
@@ -44,7 +44,7 @@ call :stop_app
 call :clear_cache
 if errorlevel 1 goto failed
 echo Downloading and verifying the latest release...
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $temp=Join-Path $env:TEMP ('v-archive-repair-'+[guid]::NewGuid().ToString('N')); try{$manifest=Invoke-RestMethod -Uri $env:MANIFEST_URL -Headers @{'Cache-Control'='no-cache'}; New-Item -ItemType Directory -Path $temp|Out-Null; $zip=Join-Path $temp 'app.zip'; Invoke-WebRequest -UseBasicParsing -Uri $manifest.url -OutFile $zip; $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant(); if($actual -ne ([string]$manifest.sha256).ToLowerInvariant()){throw 'SHA-256 verification failed.'}; $stage=Join-Path $temp 'stage'; Expand-Archive -LiteralPath $zip -DestinationPath $stage -Force; $source=Join-Path $stage 'v-archive-viewer.exe'; if(-not (Test-Path -LiteralPath $source)){throw 'The application executable is missing from the release.'}; Copy-Item -LiteralPath $source -Destination $env:APP_EXE -Force; Write-Host ('Installed V-ARCHIVE Viewer '+$manifest.version)}finally{if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue}}"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $temp=Join-Path $env:TEMP ('v-archive-repair-'+[guid]::NewGuid().ToString('N')); try{$manifest=Invoke-RestMethod -Uri $env:MANIFEST_URL -Headers @{'Cache-Control'='no-cache'}; New-Item -ItemType Directory -Path $temp|Out-Null; $zip=Join-Path $temp 'app.zip'; Invoke-WebRequest -UseBasicParsing -Uri $manifest.url -OutFile $zip; $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant(); if($actual -ne ([string]$manifest.sha256).ToLowerInvariant()){throw 'SHA-256 verification failed.'}; $stage=Join-Path $temp 'stage'; Expand-Archive -LiteralPath $zip -DestinationPath $stage -Force; $source=Join-Path $stage 'v-archive-viewer.exe'; if(-not (Test-Path -LiteralPath $source)){throw 'The application executable is missing from the release.'}; Copy-Item -LiteralPath $source -Destination $env:APP_EXE -Force; Write-Host ('Installed V-LOG '+$manifest.version)}finally{if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue}}"
 if errorlevel 1 goto failed
 if not defined VARCHIVE_SKIP_START start "" "%APP_EXE%"
 goto done

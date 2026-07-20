@@ -66,19 +66,7 @@ const appShell = [
 const serviceWorkerBody = serviceWorkerTemplate
   .replace("__PWA_VERSION__", version)
   .replace('["__PWA_ASSETS__"]', JSON.stringify(appShell));
-const versionCheck = `  <meta name="v-archive-version" content="${version}">
-  <script>
-    (() => {
-      const current = "${version}";
-      fetch(${JSON.stringify(publicAsset("version"))}, { cache: "no-store" })
-        .then((response) => response.ok ? response.text() : current)
-        .then((latest) => {
-          const next = latest.trim();
-          if (next && next !== current) location.replace(${JSON.stringify(publicBasePath)} + "?v=" + encodeURIComponent(next));
-        })
-        .catch(() => {});
-    })();
-  </script>`;
+const versionCheck = `  <meta name="v-archive-version" content="${version}">`;
 const htmlBody = sourceHtml
   .replace('href="/styles.css"', `href="${publicAsset(stylesFile)}"`)
   .replace('src="/app.js"', `src="${publicAsset(appFile)}"`)
@@ -210,4 +198,4 @@ export { handle as fetch };
 `;
 
 await writeFile(resolve(serverOutput, "index.js"), server, "utf8");
-console.log(`Built V-ARCHIVE web version ${version}`);
+console.log(`Built V-LOG web version ${version}`);

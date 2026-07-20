@@ -53,7 +53,7 @@ def main() -> int:
     server = ThreadingHTTPServer((args.host, args.port), StaticHandler)
     shown_host = "127.0.0.1" if args.host in {"0.0.0.0", ""} else args.host
     url = f"http://{shown_host}:{args.port}/"
-    print(f"V-ARCHIVE static web app: {url}")
+    print(f"V-LOG static web app: {url}")
     if args.host == "0.0.0.0":
         print(f"LAN mode: open http://<this-pc-ip>:{args.port}/ from another device on the same network.")
     if not args.no_browser:

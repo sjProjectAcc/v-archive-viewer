@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "V-ARCHIVE Viewer",
-  "short_name": "V-ARCHIVE",
-  "description": "V-ARCHIVE 기록 조회와 분석 도구",
+  "name": "V-LOG",
+  "short_name": "V-LOG",
+  "description": "V-ARCHIVE 기록 조회와 분석 도구 V-LOG",
   "lang": "ko",
   "start_url": "/",
   "scope": "/",

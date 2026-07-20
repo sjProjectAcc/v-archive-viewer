@@ -9,6 +9,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::Mutex,
+    time::Duration,
 };
 use tauri::{AppHandle, Manager, State};
 
@@ -18,6 +19,10 @@ const UPDATE_MANIFEST_URL: &str =
     "https://sjprojectacc.github.io/v-archive-viewer/desktop-version.json";
 const UPDATE_HOST: &str = "github.com";
 const REPAIR_BATCH_BYTES: &[u8] = include_bytes!("../../release/v-archive-repair.bat");
+const HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const API_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(15);
+const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(180);
 
 #[cfg(windows)]
 fn ensure_repair_batch_file() {
@@ -126,6 +131,11 @@ struct UpdateInfo {
     latest_version: String,
     available: bool,
     size: u64,
+    channel: String,
+}
+
+fn build_channel() -> &'static str {
+    option_env!("VLOG_RELEASE_CHANNEL").unwrap_or("public")
 }
 
 fn response_error(context: &str, status: reqwest::StatusCode, body: &str) -> String {
@@ -222,7 +232,9 @@ async fn authenticated_client(user_no: &str, token: &str) -> Result<Client, Stri
 
     let client = Client::builder()
         .cookie_store(true)
-        .user_agent("V-ARCHIVE-Viewer/0.1")
+        .user_agent("V-LOG/0.1")
+        .connect_timeout(HTTP_CONNECT_TIMEOUT)
+        .timeout(API_REQUEST_TIMEOUT)
         .build()
         .map_err(|error| format!("HTTP 클라이언트 생성 실패: {error}"))?;
     let mut url = Url::parse(&format!("{API_BASE_URL}/client/tokenLogin"))
@@ -350,7 +362,9 @@ async fn fetch_record_history(
 
 async fn fetch_update_manifest() -> Result<UpdateManifest, String> {
     let response = Client::builder()
-        .user_agent("V-ARCHIVE-Viewer-Updater/0.1")
+        .user_agent("V-LOG-Updater/0.1")
+        .connect_timeout(HTTP_CONNECT_TIMEOUT)
+        .timeout(UPDATE_CHECK_TIMEOUT)
         .build()
         .map_err(|error| format!("업데이트 클라이언트 생성 실패: {error}"))?
         .get(UPDATE_MANIFEST_URL)
@@ -372,8 +386,18 @@ async fn fetch_update_manifest() -> Result<UpdateManifest, String> {
 
 #[tauri::command]
 async fn check_for_update(app: AppHandle) -> Result<UpdateInfo, String> {
-    let manifest = fetch_update_manifest().await?;
     let current_version = app.package_info().version.to_string();
+    if build_channel() == "test" {
+        return Ok(UpdateInfo {
+            latest_version: current_version.clone(),
+            current_version,
+            available: false,
+            size: 0,
+            channel: "test".to_string(),
+        });
+    }
+
+    let manifest = fetch_update_manifest().await?;
     let latest_version = semver::Version::parse(&manifest.version)
         .map_err(|error| format!("업데이트 버전 형식 오류: {error}"))?;
     let current_semver = semver::Version::parse(&current_version)
@@ -383,6 +407,7 @@ async fn check_for_update(app: AppHandle) -> Result<UpdateInfo, String> {
         current_version,
         latest_version: manifest.version,
         size: manifest.size,
+        channel: "public".to_string(),
     })
 }
 
@@ -437,6 +462,9 @@ fn build_update_script(
 
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
+    if build_channel() == "test" {
+        return Err("TEST 빌드는 공개 채널 자동 업데이트를 사용하지 않습니다.".into());
+    }
     let manifest = fetch_update_manifest().await?;
     let current_version = app.package_info().version.to_string();
     let latest_version = semver::Version::parse(&manifest.version)
@@ -461,7 +489,9 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
     }
 
     let response = Client::builder()
-        .user_agent("V-ARCHIVE-Viewer-Updater/0.1")
+        .user_agent("V-LOG-Updater/0.1")
+        .connect_timeout(HTTP_CONNECT_TIMEOUT)
+        .timeout(UPDATE_DOWNLOAD_TIMEOUT)
         .build()
         .map_err(|error| format!("업데이트 클라이언트 생성 실패: {error}"))?
         .get(download_url)
@@ -596,5 +626,5 @@ pub fn run() {
             install_update
         ])
         .run(tauri::generate_context!())
-        .expect("error while running V-ARCHIVE Viewer");
+        .expect("error while running V-LOG");
 }

@@ -1,0 +1,73 @@
+name: Build test channel
+
+on:
+  push:
+    branches:
+      - test
+  workflow_dispatch:
+
+concurrency:
+  group: test-channel-build
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      VLOG_RELEASE_CHANNEL: test
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate source
+        run: |
+          node --check web/app.js
+          npm audit --audit-level=high
+          cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build test app
+        run: npm run desktop:build
+
+      - name: Package test app
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force test-package | Out-Null
+          Copy-Item src-tauri/target/release/v-archive-viewer.exe test-package/v-archive-viewer.exe
+          @"
+          V-LOG TEST BUILD
+
+          Commit: $env:GITHUB_SHA
+          Run: $env:GITHUB_RUN_NUMBER
+
+          This build is for private testing. Public-channel automatic updates are disabled.
+          Keep it in a separate folder from the public build.
+          "@ | Set-Content -Encoding UTF8 test-package/TEST-BUILD.txt
+          Compress-Archive -Path test-package/* -DestinationPath "v-log-test-windows-x64-$env:GITHUB_RUN_NUMBER.zip" -CompressionLevel Optimal
+
+      - name: Upload test ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: v-log-test-windows-x64-${{ github.run_number }}
+          path: v-log-test-windows-x64-${{ github.run_number }}.zip
+          retention-days: 14
+          if-no-files-found: error

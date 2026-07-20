@@ -1,23 +1,19 @@
 name: Build, release, and deploy
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 concurrency:
   group: production-release
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  pages: write
-  id-token: write
-
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      VLOG_RELEASE_CHANNEL: public
+    permissions:
+      contents: write
     outputs:
       release_tag: ${{ steps.release.outputs.release_tag }}
     steps:
@@ -40,6 +36,14 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Validate frontend
+        run: |
+          node --check web/app.js
+          npm audit --audit-level=high
+
+      - name: Test desktop backend
+        run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Build desktop app
         run: npm run desktop:build
@@ -91,6 +95,10 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

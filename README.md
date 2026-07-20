@@ -1,6 +1,6 @@
-# V-ARCHIVE Viewer
+# V-LOG
 
-DJMAX RESPECT V의 V-ARCHIVE 기록을 조회하고 분석하는 비공식 뷰어입니다. 일반 기록 표, 버튼별 Top100, floor 통계, 사용자 비교, 산포도, logPower 점수제와 기록 히스토리를 제공합니다.
+V-LOG는 DJMAX RESPECT V의 V-ARCHIVE 기록을 조회하고 분석하는 비공식 도구입니다. 일반 기록 표, 버튼별 Top100, floor 통계, 사용자 비교, 산포도, logPower 점수제와 기록 히스토리를 제공합니다.
 
 ## 주요 기능
 
@@ -55,6 +55,12 @@ npm run desktop:build
 ```
 
 실행 파일은 `src-tauri/target/release/v-archive-viewer.exe`에 생성됩니다.
+
+## 배포 채널
+
+- `test` 브랜치는 푸시할 때마다 개인 검증용 Windows ZIP을 Actions artifact로 만듭니다. 테스트 빌드는 `TEST` 표시가 붙고 공개 채널 자동 업데이트를 사용하지 않습니다.
+- `main` 브랜치는 변경 검증만 자동 실행합니다. 공개 웹, GitHub Release와 업데이트 매니페스트는 `Build, release, and deploy` 워크플로를 수동 실행할 때만 갱신됩니다.
+- 테스트가 끝난 변경은 `test`에서 `main`으로 PR을 합친 뒤 공개 배포합니다.
 
 ## 데이터와 개인정보
 

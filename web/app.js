@@ -47,8 +47,9 @@ const BUTTONS = [4, 5, 6, 8];
 const MAX_ACHIEVEMENT_COLUMNS = 12;
 const CHART_DOT_EDGE_INSET = 6.5;
 const HISTORY_REQUEST_DELAY_START = 900;
-const HISTORY_REQUEST_DELAY_MIN = 150;
-const HISTORY_REQUEST_DELAY_MAX = 6000;
+const HISTORY_REQUEST_DELAY_MIN = 500;
+const HISTORY_REQUEST_DELAY_MAX = 15000;
+const NETWORK_REQUEST_TIMEOUT = 20000;
 const DB_NAME = "vArchiveViewerCache";
 const DB_VERSION = 2;
 const PROFILE_STORE = "profiles";
@@ -352,6 +353,7 @@ const REQUIRED_UI_IDS = [
 
 window.addEventListener("load", () => {
   if (!ensureUiSchema()) return;
+  checkWebVersion();
   renderAppVersion();
   initMobileEnvironment();
   initPwa();
@@ -361,6 +363,22 @@ window.addEventListener("load", () => {
   loadTop50ScaleCache();
   refresh(false);
 });
+
+function checkWebVersion() {
+  const current = document.querySelector('meta[name="v-archive-version"]')?.content?.trim();
+  if (!current || !/^https?:$/.test(location.protocol)) return;
+  const versionUrl = new URL("version", location.href);
+  fetchWithTimeout(versionUrl, { cache: "no-store" }, 5000)
+    .then((response) => response.ok ? response.text() : current)
+    .then((latest) => {
+      const next = latest.trim();
+      if (!next || next === current) return;
+      const appUrl = new URL(".", location.href);
+      appUrl.searchParams.set("v", next);
+      location.replace(appUrl.toString());
+    })
+    .catch(() => {});
+}
 
 function ensureUiSchema() {
   const missing = REQUIRED_UI_IDS.filter((id) => !document.getElementById(id));
@@ -475,10 +493,13 @@ async function checkForDesktopUpdate(announce = false) {
   desktopUpdateButton.hidden = true;
   try {
     const update = await invoke("check_for_update");
-    appVersionEl.textContent = `v${update.currentVersion}`;
-    appVersionEl.title = `데스크톱 버전 ${update.currentVersion}`;
+    const isTestBuild = update.channel === "test";
+    appVersionEl.textContent = `v${update.currentVersion}${isTestBuild ? " TEST" : ""}`;
+    appVersionEl.title = isTestBuild ? `데스크톱 테스트 빌드 ${update.currentVersion}` : `데스크톱 버전 ${update.currentVersion}`;
     if (!update.available) {
-      if (announce) statusText.textContent = `현재 최신 버전입니다. (v${update.currentVersion})`;
+      if (announce) statusText.textContent = isTestBuild
+        ? `TEST 빌드입니다. 공개 채널 자동 업데이트는 사용하지 않습니다. (v${update.currentVersion})`
+        : `현재 최신 버전입니다. (v${update.currentVersion})`;
       return;
     }
     desktopUpdateButton.textContent = `업데이트 v${update.latestVersion}`;
@@ -1009,7 +1030,7 @@ async function refreshTop50ScaleCache(force = false) {
   const cached = loadTop50ScaleCache();
   if (!force && cached && Date.now() - Number(cached.updatedAt || 0) < TOP50_SCALE_CACHE_TTL) return false;
   try {
-    const response = await fetch(SONG_DB_URL, { credentials: "omit" });
+    const response = await fetchWithTimeout(SONG_DB_URL, { credentials: "omit" });
     if (!response.ok) return false;
     const songs = await response.json();
     const { baseMaxByButton, floorPatternCounts } = calculateSongCatalogMetrics(songs);
@@ -1085,12 +1106,12 @@ async function loadTagsData(force = false) {
   tagsStatus.textContent = cached ? "저장된 태그를 표시하며 새 데이터를 확인하고 있습니다." : "태그와 곡 목록을 불러오고 있습니다.";
   try {
     const [tagsResponse, songsResponse, abilityResponse] = await Promise.all([
-      fetch(TAGS_API_URL, {
+      fetchWithTimeout(TAGS_API_URL, {
         credentials: "omit",
         headers: { apikey: TAGS_ANON_KEY, Authorization: `Bearer ${TAGS_ANON_KEY}`, Accept: "application/json" },
       }),
-      fetch(SONG_DB_URL, { credentials: "omit" }),
-      fetch(TAGS_ABILITY_API_URL, {
+      fetchWithTimeout(SONG_DB_URL, { credentials: "omit" }),
+      fetchWithTimeout(TAGS_ABILITY_API_URL, {
         credentials: "omit",
         headers: { apikey: TAGS_ANON_KEY, Authorization: `Bearer ${TAGS_ANON_KEY}`, Accept: "application/json" },
       }),
@@ -1555,7 +1576,7 @@ async function serverRefreshLegacy(full) {
   try {
     const params = new URLSearchParams({ nickname });
     if (full) params.set("full", "1");
-    const response = await fetch(`/api/refresh?${params.toString()}`, { method: "POST" });
+    const response = await fetchWithTimeout(`/api/refresh?${params.toString()}`, { method: "POST" });
     const payload = await response.json();
     if (!response.ok || payload.ok === false) throw new Error(payload.message || "새로고침 실패");
     state.payload = payload;
@@ -1564,7 +1585,7 @@ async function serverRefreshLegacy(full) {
     statusText.textContent = `오류: ${error.message}`;
     try {
       const params = new URLSearchParams({ nickname });
-      state.payload = await fetch(`/api/data?${params.toString()}`).then((res) => res.json());
+      state.payload = await fetchWithTimeout(`/api/data?${params.toString()}`).then((res) => res.json());
       render();
     } catch {
       tableEl.innerHTML = `<tbody><tr><td class="empty">표시할 캐시 데이터가 없습니다.</td></tr></tbody>`;
@@ -1757,7 +1778,7 @@ async function requestJson(path, query = null) {
     });
   }
   try {
-    const response = await fetch(url.toString());
+    const response = await fetchWithTimeout(url.toString());
     const text = await response.text();
     let data = null;
     try {
@@ -1944,6 +1965,19 @@ function cacheKey(nickname) {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithTimeout(input, init = {}, timeoutMs = NETWORK_REQUEST_TIMEOUT) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error(`요청 시간 초과 (${Math.round(timeoutMs / 1000)}초)`);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function utcNowIso() {
@@ -2493,13 +2527,17 @@ async function fetchHistoryWithRetry(invoke, record) {
       return { response, retryCount: attempt };
     } catch (error) {
       lastError = error;
+      if (/(?:HTTP\s*)?429|too many requests/i.test(String(error))) throw error;
       if (attempt < 2) await delay(1200 * (attempt + 1));
     }
   }
   throw lastError;
 }
 
-function adjustHistoryRequestDelay(currentDelay, { succeeded, retryCount = 0 }) {
+function adjustHistoryRequestDelay(currentDelay, { succeeded, retryCount = 0, rateLimited = false }) {
+  if (rateLimited) {
+    return Math.min(HISTORY_REQUEST_DELAY_MAX, Math.max(10000, Math.round(currentDelay * 4)));
+  }
   if (!succeeded) {
     return Math.min(HISTORY_REQUEST_DELAY_MAX, Math.max(HISTORY_REQUEST_DELAY_START, Math.round(currentDelay * 2)));
   }
@@ -2507,7 +2545,11 @@ function adjustHistoryRequestDelay(currentDelay, { succeeded, retryCount = 0 }) 
     const retryMultiplier = 1 + retryCount * 0.75;
     return Math.min(HISTORY_REQUEST_DELAY_MAX, Math.max(HISTORY_REQUEST_DELAY_START, Math.round(currentDelay * retryMultiplier)));
   }
-  return Math.max(HISTORY_REQUEST_DELAY_MIN, Math.round(currentDelay * 0.94));
+  return Math.max(HISTORY_REQUEST_DELAY_MIN, Math.round(currentDelay * 0.97));
+}
+
+function jitteredHistoryDelay(delayMs) {
+  return Math.round(delayMs * (0.9 + Math.random() * 0.2));
 }
 
 function setHistoryProgress(done, total) {
@@ -2558,6 +2600,7 @@ async function collectRecordHistories(options = {}) {
       historyStatus.textContent = `수집 ${completed + 1}/${queue.length} · 캐시 ${cachedCount} · 실패 ${failed} · 간격 ${requestDelay}ms · ${record.button}B ${record.name || record.title} ${record.pattern}`;
       let succeeded = false;
       let retryCount = 0;
+      let rateLimited = false;
       try {
         const result = await fetchHistoryWithRetry(invoke, record);
         const response = result.response;
@@ -2581,13 +2624,14 @@ async function collectRecordHistories(options = {}) {
         succeeded = true;
       } catch (error) {
         failed += 1;
+        rateLimited = /(?:HTTP\s*)?429|too many requests/i.test(String(error));
         console.error("History collection failed", recordKey(record), error);
       }
-      requestDelay = adjustHistoryRequestDelay(requestDelay, { succeeded, retryCount });
+      requestDelay = adjustHistoryRequestDelay(requestDelay, { succeeded, retryCount, rateLimited });
       completed += 1;
       setHistoryProgress(completed, queue.length);
       if (completed % 10 === 0 && viewSelect.value === "history") await renderHistoryView();
-      if (!state.historyStopRequested && completed < queue.length) await delay(requestDelay);
+      if (!state.historyStopRequested && completed < queue.length) await delay(jitteredHistoryDelay(requestDelay));
     }
 
     const stopped = state.historyStopRequested;
@@ -4352,7 +4396,7 @@ async function drawAchievementImage({ nickname, rows, columns, profile }) {
 
   ctx.fillStyle = "#151922";
   ctx.font = "900 42px Segoe UI, Malgun Gothic, Arial";
-  ctx.fillText("V-ARCHIVE RECENT ACHIEVEMENTS", margin, 56);
+  ctx.fillText("V-LOG RECENT ACHIEVEMENTS", margin, 56);
   ctx.fillStyle = "#1268b3";
   ctx.font = "900 32px Segoe UI, Malgun Gothic, Arial";
   ctx.fillText(nickname, margin, 98);
@@ -4590,7 +4634,7 @@ async function drawFloorMinScoreImage({ nickname, floors, start, end }) {
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = "#151922";
   ctx.font = "800 42px Segoe UI, Malgun Gothic, Arial";
-  ctx.fillText("V-ARCHIVE FloorMinScore", margin, 58);
+  ctx.fillText("V-LOG FloorMinScore", margin, 58);
   ctx.font = "500 24px Segoe UI, Malgun Gothic, Arial";
   ctx.fillStyle = "#4d5868";
   ctx.fillText(`${nickname} · floor ${start}-${end} · ${formatDate(new Date().toISOString())}`, margin, 96);
@@ -4767,7 +4811,7 @@ async function drawTopImage({ button, nickname, top50Sum, rows }) {
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = "#151922";
   ctx.font = "700 42px Segoe UI, Malgun Gothic, Arial";
-  ctx.fillText(`V-ARCHIVE ${button}B Top30`, margin, 58);
+  ctx.fillText(`V-LOG ${button}B Top30`, margin, 58);
   ctx.font = "500 24px Segoe UI, Malgun Gothic, Arial";
   ctx.fillStyle = "#4d5868";
   ctx.fillText(`${nickname} · ${formatDate(new Date().toISOString())}`, margin, 94);

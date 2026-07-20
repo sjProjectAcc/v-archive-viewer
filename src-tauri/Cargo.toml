@@ -2,8 +2,8 @@
 name = "v-archive-viewer"
 # The desktop release version is managed by tauri.conf.json.
 version = "0.1.7"
-description = "V-ARCHIVE record viewer"
-authors = ["V-ARCHIVE Viewer"]
+description = "V-LOG record analysis app"
+authors = ["V-LOG"]
 edition = "2024"
 
 [lib]
