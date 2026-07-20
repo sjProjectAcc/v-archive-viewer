@@ -2103,19 +2103,6 @@ function buildCompareFloorTrend(rows, pointFor, { metric, mineName, otherName })
   const line = centers.length > 1
     ? `<polyline class="compareFloorTrend" points="${centers.map((center) => `${center.x.toFixed(2)},${center.y.toFixed(2)}`).join(" ")}"></polyline>`
     : "";
-  const segments = centers.slice(1).map((center, index) => {
-    const previous = centers[index];
-    const info = encodeURIComponent(JSON.stringify({
-      kind: "floorSegment",
-      metricKey: metric.key,
-      metric: metric.label,
-      mineName,
-      otherName,
-      from: previous,
-      to: center,
-    }));
-    return `<line class="compareFloorTrendHit" x1="${previous.x.toFixed(2)}" y1="${previous.y.toFixed(2)}" x2="${center.x.toFixed(2)}" y2="${center.y.toFixed(2)}" data-info="${info}" tabindex="0"></line>`;
-  }).join("");
   const markers = centers.map((center) => {
     const info = encodeURIComponent(JSON.stringify({
       kind: "floorMidpoint",
@@ -2131,7 +2118,7 @@ function buildCompareFloorTrend(rows, pointFor, { metric, mineName, otherName })
     }));
     return `<circle class="compareFloorMidpoint" cx="${center.x.toFixed(2)}" cy="${center.y.toFixed(2)}" r="3.4" data-info="${info}" tabindex="0"></circle>`;
   }).join("");
-  return line + segments + markers;
+  return line + markers;
 }
 
 function getCompareChartMetric() {
@@ -2188,7 +2175,7 @@ function formatCompareChartAxis(value, metricKey) {
 }
 
 function bindCompareChartTooltips() {
-  compareScatterChart.querySelectorAll(".compareChartPoint, .compareFloorTrendHit, .compareFloorMidpoint").forEach((point) => {
+  compareScatterChart.querySelectorAll(".compareChartPoint, .compareFloorMidpoint").forEach((point) => {
     point.addEventListener("pointermove", (event) => showCompareChartTooltip(event, point.dataset.info));
     point.addEventListener("pointerenter", (event) => showCompareChartTooltip(event, point.dataset.info));
     point.addEventListener("focus", (event) => showCompareChartTooltip(event, point.dataset.info));
@@ -2200,12 +2187,7 @@ function bindCompareChartTooltips() {
 function showCompareChartTooltip(event, encodedInfo) {
   if (!encodedInfo) return;
   const info = JSON.parse(decodeURIComponent(encodedInfo));
-  if (info.kind === "floorSegment") {
-    compareChartTooltip.innerHTML = `<strong>floor ${escapeHtml(info.from.floor)} → ${escapeHtml(info.to.floor)}</strong>
-      <span>${escapeHtml(info.metric)} 중점 연결</span>
-      <span>${escapeHtml(info.from.floor)} · ${escapeHtml(info.mineName)} ${escapeHtml(formatCompareMetricValue(info.from.xValue, info.metricKey))} · ${escapeHtml(info.otherName)} ${escapeHtml(formatCompareMetricValue(info.from.yValue, info.metricKey))}</span>
-      <span>${escapeHtml(info.to.floor)} · ${escapeHtml(info.mineName)} ${escapeHtml(formatCompareMetricValue(info.to.xValue, info.metricKey))} · ${escapeHtml(info.otherName)} ${escapeHtml(formatCompareMetricValue(info.to.yValue, info.metricKey))}</span>`;
-  } else if (info.kind === "floorMidpoint") {
+  if (info.kind === "floorMidpoint") {
     compareChartTooltip.innerHTML = `<strong>floor ${escapeHtml(info.floor)} 중점</strong>
       <span>공통 기록 ${escapeHtml(info.count)}개 · ${escapeHtml(info.metric)} 평균</span>
       <span>${escapeHtml(info.mineName)} ${escapeHtml(formatCompareMetricValue(info.mineValue, info.metricKey))}</span>
@@ -2998,14 +2980,19 @@ function renderLogPowerHistoryChart(entries) {
   const lines = [...series.entries()].map(([button, points]) => {
     if (!points.length) return "";
     const coordinates = points.map((point) => `${xFor(point.time).toFixed(2)},${yFor(point.value).toFixed(2)}`).join(" ");
-    return `<polyline points="${coordinates}" fill="none" stroke="${colors[button]}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></polyline>`;
+    return `<polyline class="historyLine" points="${coordinates}" fill="none" stroke="${colors[button]}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></polyline>`;
   }).join("");
+  const lineHits = [...series.entries()].map(([button, points]) => points.slice(1).map((point, index) => {
+    const previous = points[index];
+    const info = encodeURIComponent(JSON.stringify({ button, from: previous, to: point }));
+    return `<line class="historyLineHit" x1="${xFor(previous.time).toFixed(2)}" y1="${yFor(previous.value).toFixed(2)}" x2="${xFor(point.time).toFixed(2)}" y2="${yFor(point.value).toFixed(2)}" data-info="${info}" tabindex="0"></line>`;
+  }).join("")).join("");
   const pointDots = [...series.entries()].map(([button, points]) => points.map((point) => {
     const info = encodeURIComponent(JSON.stringify({ button, time: point.time, value: point.value }));
     return `<circle class="historyPoint" cx="${xFor(point.time).toFixed(2)}" cy="${yFor(point.value).toFixed(2)}" r="4" fill="${colors[button]}" tabindex="0" data-button="${button}" data-info="${info}"></circle>`;
   }).join("")).join("");
 
-  historyLogPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top50 logPower history"><defs><clipPath id="historyPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" width="${width}" height="${height}"></rect>${yGrid}${xGrid}<g clip-path="url(#historyPlotClip)">${lines}${pointDots}</g><text class="axisTitle" x="16" y="18">Top50 logPower</text></svg>`;
+  historyLogPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top50 logPower history"><defs><clipPath id="historyPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" width="${width}" height="${height}"></rect>${yGrid}${xGrid}<g clip-path="url(#historyPlotClip)">${lines}${lineHits}${pointDots}</g><text class="axisTitle" x="16" y="18">Top50 logPower</text></svg>`;
   historyLegend.innerHTML = [...series.entries()]
     .filter(([, points]) => points.length)
     .map(([button, points]) => `<span><i style="background:${colors[button]}"></i>${button}B ${points[points.length - 1].value.toFixed(2)}</span>`)
@@ -3039,6 +3026,37 @@ function bindHistoryTooltips() {
     point.addEventListener("pointerleave", hideHistoryTooltip);
     point.addEventListener("blur", hideHistoryTooltip);
   });
+  historyLogPowerChart.querySelectorAll(".historyLineHit").forEach((line) => {
+    line.addEventListener("pointermove", (event) => showHistoryLineTooltip(event, line));
+    line.addEventListener("pointerenter", (event) => showHistoryLineTooltip(event, line));
+    line.addEventListener("focus", (event) => showHistoryLineTooltip(event, line));
+    line.addEventListener("pointerleave", hideHistoryTooltip);
+    line.addEventListener("blur", hideHistoryTooltip);
+  });
+}
+
+function showHistoryLineTooltip(event, line) {
+  const info = JSON.parse(decodeURIComponent(line.dataset.info || ""));
+  let ratio = 0.5;
+  const svg = line.ownerSVGElement;
+  const matrix = svg?.getScreenCTM();
+  if (matrix && event.type !== "focus") {
+    const pointer = svg.createSVGPoint();
+    pointer.x = event.clientX;
+    pointer.y = event.clientY;
+    const local = pointer.matrixTransform(matrix.inverse());
+    const x1 = Number(line.getAttribute("x1"));
+    const y1 = Number(line.getAttribute("y1"));
+    const x2 = Number(line.getAttribute("x2"));
+    const y2 = Number(line.getAttribute("y2"));
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const lengthSquared = dx * dx + dy * dy;
+    if (lengthSquared > 0) ratio = Math.max(0, Math.min(1, ((local.x - x1) * dx + (local.y - y1) * dy) / lengthSquared));
+  }
+  const time = info.from.time + (info.to.time - info.from.time) * ratio;
+  const value = info.from.value + (info.to.value - info.from.value) * ratio;
+  showHistoryTooltip(event, encodeURIComponent(JSON.stringify({ button: info.button, time, value })));
 }
 
 function showHistoryTooltip(event, encodedInfo) {
