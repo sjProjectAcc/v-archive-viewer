@@ -26,6 +26,7 @@ const state = {
   historyStopRequested: false,
   historyRenderToken: 0,
   historyAccountNickname: "",
+  historyPendingAccount: null,
   tagsRows: [],
   tagsSelected: new Set(),
   tagsUpdatedAt: 0,
@@ -445,13 +446,15 @@ async function initDesktopBridge() {
   if (linkedNickname && linkedNickname !== currentNickname) {
     historyAccountStatus.textContent = `${getCurrentNickname()} 계정 재연결 필요`;
     historyAccountStatus.title = "마지막으로 연결한 닉네임과 현재 조회 닉네임이 다릅니다.";
-    return;
+    state.historyAccountNickname = "";
+    localStorage.removeItem(HISTORY_ACCOUNT_NICKNAME_KEY);
+    await window.__TAURI__.core.invoke("logout_history_account").catch(() => {});
   }
   try {
     const account = await window.__TAURI__.core.invoke("login_from_account_file");
-    state.historyAccountNickname = currentNickname;
-    localStorage.setItem(HISTORY_ACCOUNT_NICKNAME_KEY, currentNickname);
-    renderAccountFileStatus(account, getCurrentNickname());
+    state.historyPendingAccount = account;
+    historyAccountStatus.textContent = "account.txt 계정 확인 중";
+    await completePendingHistoryAccount();
   } catch {
     historyAccountStatus.textContent = "account.txt 선택 필요";
   }
@@ -502,6 +505,65 @@ function renderAccountFileStatus(account, nickname = getCurrentNickname()) {
     ? `${account.fileName} · ${nickname} 연결됨`
     : "account.txt 미설정";
   historyAccountStatus.title = account?.path || "";
+}
+
+function currentArchiveAccountIdentity() {
+  const rows = [...(state.payload?.tiers || []), ...(state.payload?.djClasses || [])];
+  const row = rows.find((item) => item?.userNo !== undefined && item?.userNo !== null && String(item.userNo).trim());
+  if (!row) return null;
+  return {
+    userNo: String(row.userNo).trim(),
+    nickname: String(row.nickname || state.payload?.nickname || getCurrentNickname()).trim(),
+  };
+}
+
+async function connectVerifiedHistoryAccount(account, { deferIfUnavailable = false } = {}) {
+  const identity = currentArchiveAccountIdentity();
+  if (!identity) {
+    if (deferIfUnavailable) {
+      state.historyPendingAccount = account;
+      return false;
+    }
+    throw new Error("현재 조회 계정의 회원 번호를 확인할 수 없습니다. 기록을 새로고침한 뒤 다시 선택해주세요.");
+  }
+  if (!account?.userNo || String(account.userNo) !== identity.userNo) {
+    await window.__TAURI__?.core?.invoke?.("logout_history_account");
+    state.historyPendingAccount = null;
+    state.historyAccountNickname = "";
+    localStorage.removeItem(HISTORY_ACCOUNT_NICKNAME_KEY);
+    throw new Error(`account.txt 회원 ${account?.userNo || "확인 불가"}는 현재 조회 계정 ${identity.nickname} (회원 ${identity.userNo})과 다릅니다.`);
+  }
+  const nickname = state.payload?.nickname || getCurrentNickname();
+  state.historyPendingAccount = null;
+  state.historyAccountNickname = cacheKey(nickname);
+  localStorage.setItem(HISTORY_ACCOUNT_NICKNAME_KEY, state.historyAccountNickname);
+  renderAccountFileStatus(account, nickname);
+  return true;
+}
+
+async function completePendingHistoryAccount() {
+  if (!state.historyPendingAccount) return;
+  try {
+    await connectVerifiedHistoryAccount(state.historyPendingAccount, { deferIfUnavailable: true });
+  } catch (error) {
+    historyAccountStatus.textContent = "account.txt 계정 불일치";
+    historyAccountStatus.title = String(error);
+    statusText.textContent = `account.txt 연결 오류: ${String(error)}`;
+  }
+}
+
+async function reconnectConfiguredHistoryAccount() {
+  const invoke = window.__TAURI__?.core?.invoke;
+  const nickname = cacheKey(state.payload?.nickname || getCurrentNickname());
+  if (!invoke || !nickname || state.historyAccountNickname === nickname) return;
+  try {
+    const account = await invoke("login_from_account_file");
+    state.historyPendingAccount = account;
+    historyAccountStatus.textContent = "account.txt 계정 확인 중";
+    await completePendingHistoryAccount();
+  } catch {
+    if (!state.historyPendingAccount) historyAccountStatus.textContent = "account.txt 선택 필요";
+  }
 }
 
 function initFloorSelectors() {
@@ -1449,6 +1511,7 @@ async function disconnectHistoryAccountForNickname(nickname) {
   if (state.historyAccountNickname === nextNickname) return;
   if (invoke) await invoke("logout_history_account");
   state.historyAccountNickname = "";
+  state.historyPendingAccount = null;
   historyAccountToken.value = "";
   historyAccountStatus.textContent = `${nickname} 계정 재연결 필요`;
   historyAccountStatus.title = "닉네임이 변경되어 기존 로그인 세션을 해제했습니다.";
@@ -1509,11 +1572,15 @@ async function refresh(full) {
     state.payload = await fetchArchive(nickname, full);
     await refreshTop50ScaleCache(full);
     render();
+    await completePendingHistoryAccount();
+    await reconnectConfiguredHistoryAccount();
   } catch (error) {
     statusText.textContent = `오류: ${error.message}`;
     try {
       state.payload = await loadCachedPayload(nickname);
       render();
+      await completePendingHistoryAccount();
+      await reconnectConfiguredHistoryAccount();
     } catch {
       tableEl.innerHTML = `<tbody><tr><td class="empty">표시할 캐시 데이터가 없습니다.</td></tr></tbody>`;
     }
@@ -1915,7 +1982,11 @@ function renderActiveView() {
   hideHistoryTooltip();
   if (isChart) renderChart();
   else if (isHistory) renderHistoryView();
-  else if (isAchievements) renderAchievementView();
+  else if (isAchievements) {
+    achievementStatus.textContent = "최근 성과를 불러오는 중입니다...";
+    achievementList.innerHTML = `<div class="achievementEmpty">히스토리 캐시를 확인하고 있습니다.</div>`;
+    renderAchievementView();
+  }
   else if (isSelfCompare) renderSelfCompareView();
   else if (isTags) renderTagsView();
   else if (isDebug) renderDebugView();
@@ -2343,13 +2414,11 @@ async function selectAccountFile() {
     const selected = await invoke("select_account_file");
     if (!selected) return;
     const account = await invoke("login_from_account_file");
-    const nickname = state.payload?.nickname || getCurrentNickname();
-    state.historyAccountNickname = cacheKey(nickname);
-    localStorage.setItem(HISTORY_ACCOUNT_NICKNAME_KEY, state.historyAccountNickname);
-    renderAccountFileStatus(account, nickname);
+    await connectVerifiedHistoryAccount(account);
     statusText.textContent = "account.txt를 연결하고 로그인했습니다.";
   } catch (error) {
     historyAccountStatus.textContent = "account.txt 연결 실패";
+    historyAccountStatus.title = String(error);
     statusText.textContent = `account.txt 연결 실패: ${String(error)}`;
   } finally {
     historyAccountFileButton.disabled = false;
@@ -2543,13 +2612,13 @@ async function renderHistoryView(options = {}) {
   try {
     const entries = await loadRecordHistories(nickname);
     if (renderToken !== state.historyRenderToken || viewSelect.value !== "history") return;
-    const targetIds = new Set(getHistoryTargets().map((record) => historyCacheId(nickname, record)));
-    state.historyEntries = entries.filter((entry) => targetIds.has(entry.id));
+    const targetKeys = new Set(getHistoryTargets().map(recordKey));
+    state.historyEntries = entries.filter((entry) => targetKeys.has(recordKey(entry)));
     updateHistoryRangeBounds(state.historyEntries);
     state.historyRows = buildHistoryRows(state.historyEntries, getHistoryTimeRange());
     if (!options.preserveStatus && !state.historyCollecting) {
       const eventCount = state.historyRows.length;
-      historyStatus.textContent = `${state.historyEntries.length}/${targetIds.size}개 패턴 · ${eventCount}개 기록`;
+      historyStatus.textContent = `${state.historyEntries.length}/${targetKeys.size}개 패턴 · ${eventCount}개 기록`;
       setHistoryProgress(0, 0);
     }
     renderLogPowerHistoryChart(state.historyEntries);
@@ -2566,8 +2635,8 @@ async function renderAchievementView() {
   try {
     const entries = await loadRecordHistories(nickname);
     if (renderToken !== state.achievementRenderToken || viewSelect.value !== "achievements") return;
-    const targetIds = new Set(getHistoryTargets().map((record) => historyCacheId(nickname, record)));
-    const available = entries.filter((entry) => targetIds.has(entry.id));
+    const targetKeys = new Set(getHistoryTargets().map(recordKey));
+    const available = entries.filter((entry) => targetKeys.has(recordKey(entry)));
     state.achievementRows = buildAchievementRows(available);
     const validIds = new Set(state.achievementRows.map((row) => row.id));
     for (const id of state.achievementSelected) {
@@ -2754,8 +2823,8 @@ async function renderSelfCompareView() {
   try {
     const entries = await loadRecordHistories(nickname);
     if (renderToken !== state.selfCompareRenderToken || viewSelect.value !== "selfCompare") return;
-    const targetIds = new Set(getHistoryTargets().map((record) => historyCacheId(nickname, record)));
-    const available = entries.filter((entry) => targetIds.has(entry.id));
+    const targetKeys = new Set(getHistoryTargets().map(recordKey));
+    const available = entries.filter((entry) => targetKeys.has(recordKey(entry)));
     if (!available.some((entry) => entry.history?.length)) {
       state.selfCompareRows = [];
       selfCompareStatus.textContent = "먼저 History 탭에서 기록 히스토리를 수집해 주세요.";
