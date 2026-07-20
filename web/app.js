@@ -50,7 +50,7 @@ const BUTTONS = [4, 5, 6, 8];
 const MAX_ACHIEVEMENT_COLUMNS = 12;
 const CHART_DOT_EDGE_INSET = 6.5;
 const HISTORY_REQUEST_DELAY_START = 800;
-const HISTORY_REQUEST_DELAY_MIN = 250;
+const HISTORY_REQUEST_DELAY_MIN = 100;
 const HISTORY_REQUEST_DELAY_MAX = 15000;
 const NETWORK_REQUEST_TIMEOUT = 20000;
 const DB_NAME = "vArchiveViewerCache";
@@ -2684,13 +2684,12 @@ function adjustHistoryRequestDelay(currentDelay, { succeeded, retryCount = 0, ra
     return Math.min(HISTORY_REQUEST_DELAY_MAX, Math.max(10000, Math.round(currentDelay * 4)));
   }
   if (!succeeded) {
-    return Math.min(HISTORY_REQUEST_DELAY_MAX, Math.max(HISTORY_REQUEST_DELAY_START, Math.round(currentDelay * 2)));
+    return Math.min(HISTORY_REQUEST_DELAY_MAX, Math.max(HISTORY_REQUEST_DELAY_MIN, Math.round(currentDelay * 2)));
   }
   if (retryCount > 0) {
-    const retryMultiplier = 1 + retryCount * 0.75;
-    return Math.min(HISTORY_REQUEST_DELAY_MAX, Math.max(HISTORY_REQUEST_DELAY_START, Math.round(currentDelay * retryMultiplier)));
+    return Math.min(HISTORY_REQUEST_DELAY_MAX, Math.max(HISTORY_REQUEST_DELAY_MIN, Math.round(currentDelay * (2 ** retryCount))));
   }
-  return Math.max(HISTORY_REQUEST_DELAY_MIN, Math.round(currentDelay * 0.94));
+  return Math.max(HISTORY_REQUEST_DELAY_MIN, Math.round(currentDelay * 0.9));
 }
 
 function jitteredHistoryDelay(delayMs) {
