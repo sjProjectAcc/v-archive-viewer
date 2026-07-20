@@ -32,6 +32,7 @@ const state = {
   tagsUpdatedAt: 0,
   tagsLoading: false,
   tagsLoadError: "",
+  isTestMode: false,
   sortKey: null,
   sortDir: "asc",
 };
@@ -259,10 +260,13 @@ const tagsResultSummary = document.querySelector("#tagsResultSummary");
 const tagsTable = document.querySelector("#tagsTable");
 const logPowerCalculatorPanel = document.querySelector("#logPowerCalculatorPanel");
 const logPowerCalculatorContext = document.querySelector("#logPowerCalculatorContext");
+const logPowerCalculatorButton = document.querySelector("#logPowerCalculatorButton");
 const logPowerCalculatorFloor = document.querySelector("#logPowerCalculatorFloor");
 const logPowerCalculatorScore = document.querySelector("#logPowerCalculatorScore");
+const logPowerCalculatorTarget = document.querySelector("#logPowerCalculatorTarget");
 const logPowerCalculatorResults = document.querySelector("#logPowerCalculatorResults");
 const logPowerCalculatorBreakdown = document.querySelector("#logPowerCalculatorBreakdown");
+const logPowerCalculatorScoreTable = document.querySelector("#logPowerCalculatorScoreTable");
 const debugPanel = document.querySelector("#debugPanel");
 const debugRatioInput = document.querySelector("#debugRatioInput");
 const debugRatioRange = document.querySelector("#debugRatioRange");
@@ -280,6 +284,8 @@ const overviewDjClassTable = document.querySelector("#overviewDjClassTable");
 const nativeOnlyEls = document.querySelectorAll(".nativeOnly");
 const webOnlyEls = document.querySelectorAll(".webOnly");
 const desktopOnlyEls = document.querySelectorAll(".desktopOnly");
+const testOnlyEls = document.querySelectorAll(".testOnly");
+const errorOnlyEls = document.querySelectorAll(".errorOnly");
 const appVersionEl = document.querySelector("#appVersion");
 const desktopUpdateCheckButton = document.querySelector("#desktopUpdateCheckButton");
 const desktopUpdateButton = document.querySelector("#desktopUpdateButton");
@@ -340,7 +346,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-navigation-v2";
+const UI_SCHEMA_VERSION = "v-log-calculator-v3";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -355,19 +361,21 @@ const REQUIRED_UI_IDS = [
   "selfComparePanel",
   "tagsPanel",
   "logPowerCalculatorPanel",
+  "logPowerCalculatorTarget",
+  "logPowerCalculatorScoreTable",
   "debugPanel",
   "readmePanel",
   "overviewPanel",
   "tableSection",
 ];
 
-window.addEventListener("load", () => {
+window.addEventListener("load", async () => {
   if (!ensureUiSchema()) return;
   checkWebVersion();
   renderAppVersion();
   initMobileEnvironment();
   initPwa();
-  initDesktopBridge();
+  await initDesktopBridge();
   initFloorSelectors();
   wireEvents();
   loadTop50ScaleCache();
@@ -473,7 +481,16 @@ async function initDesktopBridge() {
     el.hidden = !isDesktop;
     el.disabled = !isDesktop;
   });
-  if (!isDesktop) return;
+  if (!isDesktop) {
+    updateConditionalTabs();
+    return;
+  }
+  try {
+    state.isTestMode = await window.__TAURI__.core.invoke("get_update_channel") === "test";
+  } catch {
+    state.isTestMode = false;
+  }
+  updateConditionalTabs();
   checkForDesktopUpdate();
 
   const currentNickname = cacheKey(getCurrentNickname());
@@ -504,6 +521,8 @@ async function checkForDesktopUpdate(announce = false) {
   try {
     const update = await invoke("check_for_update");
     const isTestBuild = update.channel === "test";
+    state.isTestMode = isTestBuild;
+    updateConditionalTabs();
     const testBuildLabel = isTestBuild ? ` TEST #${update.currentBuild || 0}` : "";
     appVersionEl.textContent = `v${update.currentVersion}${testBuildLabel}`;
     appVersionEl.title = isTestBuild ? `데스크톱 테스트 빌드 ${update.currentVersion} #${update.currentBuild || 0}` : `데스크톱 버전 ${update.currentVersion}`;
@@ -818,7 +837,7 @@ function wireEvents() {
     saveSettings();
     renderDebugView();
   });
-  [logPowerCalculatorFloor, logPowerCalculatorScore].forEach((control) => {
+  [logPowerCalculatorButton, logPowerCalculatorFloor, logPowerCalculatorScore, logPowerCalculatorTarget].forEach((control) => {
     control.addEventListener("input", () => {
       saveSettings();
       renderLogPowerCalculator();
@@ -883,8 +902,10 @@ function applySavedSettings() {
   achievementAutoHoursInput.value = String(Math.max(1, Number(settings.achievementAutoHours) || 72));
   selfCompareStart.value = settings.selfCompareStart || "";
   selfCompareEnd.value = settings.selfCompareEnd || "";
+  setIfOptionExists(logPowerCalculatorButton, settings.logPowerCalculatorButton || "");
   setIfOptionExists(logPowerCalculatorFloor, settings.logPowerCalculatorFloor || "16.1");
   logPowerCalculatorScore.value = settings.logPowerCalculatorScore || "99";
+  logPowerCalculatorTarget.value = settings.logPowerCalculatorTarget || "50";
   setIfOptionExists(tagsRecordModeSelect, settings.tagsRecordMode || "");
   setIfOptionExists(tagsWeightSelect, settings.tagsWeight || "");
   tagsPatternOnlyInput.checked = Boolean(settings.tagsPatternOnly && buttonFilter.value);
@@ -947,8 +968,10 @@ function saveSettings() {
     achievementAutoHours: achievementAutoHoursInput.value,
     selfCompareStart: selfCompareStart.value,
     selfCompareEnd: selfCompareEnd.value,
+    logPowerCalculatorButton: logPowerCalculatorButton.value,
     logPowerCalculatorFloor: logPowerCalculatorFloor.value,
     logPowerCalculatorScore: logPowerCalculatorScore.value,
+    logPowerCalculatorTarget: logPowerCalculatorTarget.value,
     tagsGenre: tagsGenreSelect.value,
     tagsBpmMin: tagsBpmMinInput.value,
     tagsBpmMax: tagsBpmMaxInput.value,
@@ -2027,6 +2050,7 @@ function render() {
 }
 
 function renderActiveView() {
+  updateConditionalTabs();
   const isChart = viewSelect.value === "chart";
   const isCompare = viewSelect.value === "compare";
   const isHistory = viewSelect.value === "history";
@@ -3365,6 +3389,29 @@ function updateViewNavigation() {
   const activeBounds = activeButton.getBoundingClientRect();
   if (activeBounds.left < tabBounds.left || activeBounds.right > tabBounds.right) {
     activeButton.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+}
+
+function updateConditionalTabs() {
+  const errorCount = Math.max(
+    Array.isArray(state.payload?.errors) ? state.payload.errors.length : 0,
+    Number(state.payload?.summary?.errors) || 0,
+  );
+  testOnlyEls.forEach((element) => {
+    element.hidden = !state.isTestMode;
+    element.disabled = !state.isTestMode;
+  });
+  errorOnlyEls.forEach((element) => {
+    element.hidden = errorCount <= 0;
+    element.disabled = errorCount <= 0;
+  });
+
+  const unavailable = (viewSelect.value === "debug" && !state.isTestMode)
+    || (viewSelect.value === "errors" && errorCount <= 0);
+  if (unavailable) {
+    viewSelect.value = "chart";
+    state.view = "chart";
+    saveSettings();
   }
 }
 
@@ -5140,13 +5187,14 @@ function renderLogPowerCalculator() {
   const floorLabel = logPowerCalculatorFloor.value;
   const rawScore = logPowerCalculatorScore.value.trim();
   const score = Math.min(100, Math.max(0, Number(rawScore)));
-  const selectedButton = Number(buttonFilter.value);
+  const selectedButton = Number(logPowerCalculatorButton.value);
   const buttons = BUTTONS.includes(selectedButton) ? [selectedButton] : BUTTONS;
   const baseConstant = baseDifficultyConstantForFloor(floorLabel);
   const point = rawScore === "" ? NaN : scoreToPoint(score);
   const hasLiveScale = isValidButtonTop50BaseMax(state.buttonTop50BaseMax);
 
   logPowerCalculatorContext.textContent = `${buttons.length === 1 ? `${buttons[0]}B` : "전체 버튼"} · floor ${floorLabel} · 관계값 ${currentFloorRelation().toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}`;
+  renderLogPowerScoreTable(buttons);
   if (!Number.isFinite(point) || !Number.isFinite(baseConstant)) {
     logPowerCalculatorResults.innerHTML = `<div class="achievementEmpty">floor와 score를 확인해 주세요.</div>`;
     logPowerCalculatorBreakdown.textContent = "";
@@ -5165,6 +5213,38 @@ function renderLogPowerCalculator() {
   }).join("");
   const capLabel = score > 99.9 ? " · 99.9로 상한 적용" : "";
   logPowerCalculatorBreakdown.innerHTML = `<span>Score Point <strong>${point.toFixed(4)}</strong>${capLabel}</span><span>floor 기본 상수 <strong>${baseConstant.toFixed(4)}</strong></span><span>${hasLiveScale ? "최신 곡 목록" : "내장값"} 기준 버튼별 TOP50 5000 보정</span>`;
+}
+
+function renderLogPowerScoreTable(buttons) {
+  const rawTarget = logPowerCalculatorTarget.value.trim();
+  const target = Number(rawTarget);
+  if (rawTarget === "" || !Number.isFinite(target) || target < 0) {
+    logPowerCalculatorScoreTable.innerHTML = `<tbody><tr><td class="empty">0 이상의 LogPower를 입력해 주세요.</td></tr></tbody>`;
+    return;
+  }
+
+  const header = `<thead><tr><th>floor</th>${buttons.map((button) => `<th>${button}B 최소 Score</th>`).join("")}</tr></thead>`;
+  const rows = [...floorLabels].reverse().map((floorLabel) => {
+    const cells = buttons.map((button) => {
+      const constant = difficultyConstantForFloor(floorLabel, button);
+      const floorMax = 10 * constant;
+      const score = requiredScoreForLogPower(target, constant);
+      if (target === 0) return `<td class="num" title="floorMax ${floorMax.toFixed(2)}">97.00 이하</td>`;
+      if (!Number.isFinite(score)) return `<td class="num calculatorImpossible" title="floorMax ${floorMax.toFixed(2)}">도달 불가</td>`;
+      return `<td class="num" title="floorMax ${floorMax.toFixed(2)}">${score.toFixed(2)}</td>`;
+    }).join("");
+    return `<tr><td>${floorLabel}</td>${cells}</tr>`;
+  }).join("");
+  logPowerCalculatorScoreTable.innerHTML = header + `<tbody>${rows}</tbody>`;
+}
+
+function requiredScoreForLogPower(logPower, difficultyConstant) {
+  if (!Number.isFinite(logPower) || logPower < 0 || !Number.isFinite(difficultyConstant) || difficultyConstant <= 0) return NaN;
+  if (logPower === 0) return 97;
+  const point = logPower / difficultyConstant;
+  if (point > 10 + 1e-9) return NaN;
+  const score = 100 - 3 * Math.pow(SCORE_BASE, -Math.min(10, point));
+  return Math.min(99.9, Math.ceil((score - 1e-9) * 100) / 100);
 }
 
 function scoreToPoint(score) {

@@ -824,6 +824,49 @@ main {
   font-size: 12px;
 }
 
+.logPowerInverseCalculator {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.logPowerInverseHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.logPowerInverseHeader h3,
+.logPowerInverseHeader p {
+  margin: 0;
+}
+
+.logPowerInverseHeader h3 {
+  font-size: 15px;
+}
+
+.logPowerInverseHeader p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.calculatorTableWrap {
+  overflow-x: auto;
+  border-top: 1px solid var(--line);
+}
+
+.calculatorTableWrap table {
+  width: 100%;
+  min-width: 520px;
+}
+
+.calculatorImpossible {
+  color: var(--muted);
+}
+
 .readmePanel header {
   padding-bottom: 12px;
   border-bottom: 1px solid var(--line);
@@ -1859,6 +1902,15 @@ tr:hover td.reversalCell {
 
   .downloadButton {
     display: none !important;
+  }
+
+  .logPowerInverseHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .logPowerInverseHeader input {
+    width: 100%;
   }
 
   .filters > label {

@@ -445,6 +445,11 @@ async fn check_for_update(app: AppHandle) -> Result<UpdateInfo, String> {
     })
 }
 
+#[tauri::command]
+fn get_update_channel() -> String {
+    update_channel().to_string()
+}
+
 fn powershell_quote(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', "''"))
 }
@@ -659,6 +664,7 @@ pub fn run() {
             logout_history_account,
             select_account_file,
             fetch_record_history,
+            get_update_channel,
             check_for_update,
             install_update
         ])

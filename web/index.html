@@ -54,9 +54,9 @@
       <button class="viewTab desktopOnly" type="button" role="tab" data-view="achievements">성과 카드</button>
       <button class="viewTab" type="button" role="tab" data-view="tags">곡 태그</button>
       <button class="viewTab viewTabUtility" type="button" role="tab" data-view="logPowerCalculator">계산기</button>
-      <button class="viewTab viewTabUtility" type="button" role="tab" data-view="debug">실험실</button>
+      <button class="viewTab viewTabUtility testOnly" type="button" role="tab" data-view="debug" hidden>실험실</button>
       <button class="viewTab viewTabUtility" type="button" role="tab" data-view="readme">도움말</button>
-      <button class="viewTab viewTabUtility" type="button" role="tab" data-view="errors">오류 기록</button>
+      <button class="viewTab viewTabUtility errorOnly" type="button" role="tab" data-view="errors" hidden>오류 기록</button>
     </nav>
 
     <section class="filters" id="globalFilters">
@@ -74,9 +74,9 @@
           <option value="selfCompare" class="desktopOnly">시점 비교</option>
           <option value="floorMinScore">Floor 분석</option>
           <option value="summaryInfo">종합</option>
-          <option value="debug">실험실</option>
+          <option value="debug" class="testOnly" hidden>실험실</option>
           <option value="readme">도움말</option>
-          <option value="errors">오류 기록</option>
+          <option value="errors" class="errorOnly" hidden>오류 기록</option>
         </select>
       </label>
       <label id="buttonFilterControl">
@@ -419,11 +419,22 @@
         </div>
       </div>
       <div class="logPowerCalculatorControls">
+        <label>버튼 <select id="logPowerCalculatorButton"><option value="">전체</option><option value="4">4B</option><option value="5">5B</option><option value="6">6B</option><option value="8">8B</option></select></label>
         <label>floor <select id="logPowerCalculatorFloor"></select></label>
         <label>score <input id="logPowerCalculatorScore" type="number" min="0" max="100" step="0.01" value="99"></label>
       </div>
       <div id="logPowerCalculatorResults" class="logPowerCalculatorResults"></div>
       <div id="logPowerCalculatorBreakdown" class="logPowerCalculatorBreakdown"></div>
+      <section class="logPowerInverseCalculator">
+        <div class="logPowerInverseHeader">
+          <div>
+            <h3>LogPower로 Score 찾기</h3>
+            <p>입력한 LogPower에 도달하는 최소 Score를 floor별로 계산합니다.</p>
+          </div>
+          <label>LogPower <input id="logPowerCalculatorTarget" type="number" min="0" step="0.1" value="50"></label>
+        </div>
+        <div class="calculatorTableWrap"><table id="logPowerCalculatorScoreTable"></table></div>
+      </section>
     </section>
 
     <section class="toolPanel" id="debugPanel" hidden>
