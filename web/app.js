@@ -44,6 +44,7 @@ const API_BASE_URL = "https://v-archive.net";
 const SONG_DB_URL = `${API_BASE_URL}/db/v2/songs.json`;
 const BUTTONS = [4, 5, 6, 8];
 const MAX_ACHIEVEMENT_COLUMNS = 12;
+const CHART_DOT_EDGE_INSET = 6.5;
 const DB_NAME = "vArchiveViewerCache";
 const DB_VERSION = 2;
 const PROFILE_STORE = "profiles";
@@ -3201,7 +3202,7 @@ function renderChart() {
   const grid = buildGrid(xRange, yRange, pad, plotW, plotH, xFor, yFor);
   const dots = records.map((row) => {
     const jitter = stableJitter(`${row.name}-${row.pattern}-${row.level}`) * 0.42;
-    const cx = xFor(row.xLabel, jitter).toFixed(2);
+    const cx = clampChartDotX(xFor(row.xLabel, jitter), pad.left, plotW).toFixed(2);
     const cy = yFor(row.metricValue).toFixed(2);
     const isBelowNextFloorMin = metric.xMode !== "maxDjpower" && belowNextFloorMin(row, minByFloor);
     const isTop50 = top50Keys.has(recordKey(row));
@@ -3758,6 +3759,10 @@ function stableJitter(text) {
   let hash = 0;
   for (let i = 0; i < text.length; i += 1) hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
   return (hash % 1000) / 1000 - 0.5;
+}
+
+function clampChartDotX(x, plotLeft, plotWidth) {
+  return Math.min(plotLeft + plotWidth - CHART_DOT_EDGE_INSET, Math.max(plotLeft + CHART_DOT_EDGE_INSET, x));
 }
 
 function renderTable() {
@@ -4985,7 +4990,8 @@ function renderDebugScatter(records, relation, baseMaxByButton) {
       maxCombo: record.maxCombo === true,
       top50: isTop50,
     }));
-    return `<circle class="chartDot debugChartPoint${isTop50 ? " top50Dot" : ""}${record.maxCombo === true ? " comboDot" : ""}" cx="${xFor(record.floorLabel, jitter).toFixed(2)}" cy="${yFor(record.simulatedLogPower).toFixed(2)}" r="${record.maxCombo === true ? 4.8 : 3.9}" data-info="${info}" tabindex="0"></circle>`;
+    const cx = clampChartDotX(xFor(record.floorLabel, jitter), pad.left, plotW).toFixed(2);
+    return `<circle class="chartDot debugChartPoint${isTop50 ? " top50Dot" : ""}${record.maxCombo === true ? " comboDot" : ""}" cx="${cx}" cy="${yFor(record.simulatedLogPower).toFixed(2)}" r="${record.maxCombo === true ? 4.8 : 3.9}" data-info="${info}" tabindex="0"></circle>`;
   }).join("");
 
   debugScatterChart.innerHTML = `
