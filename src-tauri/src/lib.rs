@@ -60,11 +60,16 @@ fn clear_webview_ui_cache_for_new_version() {
     let Some(roaming_data) = std::env::var_os("APPDATA") else {
         return;
     };
+    let cache_version = if has_test_marker() {
+        format!("{version}-test-{}", test_build_number())
+    } else {
+        version
+    };
     let marker_dir = PathBuf::from(roaming_data).join("net.varchive.viewer");
     let marker_path = marker_dir.join("ui-cache-version.txt");
     if fs::read_to_string(&marker_path)
         .ok()
-        .is_some_and(|stored| stored.trim() == version)
+        .is_some_and(|stored| stored.trim() == cache_version)
     {
         return;
     }
@@ -94,7 +99,7 @@ fn clear_webview_ui_cache_for_new_version() {
     }
 
     if fs::create_dir_all(&marker_dir).is_ok() {
-        let _ = fs::write(marker_path, version);
+        let _ = fs::write(marker_path, cache_version);
     }
 }
 
@@ -520,6 +525,9 @@ fn build_update_script(
         format!(
             "  while (Get-Process -Id {process_id} -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 250 }}"
         ),
+        "  $webviewRoot = Join-Path $env:LOCALAPPDATA 'net.varchive.viewer\\EBWebView'".to_string(),
+        "  $cacheItems = @('Default\\Cache','Default\\Code Cache','Default\\GPUCache','Default\\Service Worker','GPUCache','GPUPersistentCache','GrShaderCache','ShaderCache')".to_string(),
+        "  foreach ($cacheItem in $cacheItems) { $cachePath = Join-Path $webviewRoot $cacheItem; if (Test-Path -LiteralPath $cachePath) { Remove-Item -LiteralPath $cachePath -Recurse -Force -ErrorAction SilentlyContinue } }".to_string(),
         format!("  if (Test-Path -LiteralPath {stage}) {{ Remove-Item -LiteralPath {stage} -Recurse -Force }}"),
         format!("  Expand-Archive -LiteralPath {zip} -DestinationPath {stage} -Force"),
         format!("  if (-not (Test-Path -LiteralPath {source})) {{ throw '업데이트 EXE를 찾을 수 없습니다.' }}"),
@@ -680,6 +688,10 @@ mod tests {
 
         assert!(script.contains("-not (Test-Path -LiteralPath 'C:\\app\\v-archive-repair.bat')"));
         assert!(script.contains("Copy-Item -LiteralPath 'C:\\temp\\stage\\v-archive-repair.bat' -Destination 'C:\\app\\v-archive-repair.bat'"));
+        assert!(script.contains(
+            "$webviewRoot = Join-Path $env:LOCALAPPDATA 'net.varchive.viewer\\EBWebView'"
+        ));
+        assert!(script.contains("Default\\Service Worker"));
     }
 
     #[test]

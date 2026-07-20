@@ -4472,12 +4472,12 @@ function renderCompareLogPowerRatio(mineLogPower, otherLogPower) {
   if (!Number.isFinite(mineLogPower) || !Number.isFinite(otherLogPower)) {
     return `<div class="compareLogPowerRatio"><span>LogPower 배율</span><strong>비교 불가</strong></div>`;
   }
-  if (Math.abs(otherLogPower) < 1e-9) {
-    const label = Math.abs(mineLogPower) < 1e-9 ? "동일" : "상대 0";
+  if (Math.abs(mineLogPower) < 1e-9) {
+    const label = Math.abs(otherLogPower) < 1e-9 ? "동일" : "내 0";
     return `<div class="compareLogPowerRatio"><span>LogPower 배율</span><strong>${label}</strong></div>`;
   }
-  const ratio = mineLogPower / otherLogPower;
-  return `<div class="compareLogPowerRatio" title="내 LogPower ÷ 상대 LogPower"><span>LogPower 배율</span><strong>내 ×${ratio.toFixed(2)}</strong></div>`;
+  const ratio = otherLogPower / mineLogPower;
+  return `<div class="compareLogPowerRatio" title="내 LogPower에 곱하면 상대 LogPower가 되는 배율"><span>LogPower 배율</span><strong>내 ×${ratio.toFixed(2)}</strong></div>`;
 }
 
 function formatDjClassLabel(row) {
