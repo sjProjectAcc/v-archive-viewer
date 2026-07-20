@@ -1676,6 +1676,15 @@ input {
   font-size: 20px;
 }
 
+.djPowerMetric {
+  min-width: 250px;
+}
+
+.djPowerMetric small {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .smallActionButton {
   height: 28px;
   padding: 0 9px;

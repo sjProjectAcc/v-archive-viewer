@@ -4,6 +4,7 @@ const state = {
   floorMinImageRows: [],
   floorMinImageRecords: [],
   buttonTop50BaseMax: null,
+  djPowerTop100MaxByButton: null,
   floorPatternCounts: null,
   view: "chart",
   chartMetric: "score",
@@ -60,7 +61,7 @@ const ANCHOR_FLOOR_LABEL = "15.2";
 const ANCHOR_DIFFICULTY_CONSTANT = 10;
 const FLOOR_STEP_RATIO = 10 / 9;
 const TARGET_TOP50_MAX = 5000;
-const TOP50_SCALE_CACHE_KEY = "vArchiveTop50ScaleCache0900";
+const TOP50_SCALE_CACHE_KEY = "vArchiveTop50ScaleCache0900DjPowerV1";
 const TOP50_SCALE_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 const TAGS_API_URL = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/song_tags_2?select=song_title%2Ctags%2Caka&limit=1000";
 const TAGS_ABILITY_API_URL = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/ability?select=id%2Cability_set&order=id";
@@ -77,8 +78,34 @@ const FALLBACK_BUTTON_TOP50_BASE_MAX = Object.freeze({
 const TOP_IMAGE_COLUMNS = 5;
 const TOP_IMAGE_ROWS = 6;
 const TOP_IMAGE_COUNT = TOP_IMAGE_COLUMNS * TOP_IMAGE_ROWS;
+const DJPOWER_TARGET_TOP100_MAX = 10000;
+const DJPOWER_SC_DIFFICULTY_CONSTANTS = Object.freeze({
+  15: 44, 14: 42, 13: 40, 12: 38, 11: 36,
+  10: 34, 9: 32, 8: 30, 7: 29, 6: 28,
+  5: 27, 4: 26, 3: 25, 2: 24, 1: 23,
+});
+const FALLBACK_DJPOWER_TOP100_MAX_BY_BUTTON = Object.freeze({
+  4: Object.freeze({ rawMax: 9226.44, multiplier: DJPOWER_TARGET_TOP100_MAX / 9226.44 }),
+  5: Object.freeze({ rawMax: 9222.00, multiplier: DJPOWER_TARGET_TOP100_MAX / 9222.00 }),
+  6: Object.freeze({ rawMax: 9253.08, multiplier: DJPOWER_TARGET_TOP100_MAX / 9253.08 }),
+  8: Object.freeze({ rawMax: 9284.16, multiplier: DJPOWER_TARGET_TOP100_MAX / 9284.16 }),
+});
 
 const columns = {
+  djPowerTop100: [
+    ["button", "button"],
+    ["djPowerGroup", "구분"],
+    ["rank", "rank"],
+    ["normalizedDjPower", "DJPower"],
+    ["normalizedMaxDjPower", "최대 DJPower"],
+    ["rawDjPower", "원본 DJPower"],
+    ["name", "name"],
+    ["pattern", "pattern"],
+    ["level", "level"],
+    ["score", "score"],
+    ["maxCombo", "maxCombo"],
+    ["updatedAt", "updatedAt"],
+  ],
   top100: [
     ["button", "button"],
     ["rank", "rank"],
@@ -812,7 +839,7 @@ function wireEvents() {
     tagsBpmMaxInput.value = "";
     tagsRecordModeSelect.value = "";
     tagsWeightSelect.value = "";
-    tagsPatternOnlyInput.checked = false;
+    tagsPatternOnlyInput.checked = true;
     tagsScPatternOnlyInput.checked = false;
     tagsMatchModeSelect.value = "all";
     tagsSortSelect.value = "name";
@@ -908,7 +935,7 @@ function applySavedSettings() {
   logPowerCalculatorTarget.value = settings.logPowerCalculatorTarget || "50";
   setIfOptionExists(tagsRecordModeSelect, settings.tagsRecordMode || "");
   setIfOptionExists(tagsWeightSelect, settings.tagsWeight || "");
-  tagsPatternOnlyInput.checked = Boolean(settings.tagsPatternOnly && buttonFilter.value);
+  tagsPatternOnlyInput.checked = settings.tagsPatternOnly !== false;
   tagsScPatternOnlyInput.checked = Boolean(settings.tagsScPatternOnly ?? settings.tagsExcludeMx);
   setIfOptionExists(tagsMatchModeSelect, settings.tagsMatchMode || "all");
   setIfOptionExists(tagsSortSelect, settings.tagsSort || "name");
@@ -1059,8 +1086,11 @@ function handleWheelControl(event) {
 function loadTop50ScaleCache() {
   try {
     const cached = JSON.parse(localStorage.getItem(TOP50_SCALE_CACHE_KEY) || "null");
-    if (!isValidButtonTop50BaseMax(cached?.baseMaxByButton) || !isValidFloorPatternCounts(cached?.floorPatternCounts)) return null;
+    if (!isValidButtonTop50BaseMax(cached?.baseMaxByButton)
+      || !isValidDjPowerTop100Max(cached?.djPowerTop100MaxByButton)
+      || !isValidFloorPatternCounts(cached?.floorPatternCounts)) return null;
     state.buttonTop50BaseMax = cached.baseMaxByButton;
+    state.djPowerTop100MaxByButton = cached.djPowerTop100MaxByButton;
     state.floorPatternCounts = cached.floorPatternCounts;
     return cached;
   } catch {
@@ -1075,11 +1105,14 @@ async function refreshTop50ScaleCache(force = false) {
     const response = await fetchWithTimeout(SONG_DB_URL, { credentials: "omit" });
     if (!response.ok) return false;
     const songs = await response.json();
-    const { baseMaxByButton, floorPatternCounts } = calculateSongCatalogMetrics(songs);
-    if (!isValidButtonTop50BaseMax(baseMaxByButton) || !isValidFloorPatternCounts(floorPatternCounts)) return false;
+    const { baseMaxByButton, djPowerTop100MaxByButton, floorPatternCounts } = calculateSongCatalogMetrics(songs);
+    if (!isValidButtonTop50BaseMax(baseMaxByButton)
+      || !isValidDjPowerTop100Max(djPowerTop100MaxByButton)
+      || !isValidFloorPatternCounts(floorPatternCounts)) return false;
     state.buttonTop50BaseMax = baseMaxByButton;
+    state.djPowerTop100MaxByButton = djPowerTop100MaxByButton;
     state.floorPatternCounts = floorPatternCounts;
-    localStorage.setItem(TOP50_SCALE_CACHE_KEY, JSON.stringify({ updatedAt: Date.now(), baseMaxByButton, floorPatternCounts }));
+    localStorage.setItem(TOP50_SCALE_CACHE_KEY, JSON.stringify({ updatedAt: Date.now(), baseMaxByButton, djPowerTop100MaxByButton, floorPatternCounts }));
     return true;
   } catch {
     return false;
@@ -1087,16 +1120,21 @@ async function refreshTop50ScaleCache(force = false) {
 }
 
 function calculateSongCatalogMetrics(songs) {
-  if (!Array.isArray(songs)) return { baseMaxByButton: null, floorPatternCounts: null };
+  if (!Array.isArray(songs)) return { baseMaxByButton: null, djPowerTop100MaxByButton: null, floorPatternCounts: null };
   const baseMaxByButton = {};
+  const djPowerTop100MaxByButton = {};
   const floorPatternCounts = {};
   for (const button of BUTTONS) {
     const floorMaxPoints = [];
+    const basicDjPowerMaxes = [];
+    const newDjPowerMaxes = [];
     floorPatternCounts[String(button)] = {};
     for (const song of songs) {
       const patterns = song?.patterns?.[`${button}B`];
       if (!patterns || typeof patterns !== "object") continue;
       for (const [patternName, pattern] of Object.entries(patterns)) {
+        const djPowerMax = maxDjPowerForPattern(patternName, pattern?.level);
+        if (Number.isFinite(djPowerMax)) (song?.newTab ? newDjPowerMaxes : basicDjPowerMaxes).push(djPowerMax);
         const difficultyConstant = baseDifficultyConstantForFloor(pattern?.floorName);
         if (!Number.isFinite(difficultyConstant)) continue;
         floorMaxPoints.push(10 * difficultyConstant);
@@ -1105,11 +1143,24 @@ function calculateSongCatalogMetrics(songs) {
         floorPatternCounts[String(button)][patternName] = patternCounts;
       }
     }
-    if (floorMaxPoints.length < 50) return { baseMaxByButton: null, floorPatternCounts: null };
+    if (floorMaxPoints.length < 50 || basicDjPowerMaxes.length < 70 || newDjPowerMaxes.length < 30) {
+      return { baseMaxByButton: null, djPowerTop100MaxByButton: null, floorPatternCounts: null };
+    }
     floorMaxPoints.sort((a, b) => b - a);
     baseMaxByButton[String(button)] = floorMaxPoints.slice(0, 50).reduce((sum, point) => sum + point, 0);
+    basicDjPowerMaxes.sort((a, b) => b - a);
+    newDjPowerMaxes.sort((a, b) => b - a);
+    const basicMax = basicDjPowerMaxes.slice(0, 70).reduce((sum, value) => sum + value, 0);
+    const newMax = newDjPowerMaxes.slice(0, 30).reduce((sum, value) => sum + value, 0);
+    const rawMax = basicMax + newMax;
+    djPowerTop100MaxByButton[String(button)] = {
+      basicMax,
+      newMax,
+      rawMax,
+      multiplier: DJPOWER_TARGET_TOP100_MAX / rawMax,
+    };
   }
-  return { baseMaxByButton, floorPatternCounts };
+  return { baseMaxByButton, djPowerTop100MaxByButton, floorPatternCounts };
 }
 
 function isValidButtonTop50BaseMax(value) {
@@ -1118,6 +1169,23 @@ function isValidButtonTop50BaseMax(value) {
 
 function isValidFloorPatternCounts(value) {
   return value && BUTTONS.every((button) => value[String(button)] && typeof value[String(button)] === "object");
+}
+
+function isValidDjPowerTop100Max(value) {
+  return value && BUTTONS.every((button) => {
+    const item = value[String(button)];
+    return Number.isFinite(Number(item?.rawMax)) && Number(item.rawMax) > 0
+      && Number.isFinite(Number(item?.multiplier)) && Number(item.multiplier) > 0;
+  });
+}
+
+function maxDjPowerForPattern(pattern, level) {
+  const numericLevel = Number(level);
+  if (!Number.isFinite(numericLevel) || numericLevel < 1 || numericLevel > 15) return NaN;
+  const difficultyConstant = String(pattern || "").toUpperCase() === "SC"
+    ? DJPOWER_SC_DIFFICULTY_CONSTANTS[numericLevel]
+    : numericLevel * 2;
+  return Number.isFinite(difficultyConstant) ? difficultyConstant * 2.22 + 2.31 : NaN;
 }
 
 function loadTagsCache() {
@@ -1365,11 +1433,15 @@ function tagsForCurrentScope(row) {
   return (row.tokens || []).filter((token) => {
     if (!button && token.scope !== "GENERAL") return false;
     if (button && token.scope !== "GENERAL" && token.button !== button) return false;
-    if (tagsPatternOnlyInput.checked && token.scope === "GENERAL") return false;
+    if (isTagsPatternOnlyActive() && token.scope === "GENERAL") return false;
     if (patternFilter.value && token.pattern && token.pattern !== patternFilter.value) return false;
     if (tagsScPatternOnlyInput.checked && ["NM", "HD", "MX"].includes(token.pattern)) return false;
     return true;
   });
+}
+
+function isTagsPatternOnlyActive() {
+  return tagsPatternOnlyInput.checked && Boolean(buttonFilter.value);
 }
 
 function tagTokenMatchesWeight(token, weight) {
@@ -1391,7 +1463,6 @@ function renderTagsView() {
   if (viewSelect.value !== "tags") return;
   const hasButtonScope = Boolean(buttonFilter.value);
   tagsPatternOnlyInput.disabled = !hasButtonScope;
-  if (!hasButtonScope) tagsPatternOnlyInput.checked = false;
   if (!state.tagsRows.length) {
     const cached = loadTagsCache();
     if (!cached) {
@@ -1412,7 +1483,7 @@ function renderTagsView() {
   const weight = tagsWeightSelect.value;
   const baseRows = state.tagsRows.filter((row) => {
     if (!tagRowHasAvailablePattern(row)) return false;
-    if (tagsPatternOnlyInput.checked && !tagsForCurrentScope(row).length) return false;
+    if (isTagsPatternOnlyActive() && !tagsForCurrentScope(row).length) return false;
     if (query && !`${row.title} ${row.name} ${row.composer} ${row.aka} ${row.tagsRaw}`.toLocaleLowerCase("ko").includes(query)) return false;
     if (tagsGenreSelect.value && row.genre !== tagsGenreSelect.value) return false;
     if (Number.isFinite(bpmMin) && (!Number.isFinite(row.bpmMax) || row.bpmMax < bpmMin)) return false;
@@ -1458,7 +1529,7 @@ function renderTagsView() {
   renderTagsTable(rows);
   const recordedCount = rows.filter((row) => row.recordStats).length;
   tagsResultSummary.innerHTML = `<strong>${rows.length.toLocaleString()}곡</strong><span>전체 ${state.tagsRows.length.toLocaleString()}곡 · 내 기록 ${recordedCount.toLocaleString()}곡 · 표시 조건은 상단 버튼/패턴/검색을 포함합니다.</span>`;
-  const scopeLabel = tagsPatternOnlyInput.checked
+  const scopeLabel = isTagsPatternOnlyActive()
     ? `${buttonFilter.value}B 패턴`
     : buttonFilter.value ? `공통 + ${buttonFilter.value}B` : "공통";
   tagsSelectedSummary.textContent = selected.length ? `${scopeLabel} · ${selected.length}개 선택 · ${selected.join(" + ")}` : `${scopeLabel} · 선택 없음`;
@@ -3431,9 +3502,9 @@ function handleViewTabKeydown(event) {
 
 function updateContextualControls() {
   const view = viewSelect.value;
-  const filterViews = new Set(["chart", "compare", "top100", "records", "tags", "history", "achievements", "selfCompare", "floorMinScore", "debug", "errors"]);
-  const limitViews = new Set(["compare", "top100", "records", "history", "selfCompare", "floorMinScore", "errors"]);
-  const nameWidthViews = new Set(["compare", "top100", "records", "history", "selfCompare", "floorMinScore", "errors"]);
+  const filterViews = new Set(["chart", "compare", "top100", "djPowerTop100", "records", "tags", "history", "achievements", "selfCompare", "floorMinScore", "debug", "errors"]);
+  const limitViews = new Set(["compare", "top100", "djPowerTop100", "records", "history", "selfCompare", "floorMinScore", "errors"]);
+  const nameWidthViews = new Set(["compare", "top100", "djPowerTop100", "records", "history", "selfCompare", "floorMinScore", "errors"]);
   const showCommonFilters = filterViews.has(view);
   buttonFilterControl.hidden = !showCommonFilters;
   patternFilterControl.hidden = !showCommonFilters;
@@ -4175,6 +4246,10 @@ function renderTableSummary(view, rows) {
     renderFloorMinScoreSummary(rows);
     return;
   }
+  if (view === "djPowerTop100") {
+    renderDjPowerTop100Summary(rows);
+    return;
+  }
   if (view !== "top100") {
     tableSummary.hidden = true;
     tableSummary.innerHTML = "";
@@ -4375,6 +4450,7 @@ function applyNameWidth() {
 function getRowsForView(view) {
   if (view === "compare") return buildCompareRows();
   if (view === "top100") return buildTop100Rows(state.payload.records || []);
+  if (view === "djPowerTop100") return buildDjPowerTop100Rows(state.payload.records || []);
   if (view === "history") return [...state.historyRows];
   if (view === "selfCompare") return [...state.selfCompareRows];
   return [...(state.payload[view] || [])];
@@ -5215,6 +5291,83 @@ function renderLogPowerCalculator() {
   logPowerCalculatorBreakdown.innerHTML = `<span>Score Point <strong>${point.toFixed(4)}</strong>${capLabel}</span><span>floor 기본 상수 <strong>${baseConstant.toFixed(4)}</strong></span><span>${hasLiveScale ? "최신 곡 목록" : "내장값"} 기준 버튼별 TOP50 5000 보정</span>`;
 }
 
+function buildDjPowerTop100Rows(records) {
+  const selectedButton = buttonFilter.value;
+  const buttons = selectedButton ? [selectedButton] : ["4", "5", "6", "8"];
+  return buttons.flatMap((button) => {
+    const scale = state.djPowerTop100MaxByButton?.[String(button)] || FALLBACK_DJPOWER_TOP100_MAX_BY_BUTTON[String(button)];
+    const multiplier = Number(scale?.multiplier);
+    if (!Number.isFinite(multiplier) || multiplier <= 0) return [];
+    const buttonRows = records.filter((row) => String(row.button) === String(button));
+    return [
+      buildDjPowerGroupRows(buttonRows.filter((row) => row.newTab !== true), "베이직", 70, multiplier),
+      buildDjPowerGroupRows(buttonRows.filter((row) => row.newTab === true), "뉴탭", 30, multiplier),
+    ].flat();
+  });
+}
+
+function buildDjPowerGroupRows(records, group, limit, multiplier) {
+  return records.map((row) => {
+    const fallbackMax = maxDjPowerForPattern(row.pattern, row.level);
+    const hasRawMax = row.maxDjpower !== null && row.maxDjpower !== undefined && row.maxDjpower !== "" && Number.isFinite(Number(row.maxDjpower));
+    const rawMaxDjPower = hasRawMax ? Number(row.maxDjpower) : fallbackMax;
+    const fallbackDjPower = djPowerScoreRatio(Number(row.score)) * fallbackMax;
+    const hasRaw = row.djpower !== null && row.djpower !== undefined && row.djpower !== "" && Number.isFinite(Number(row.djpower));
+    const rawDjPower = hasRaw ? Number(row.djpower) : fallbackDjPower;
+    return {
+      ...row,
+      djPowerGroup: group,
+      rawDjPower,
+      normalizedDjPower: rawDjPower * multiplier,
+      normalizedMaxDjPower: rawMaxDjPower * multiplier,
+    };
+  })
+    .filter((row) => Number.isFinite(row.normalizedDjPower))
+    .sort((a, b) => b.normalizedDjPower - a.normalizedDjPower || b.score - a.score || compare(a.name, b.name))
+    .slice(0, limit)
+    .map((row, index) => ({ ...row, rank: index + 1 }));
+}
+
+function djPowerScoreRatio(score) {
+  const x = Number(score);
+  if (!Number.isFinite(x) || x < 90 || x > 100) return 0;
+  const lowExponential = (value) => (24 / 135) * Math.exp((8 / 9) * (value - 95)) + 0.125;
+  const highExponential = (value) => (24 / 135) * Math.exp((2 / 3) * (value - 95)) + 0.125;
+  if (x <= 94.5) return lowExponential(x);
+  if (x < 95.5) {
+    return lowExponential(94.5)
+      + (highExponential(95.5) - lowExponential(94.5)) * (x - 94.5)
+      + ((x - 94.5) * (x - 95.5)) / 30;
+  }
+  if (x < 96) return highExponential(x);
+  if (x < 96.5) return highExponential(96) + 2 * (highExponential(96.5) - highExponential(96)) * (x - 96);
+  const logarithmic = (80 / 297) * Math.log((x - 95) / 5) + 10 / 11;
+  if (x < 97.5) return logarithmic * ((3 * x - 250.5) / 40);
+  if (x < 98) return logarithmic * ((x - 76.5) / 20);
+  if (x < 98.5) return logarithmic * ((3 * x - 186.5) / 100);
+  if (x < 99) return logarithmic * ((x - 44) / 50);
+  if (x < 100) return (8 / 27) * Math.log((x - 95) / 5) + 1;
+  return 1;
+}
+
+function renderDjPowerTop100Summary(rows) {
+  const buttons = buttonFilter.value ? [buttonFilter.value] : ["4", "5", "6", "8"];
+  tableSummary.innerHTML = buttons.map((button) => {
+    const buttonRows = rows.filter((row) => String(row.button) === button);
+    const basicRows = buttonRows.filter((row) => row.djPowerGroup === "베이직");
+    const newRows = buttonRows.filter((row) => row.djPowerGroup === "뉴탭");
+    const total = buttonRows.reduce((sum, row) => sum + Number(row.normalizedDjPower || 0), 0);
+    const basic = basicRows.reduce((sum, row) => sum + Number(row.normalizedDjPower || 0), 0);
+    const newTotal = newRows.reduce((sum, row) => sum + Number(row.normalizedDjPower || 0), 0);
+    return `<div class="tableMetric tableMetricAction djPowerMetric">
+      <span>${button}B DJPower TOP100</span>
+      <strong>${total.toFixed(2)} / ${DJPOWER_TARGET_TOP100_MAX.toLocaleString()}</strong>
+      <small>베이직 ${basic.toFixed(2)} (${basicRows.length}/70) · 뉴탭 ${newTotal.toFixed(2)} (${newRows.length}/30)</small>
+    </div>`;
+  }).join("");
+  tableSummary.hidden = false;
+}
+
 function renderLogPowerScoreTable(buttons) {
   const rawTarget = logPowerCalculatorTarget.value.trim();
   const target = Number(rawTarget);
@@ -5560,7 +5713,7 @@ function renderCell(row, key) {
   const classes = [];
   if (key === "name") classes.push("nameCell");
   if (key === "name" && isRecentRecord(row.updatedAt)) classes.push("recentName");
-  if (["button", "rank", "floor", "score", "previousScore", "currentScore", "mineScore", "otherScore", "scoreDiff", "mineZ", "otherZ", "zDiff", "previousLogPower", "currentLogPower", "mineLogPower", "otherLogPower", "logPowerDiff", "minePoint", "otherPoint", "pointDiff", "scorePoint", "difficultyConstant", "floorMaxPoint", "logPower", "rating", "maxRating", "djpower", "maxDjpower", "top50sum", "tierPoint", "nextRating", "djPowerSum", "djPowerConversion", "maxDjPower"].includes(key)) classes.push("num");
+  if (["button", "rank", "floor", "score", "previousScore", "currentScore", "mineScore", "otherScore", "scoreDiff", "mineZ", "otherZ", "zDiff", "previousLogPower", "currentLogPower", "mineLogPower", "otherLogPower", "logPowerDiff", "minePoint", "otherPoint", "pointDiff", "scorePoint", "difficultyConstant", "floorMaxPoint", "logPower", "rating", "maxRating", "djpower", "maxDjpower", "rawDjPower", "normalizedDjPower", "normalizedMaxDjPower", "top50sum", "tierPoint", "nextRating", "djPowerSum", "djPowerConversion", "maxDjPower"].includes(key)) classes.push("num");
   if (key === "pattern") classes.push("pattern");
   if (key === "level") classes.push("level");
   if (key === "score" && row.maxCombo === true) classes.push("comboScore");
@@ -5615,6 +5768,7 @@ function formatValue(value, key = "") {
   if (["previousLogPower", "currentLogPower", "mineLogPower", "otherLogPower", "logPowerDiff", "absLogPowerDiff", "minePoint", "otherPoint", "pointDiff", "absPointDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
   if (["scorePoint", "difficultyConstant", "floorMaxPoint", "logPower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
   if (["rating", "djpower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
+  if (["rawDjPower", "normalizedDjPower", "normalizedMaxDjPower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
   if (["updatedAt", "generatedAt", "previousUpdatedAt", "currentUpdatedAt"].includes(key)) return formatDate(value);
   return value;
 }

@@ -47,6 +47,7 @@
       <button class="viewTab" type="button" role="tab" data-view="records">기록</button>
       <button class="viewTab" type="button" role="tab" data-view="chart">산포도</button>
       <button class="viewTab" type="button" role="tab" data-view="top100">LogPower</button>
+      <button class="viewTab" type="button" role="tab" data-view="djPowerTop100">DJPower</button>
       <button class="viewTab" type="button" role="tab" data-view="floorMinScore">Floor 분석</button>
       <button class="viewTab" type="button" role="tab" data-view="compare">사용자 비교</button>
       <button class="viewTab desktopOnly" type="button" role="tab" data-view="selfCompare">시점 비교</button>
@@ -66,6 +67,7 @@
           <option value="chart">산포도</option>
           <option value="compare">사용자 비교</option>
           <option value="top100">LogPower</option>
+          <option value="djPowerTop100">DJPower</option>
           <option value="logPowerCalculator">계산기</option>
           <option value="records">기록</option>
           <option value="tags">곡 태그</option>
@@ -396,7 +398,7 @@
         <label>BPM 최대 <input id="tagsBpmMaxInput" type="number" min="0" max="999" step="5" placeholder="전체"></label>
         <label>내 기록 <select id="tagsRecordModeSelect"><option value="">전체 곡</option><option value="recorded">기록 있음</option><option value="unrecorded">기록 없음</option></select></label>
         <label>태그 단계 <select id="tagsWeightSelect"><option value="">전체</option><option value="1">1단계</option><option value="2">2단계</option><option value="3">3단계</option><option value="none">단계 없음</option></select></label>
-        <label class="tagsCheckControl">태그 범위 <span><input id="tagsPatternOnlyInput" type="checkbox"> 패턴 태그만</span></label>
+        <label class="tagsCheckControl">태그 범위 <span><input id="tagsPatternOnlyInput" type="checkbox" checked> 패턴 태그만</span></label>
         <label class="tagsCheckControl">패턴 범위 <span><input id="tagsScPatternOnlyInput" type="checkbox"> SC 패턴만</span></label>
         <label>선택 태그 <select id="tagsMatchModeSelect"><option value="all">모두 포함 (AND)</option><option value="any">하나 이상 (OR)</option></select></label>
         <label>정렬 <select id="tagsSortSelect"><option value="name">곡명</option><option value="difficultyDesc">난이도 높은 순</option><option value="difficultyAsc">난이도 낮은 순</option><option value="bpmAsc">BPM 낮은 순</option><option value="bpmDesc">BPM 높은 순</option><option value="tagCount">태그 많은 순</option><option value="score">내 최고점 순</option></select></label>
@@ -480,7 +482,7 @@
         <section><h3>2. 데이터와 캐시</h3><p>기록은 브라우저 또는 데스크톱 앱이 V-ARCHIVE API에 직접 요청합니다. 별도의 중계 서버에 계정 기록을 저장하지 않습니다.</p><ul><li>프로필과 마지막 수집 시점은 IndexedDB에 저장됩니다.</li><li>필터·그래프 범위·테마·최근 닉네임은 localStorage에 저장됩니다.</li><li>캐시는 사용자 기기와 실행 환경별로 분리되므로 다른 PC나 브라우저에는 자동 동기화되지 않습니다.</li></ul></section>
         <section><h3>3. 새로고침 방식</h3><p>일반 새로고침은 마지막 수집 시점 이후의 변경분을 받아 기존 캐시에 합칩니다. 짧은 간격으로 눌러도 전체 기록을 매번 받지 않습니다.</p><ul><li><strong>새로고침:</strong> 평소 사용하는 증분 갱신입니다.</li><li><strong>전체 새로고침:</strong> 캐시 누락·API 변경·데이터 불일치가 의심될 때 전체 기록을 다시 구성합니다.</li><li>API 오류가 난 버튼은 오류 수에 포함되며, 성공한 데이터까지 지우지는 않습니다.</li></ul></section>
         <section><h3>4. 기록과 종합</h3><p>기록 화면은 API의 원본 필드를 최대한 유지한 전체 기록표입니다. 숨겨진 열도 데이터에서 삭제된 것은 아닙니다.</p><ul><li>열 제목을 눌러 정렬하고 버튼·패턴·검색과 기록 전용 floor 범위를 함께 사용할 수 있습니다.</li><li>종합 화면에는 수집 시점, 오류, 버튼별 기록 수, Tier, DJClass와 버튼별 LogPower Top50 합계가 표시됩니다.</li><li>최근 3일 이내 갱신된 곡명은 노란색으로 강조됩니다.</li></ul></section>
-        <section><h3>5. LogPower 계산</h3><p>Score 97 초과 구간을 로그 함수로 0~10점으로 바꾼 뒤 floor 난이도 상수와 버튼별 정규화 상수를 곱합니다. 99.9 이상은 동일한 만점으로 처리합니다.</p><p class="readmeFormula">scorePoint = -log<sub>a</sub>((100 - min(score, 99.9)) / 3)<br>LogPower = scorePoint × floor 상수 × 버튼 정규화</p><ul><li>floor 관계값은 현재 floor 10점과 다음 floor의 점수 관계를 결정합니다.</li><li>각 버튼의 이론상 상위 50개 합계가 5000이 되도록 버튼별로 정규화합니다.</li><li>LogPower 탭은 상위 기록과 Top50 합계, 각 기록의 floorMax를 보여줍니다.</li></ul></section>
+        <section><h3>5. LogPower와 DJPower</h3><p>LogPower는 Score 97 초과 구간을 로그 함수로 0~10점으로 바꾼 뒤 floor 난이도 상수와 버튼별 정규화 상수를 곱합니다. 99.9 이상은 동일한 만점으로 처리합니다.</p><p class="readmeFormula">scorePoint = -log<sub>a</sub>((100 - min(score, 99.9)) / 3)<br>LogPower = scorePoint × floor 상수 × 버튼 정규화</p><ul><li>각 버튼의 이론상 LogPower 상위 50개 합계는 5000입니다.</li><li>DJPower 탭은 버튼별 베이직 상위 70개와 뉴탭 상위 30개를 따로 선발합니다.</li><li>DJPower는 V-ARCHIVE API 값을 우선 사용하며, 이론상 TOP100 합계가 10000이 되도록 버튼별 상수를 곱합니다.</li></ul></section>
         <section><h3>6. Floor 분석과 산포도</h3><p>Floor 분석은 선택한 floor 범위에서 내 최고·최저 기록과 기록 수, 전체 패턴 수, 달성률, 평균, 표준편차, floorMax를 한 줄씩 정리합니다.</p><ul><li>시작 floor가 끝 floor보다 크면 내림차순으로 출력합니다.</li><li>산포도는 Score·scorePoint·LogPower·Point·DJPower 중 지표를 선택할 수 있습니다.</li><li>Point와 LogPower에서는 버튼별 TOP50 패턴을 별도 색으로 강조합니다.</li><li>점에 마우스를 올리면 곡명, 패턴, 레벨, 점수와 지표값이 표시됩니다.</li></ul></section>
         <section><h3>7. 곡 태그</h3><p>곡 태그는 816곡의 BPM, 장르, 별칭과 채보 특성 태그를 곡 번호로 결합해 탐색합니다. 태그 데이터는 Supabase에서 사용자 기기가 직접 요청하고 24시간 캐시됩니다.</p><ul><li>상단 버튼이 전체이면 공통 태그만, 버튼을 고르면 공통 태그와 해당 버튼의 정규화된 능력 태그, SC 레벨과 서열표를 표시합니다.</li><li>패턴 태그만을 선택하면 ability 문서에 등록된 해당 버튼의 태그만 남기며, SC 패턴만을 선택하면 <code>_NM</code>·<code>_HD</code>·<code>_MX</code> 태그를 숨깁니다.</li><li>여러 태그를 선택해 모두 포함(AND) 또는 하나 이상(OR)으로 조합할 수 있습니다.</li><li>태그 단계를 선택하면 선택 태그 자체가 해당 단계인 곡을 찾고, 태그를 선택하지 않았을 때는 해당 단계 태그가 하나라도 있는 곡을 찾습니다.</li><li>장르, BPM 범위, 내 기록 유무와 서열표 기준 난이도 정렬을 함께 사용할 수 있습니다.</li><li>태그 새로고침은 캐시를 무시하고 태그·버튼별 능력표·전체 곡 목록을 다시 결합합니다.</li></ul></section>
         <section><h3>8. 성장 기록과 시점 비교</h3><p>성장 기록은 V-ARCHIVE의 패턴별 변경 이력을 로컬 캐시에 수집해 시간에 따른 버튼별 LogPower Top50 합계를 복원합니다.</p><ul><li>데스크톱 앱에서 V-ARCHIVE 앱 폴더의 <code>account.txt</code>를 지정하거나 회원 번호와 토큰을 입력해야 합니다.</li><li>다른 닉네임을 조회하면 계정 연결은 해제되어 잘못된 계정 이력 수집을 막습니다.</li><li>시점 비교는 두 시점 이전의 마지막 기록이 모두 있는 패턴만 비교합니다. 비교 시점을 비우면 현재 API 기록을 사용합니다.</li></ul></section>
