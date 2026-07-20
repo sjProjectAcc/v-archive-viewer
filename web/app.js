@@ -17,6 +17,9 @@ const state = {
   compareChartRanges: {},
   historyEntries: [],
   historyRows: [],
+  achievementRows: [],
+  achievementSelected: new Set(),
+  achievementRenderToken: 0,
   selfCompareRows: [],
   selfCompareRenderToken: 0,
   historyCollecting: false,
@@ -213,6 +216,14 @@ const historyAccountStatus = document.querySelector("#historyAccountStatus");
 const historyStartDate = document.querySelector("#historyStartDate");
 const historyEndDate = document.querySelector("#historyEndDate");
 const historyRangeResetButton = document.querySelector("#historyRangeResetButton");
+const achievementPanel = document.querySelector("#achievementPanel");
+const achievementStatus = document.querySelector("#achievementStatus");
+const achievementSelectVisibleButton = document.querySelector("#achievementSelectVisibleButton");
+const achievementClearButton = document.querySelector("#achievementClearButton");
+const achievementImageButton = document.querySelector("#achievementImageButton");
+const achievementColumnsInput = document.querySelector("#achievementColumnsInput");
+const achievementSelectionSummary = document.querySelector("#achievementSelectionSummary");
+const achievementList = document.querySelector("#achievementList");
 const selfComparePanel = document.querySelector("#selfComparePanel");
 const selfCompareStatus = document.querySelector("#selfCompareStatus");
 const selfCompareStart = document.querySelector("#selfCompareStart");
@@ -553,6 +564,24 @@ function wireEvents() {
     saveSettings();
     renderHistoryView();
   });
+  achievementColumnsInput.addEventListener("input", () => {
+    achievementColumnsInput.value = String(Math.min(4, Math.max(1, Number(achievementColumnsInput.value) || 1)));
+    saveSettings();
+  });
+  achievementSelectVisibleButton.addEventListener("click", selectVisibleAchievements);
+  achievementClearButton.addEventListener("click", () => {
+    state.achievementSelected.clear();
+    renderAchievementList();
+  });
+  achievementImageButton.addEventListener("click", exportAchievementImage);
+  achievementList.addEventListener("change", (event) => {
+    const checkbox = event.target.closest("[data-achievement-id]");
+    if (!checkbox) return;
+    const id = decodeURIComponent(checkbox.dataset.achievementId || "");
+    if (checkbox.checked) state.achievementSelected.add(id);
+    else state.achievementSelected.delete(id);
+    renderAchievementList();
+  });
   [selfCompareStart, selfCompareEnd].forEach((input) => {
     input.addEventListener("input", () => {
       state.sortKey = null;
@@ -666,6 +695,7 @@ function applySavedSettings() {
   state.compareChartRanges = settings.compareChartRanges || {};
   historyStartDate.value = settings.historyStartDate || "";
   historyEndDate.value = settings.historyEndDate || "";
+  achievementColumnsInput.value = String(Math.min(4, Math.max(1, Number(settings.achievementColumns) || 1)));
   selfCompareStart.value = settings.selfCompareStart || "";
   selfCompareEnd.value = settings.selfCompareEnd || "";
   setIfOptionExists(tagsRecordModeSelect, settings.tagsRecordMode || "");
@@ -723,6 +753,7 @@ function saveSettings() {
     chartXRangeByMode: state.chartXRangeByMode,
     historyStartDate: historyStartDate.value,
     historyEndDate: historyEndDate.value,
+    achievementColumns: achievementColumnsInput.value,
     selfCompareStart: selfCompareStart.value,
     selfCompareEnd: selfCompareEnd.value,
     tagsGenre: tagsGenreSelect.value,
@@ -1788,6 +1819,7 @@ function renderActiveView() {
   const isChart = viewSelect.value === "chart";
   const isCompare = viewSelect.value === "compare";
   const isHistory = viewSelect.value === "history";
+  const isAchievements = viewSelect.value === "achievements";
   const isSelfCompare = viewSelect.value === "selfCompare";
   const isTags = viewSelect.value === "tags";
   const isDebug = viewSelect.value === "debug";
@@ -1796,18 +1828,20 @@ function renderActiveView() {
   chartPanel.hidden = !isChart;
   compareChartPanel.hidden = !isCompare;
   historyPanel.hidden = !isHistory;
+  achievementPanel.hidden = !isAchievements;
   selfComparePanel.hidden = !isSelfCompare;
   tagsPanel.hidden = !isTags;
   debugPanel.hidden = !isDebug;
   readmePanel.hidden = !isReadme;
   overviewPanel.hidden = !isOverview;
-  tableSection.hidden = isChart || isOverview || isDebug || isReadme || isTags;
+  tableSection.hidden = isChart || isOverview || isDebug || isReadme || isTags || isAchievements;
   updateCompareControls();
   hideTooltip();
   hideCompareChartTooltip();
   hideHistoryTooltip();
   if (isChart) renderChart();
   else if (isHistory) renderHistoryView();
+  else if (isAchievements) renderAchievementView();
   else if (isSelfCompare) renderSelfCompareView();
   else if (isTags) renderTagsView();
   else if (isDebug) renderDebugView();
@@ -2342,6 +2376,8 @@ async function resetRecordHistories() {
     await deleteRecordHistories(nickname);
     state.historyEntries = [];
     state.historyRows = [];
+    state.achievementRows = [];
+    state.achievementSelected.clear();
     historyStartDate.value = "";
     historyEndDate.value = "";
     saveSettings();
@@ -2376,6 +2412,128 @@ async function renderHistoryView(options = {}) {
   } catch (error) {
     historyStatus.textContent = `히스토리 캐시 오류: ${error.message || error}`;
   }
+}
+
+async function renderAchievementView() {
+  if (!state.payload || viewSelect.value !== "achievements") return;
+  const renderToken = ++state.achievementRenderToken;
+  const nickname = state.payload.nickname || getCurrentNickname();
+  try {
+    const entries = await loadRecordHistories(nickname);
+    if (renderToken !== state.achievementRenderToken || viewSelect.value !== "achievements") return;
+    const targetIds = new Set(getHistoryTargets().map((record) => historyCacheId(nickname, record)));
+    const available = entries.filter((entry) => targetIds.has(entry.id));
+    state.achievementRows = buildAchievementRows(available);
+    const validIds = new Set(state.achievementRows.map((row) => row.id));
+    for (const id of state.achievementSelected) {
+      if (!validIds.has(id)) state.achievementSelected.delete(id);
+    }
+    renderAchievementList();
+  } catch (error) {
+    state.achievementRows = [];
+    renderAchievementList();
+    achievementStatus.textContent = `성과 히스토리 캐시 오류: ${error.message || error}`;
+  }
+}
+
+function buildAchievementRows(entries) {
+  const currentByKey = new Map((state.payload?.records || []).map((record) => [recordKey(record), record]));
+  return entries.flatMap((entry) => {
+    const source = currentByKey.get(recordKey(entry)) || entry;
+    const floorName = getFloorLabel(source) || getFloorLabel(entry);
+    const difficultyConstant = difficultyConstantForFloor(floorName, entry.button);
+    if (!Number.isFinite(difficultyConstant)) return [];
+    const history = [...(entry.history || [])].sort((a, b) => new Date(a.ymdt) - new Date(b.ymdt));
+    const rows = [];
+    for (let index = 1; index < history.length; index += 1) {
+      const previous = history[index - 1];
+      const current = history[index];
+      const previousScore = Number(previous.score);
+      const currentScore = Number(current.score);
+      const scoreDiff = currentScore - previousScore;
+      const gainedMaxCombo = previous.maxCombo !== true && current.maxCombo === true;
+      if (!(scoreDiff > 0) && !gainedMaxCombo) continue;
+      const previousScorePoint = scoreToPoint(previousScore);
+      const currentScorePoint = scoreToPoint(currentScore);
+      const previousLogPower = previousScorePoint * difficultyConstant;
+      const currentLogPower = currentScorePoint * difficultyConstant;
+      if (![previousLogPower, currentLogPower].every(Number.isFinite)) continue;
+      rows.push({
+        id: `${entry.id}|${current.ymdt}|${index}`,
+        button: Number(entry.button),
+        title: entry.title,
+        name: source.name || entry.name || "",
+        pattern: source.pattern || entry.pattern || "",
+        level: source.level ?? entry.level ?? "",
+        floorName,
+        previousScore,
+        currentScore,
+        scoreDiff,
+        previousScorePoint,
+        currentScorePoint,
+        scorePointDiff: currentScorePoint - previousScorePoint,
+        previousLogPower,
+        currentLogPower,
+        logPowerDiff: currentLogPower - previousLogPower,
+        previousMaxCombo: previous.maxCombo === true,
+        currentMaxCombo: current.maxCombo === true,
+        previousUpdatedAt: previous.ymdt,
+        currentUpdatedAt: current.ymdt,
+      });
+    }
+    return rows;
+  }).sort((a, b) => new Date(b.currentUpdatedAt) - new Date(a.currentUpdatedAt) || b.scoreDiff - a.scoreDiff || compare(a.name, b.name));
+}
+
+function getVisibleAchievementRows() {
+  const button = buttonFilter.value;
+  const pattern = patternFilter.value;
+  const query = searchInput.value.trim().toLowerCase();
+  const rows = state.achievementRows.filter((row) => {
+    if (button && String(row.button) !== button) return false;
+    if (pattern && row.pattern !== pattern) return false;
+    if (query && !JSON.stringify(row).toLowerCase().includes(query)) return false;
+    return true;
+  });
+  const limit = Number(limitSelect.value);
+  return limit > 0 ? rows.slice(0, limit) : rows;
+}
+
+function renderAchievementList() {
+  const visibleRows = getVisibleAchievementRows();
+  const selectedCount = state.achievementSelected.size;
+  achievementSelectionSummary.textContent = `${selectedCount}개 선택 · 현재 표시 ${visibleRows.length}개`;
+  achievementImageButton.disabled = selectedCount === 0;
+  achievementSelectVisibleButton.disabled = visibleRows.length === 0;
+  achievementClearButton.disabled = selectedCount === 0;
+  achievementStatus.textContent = state.achievementRows.length
+    ? `최근 등록순 ${state.achievementRows.length}개 성과 · History에서 수집된 인접 기록 비교`
+    : "비교할 이전 기록이 없습니다. History 탭에서 히스토리를 먼저 수집해 주세요.";
+  if (!visibleRows.length) {
+    achievementList.innerHTML = `<div class="achievementEmpty">조건에 맞는 최근 성과가 없습니다.</div>`;
+    return;
+  }
+  achievementList.innerHTML = visibleRows.map((row) => {
+    const selected = state.achievementSelected.has(row.id);
+    return `<label class="achievementItem${selected ? " selected" : ""}">
+      <input type="checkbox" data-achievement-id="${encodeURIComponent(row.id)}"${selected ? " checked" : ""}>
+      <img class="achievementJacket" src="${escapeHtml(getJacketUrl(row))}" alt="" loading="lazy">
+      <span class="achievementSong"><strong>${escapeHtml(row.name)}</strong><span>${row.button}B · ${escapeHtml(row.pattern)} · Lv.${escapeHtml(row.level)} · floor ${escapeHtml(row.floorName)}</span><small class="achievementDiff">score ${formatSigned(row.scoreDiff, 2)} · logPower ${formatSigned(row.logPowerDiff, 2)}</small></span>
+      ${renderAchievementSide(row.previousScore, row.previousLogPower, row.previousMaxCombo, row.previousUpdatedAt, "before")}
+      <span class="achievementArrow">→</span>
+      ${renderAchievementSide(row.currentScore, row.currentLogPower, row.currentMaxCombo, row.currentUpdatedAt, "after")}
+    </label>`;
+  }).join("");
+}
+
+function renderAchievementSide(score, logPower, maxCombo, updatedAt, className) {
+  const label = className === "after" ? "이후" : "이전";
+  return `<span class="achievementSide ${className}"><small>${label} · ${escapeHtml(formatDate(updatedAt))}</small><strong>${formatValue(score, "score")}</strong><span>logPower ${formatValue(logPower, "logPower")}</span>${maxCombo ? "<small>MAX COMBO</small>" : ""}</span>`;
+}
+
+function selectVisibleAchievements() {
+  for (const row of getVisibleAchievementRows()) state.achievementSelected.add(row.id);
+  renderAchievementList();
 }
 
 async function renderSelfCompareView() {
@@ -3767,6 +3925,193 @@ async function generateTopImage(button) {
   } finally {
     setBusy(false);
   }
+}
+
+async function exportAchievementImage() {
+  if (!state.payload || !state.achievementSelected.size) return;
+  const selectedIds = state.achievementSelected;
+  const rows = state.achievementRows
+    .filter((row) => selectedIds.has(row.id))
+    .sort((a, b) => new Date(b.currentUpdatedAt) - new Date(a.currentUpdatedAt));
+  if (!rows.length) return;
+  const columns = Math.min(rows.length, Math.min(4, Math.max(1, Number(achievementColumnsInput.value) || 1)));
+  setBusy(true, `최근 성과 ${rows.length}개 이미지 생성 중`);
+  achievementImageButton.disabled = true;
+  try {
+    const canvas = await drawAchievementImage({
+      nickname: state.payload.nickname || getCurrentNickname(),
+      rows,
+      columns,
+      profile: buildAchievementProfileSummary(),
+    });
+    const copied = await saveCanvasImage(canvas, `v-archive-${state.payload.nickname || "user"}-recent-achievements.png`);
+    statusText.textContent = `최근 성과 ${rows.length}개 이미지를 다운로드했습니다.${copied ? " 클립보드에도 복사했습니다." : ""}`;
+  } catch (error) {
+    statusText.textContent = `최근 성과 이미지 생성 오류: ${error.message || error}`;
+  } finally {
+    setBusy(false);
+    achievementImageButton.disabled = state.achievementSelected.size === 0;
+  }
+}
+
+function buildAchievementProfileSummary() {
+  const tiers = new Map((state.payload?.tiers || []).map((row) => [Number(row.button), row]));
+  const djClasses = new Map((state.payload?.djClasses || []).map((row) => [Number(row.button), row]));
+  return {
+    records: Number(state.payload?.summary?.records ?? state.payload?.records?.length ?? 0),
+    updated: Number(state.payload?.sync?.updatedRecords ?? 0),
+    since: state.payload?.sync?.since || "full",
+    errors: Number(state.payload?.summary?.errors ?? 0),
+    buttons: BUTTONS.map((button) => {
+      const tier = tiers.get(button);
+      const djClass = djClasses.get(button);
+      return {
+        button,
+        records: Number(state.payload?.summary?.byButton?.[String(button)]?.records ?? 0),
+        tierName: tier?.tierName || "-",
+        tierPoint: tier?.tierPoint,
+        djClass: djClass?.djClass || "-",
+        djPowerSum: djClass?.djPowerSum,
+        top50LogPower: calculateTop50LogPowerSum(state.payload?.records || [], button),
+      };
+    }),
+  };
+}
+
+async function drawAchievementImage({ nickname, rows, columns, profile }) {
+  const margin = 30;
+  const gap = 16;
+  const headerH = 266;
+  const cardW = 1160;
+  const cardH = 252;
+  const rowCount = Math.ceil(rows.length / columns);
+  const width = margin * 2 + columns * cardW + Math.max(0, columns - 1) * gap;
+  const height = margin * 2 + headerH + rowCount * cardH + Math.max(0, rowCount - 1) * gap;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#f4f6f8";
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = "#151922";
+  ctx.font = "900 42px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText("V-ARCHIVE RECENT ACHIEVEMENTS", margin, 56);
+  ctx.fillStyle = "#1268b3";
+  ctx.font = "900 32px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText(nickname, margin, 98);
+  ctx.fillStyle = "#586274";
+  ctx.font = "600 19px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText(`${rows.length}개 성과 · Records ${profile.records.toLocaleString()} · Updated ${profile.updated.toLocaleString()} · Since ${profile.since} · Errors ${profile.errors.toLocaleString()} · ${formatDate(new Date().toISOString())}`, margin, 128);
+
+  const profileGap = 10;
+  const profileW = (width - margin * 2 - profileGap * 3) / 4;
+  for (let index = 0; index < profile.buttons.length; index += 1) {
+    const item = profile.buttons[index];
+    const x = margin + index * (profileW + profileGap);
+    const y = 148;
+    drawRoundRect(ctx, x, y, profileW, 100, 7, "#ffffff", "#d9dee7");
+    ctx.fillStyle = "#1268b3";
+    ctx.font = "900 21px Segoe UI, Malgun Gothic, Arial";
+    ctx.fillText(`${item.button}B`, x + 12, y + 28);
+    ctx.fillStyle = "#171a1f";
+    ctx.font = "800 15px Segoe UI, Malgun Gothic, Arial";
+    drawTextFit(ctx, `Tier ${item.tierName} · DJ ${item.djClass}`, x + 64, y + 27, profileW - 76);
+    ctx.fillStyle = "#586274";
+    ctx.font = "700 13px Segoe UI, Malgun Gothic, Arial";
+    drawTextFit(ctx, `Records ${item.records.toLocaleString()} · LP50 ${formatProfileNumber(item.top50LogPower)}`, x + 12, y + 56, profileW - 24);
+    drawTextFit(ctx, `TierPoint ${formatProfileNumber(item.tierPoint)} · DJPower ${formatProfileNumber(item.djPowerSum)}`, x + 12, y + 80, profileW - 24);
+  }
+
+  const jackets = await Promise.all(rows.map((row) => loadImage(getJacketUrl(row))));
+  for (let index = 0; index < rows.length; index += 1) {
+    const column = index % columns;
+    const rowIndex = Math.floor(index / columns);
+    const x = margin + column * (cardW + gap);
+    const y = margin + headerH + rowIndex * (cardH + gap);
+    drawAchievementImageCard(ctx, rows[index], jackets[index], x, y, cardW, cardH);
+  }
+  return canvas;
+}
+
+function drawAchievementImageCard(ctx, row, jacket, x, y, w, h) {
+  drawRoundRect(ctx, x, y, w, h, 8, "#ffffff", "#d9dee7");
+  const sideW = 258;
+  const centerX = x + sideW + 12;
+  const centerW = w - sideW * 2 - 24;
+  drawAchievementImageSide(ctx, "이전", row.previousUpdatedAt, row.previousScore, row.previousScorePoint, row.previousLogPower, row.previousMaxCombo, x + 10, y + 10, sideW - 10, h - 20, false);
+  drawAchievementImageSide(ctx, "이후", row.currentUpdatedAt, row.currentScore, row.currentScorePoint, row.currentLogPower, row.currentMaxCombo, x + w - sideW, y + 10, sideW - 10, h - 20, true);
+  drawRoundRect(ctx, centerX, y + 10, centerW, h - 20, 7, "#f7f9fc", "#e2e7ef");
+
+  const jacketSize = 178;
+  const jacketX = centerX + 14;
+  const jacketY = y + 37;
+  if (jacket) {
+    ctx.save();
+    roundedClip(ctx, jacketX, jacketY, jacketSize, jacketSize, 7);
+    ctx.drawImage(jacket, jacketX, jacketY, jacketSize, jacketSize);
+    ctx.restore();
+  } else {
+    drawRoundRect(ctx, jacketX, jacketY, jacketSize, jacketSize, 7, "#e8edf3", "#d3dae5");
+    ctx.fillStyle = "#687282";
+    ctx.font = "800 15px Segoe UI, Malgun Gothic, Arial";
+    drawTextFit(ctx, "NO JACKET", jacketX + 16, jacketY + 96, jacketSize - 32);
+  }
+
+  const textX = jacketX + jacketSize + 18;
+  const textW = centerW - jacketSize - 50;
+  ctx.fillStyle = "#171a1f";
+  ctx.font = "900 24px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, row.name, textX, y + 58, textW);
+  ctx.fillStyle = "#586274";
+  ctx.font = "800 16px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, `${row.button}B · ${row.pattern} · Lv.${row.level} · floor ${row.floorName}`, textX, y + 88, textW);
+  ctx.fillStyle = "#1268b3";
+  ctx.font = "900 22px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, `Score ${formatSigned(row.scoreDiff, 2)}`, textX, y + 128, textW);
+  ctx.font = "900 20px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, `LogPower ${formatSigned(row.logPowerDiff, 2)}`, textX, y + 158, textW);
+  ctx.fillStyle = "#687282";
+  ctx.font = "700 15px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, `scorePoint ${formatSigned(row.scorePointDiff, 2)}`, textX, y + 187, textW);
+  ctx.fillStyle = "#171a1f";
+  ctx.font = "800 15px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, formatAchievementElapsed(row.previousUpdatedAt, row.currentUpdatedAt), textX, y + 214, textW);
+}
+
+function drawAchievementImageSide(ctx, label, updatedAt, score, scorePoint, logPower, maxCombo, x, y, w, h, after) {
+  drawRoundRect(ctx, x, y, w, h, 7, after ? "#eef6fc" : "#f7f9fc", after ? "#b9d7ee" : "#e2e7ef");
+  ctx.fillStyle = after ? "#1268b3" : "#687282";
+  ctx.font = "900 19px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText(label, x + 14, y + 28);
+  ctx.fillStyle = "#586274";
+  ctx.font = "700 13px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, formatDate(updatedAt), x + 14, y + 52, w - 28);
+  ctx.fillStyle = after ? "#1268b3" : "#171a1f";
+  ctx.font = "900 34px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText(formatValue(score, "score"), x + 14, y + 99);
+  ctx.fillStyle = "#586274";
+  ctx.font = "800 15px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText(`scorePoint ${formatProfileNumber(scorePoint)}`, x + 14, y + 132);
+  ctx.fillText(`logPower ${formatProfileNumber(logPower)}`, x + 14, y + 160);
+  if (maxCombo) {
+    ctx.fillStyle = "#1268b3";
+    ctx.font = "900 16px Segoe UI, Malgun Gothic, Arial";
+    ctx.fillText("MAX COMBO", x + 14, y + 196);
+  }
+}
+
+function formatAchievementElapsed(startValue, endValue) {
+  const start = new Date(startValue).getTime();
+  const end = new Date(endValue).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "";
+  const hours = Math.round((end - start) / 3600000);
+  if (hours < 24) return `이전 기록 후 ${hours}시간`;
+  return `이전 기록 후 ${Math.round(hours / 24)}일`;
+}
+
+function formatProfileNumber(value) {
+  return Number.isFinite(Number(value)) ? Number(value).toFixed(2) : "-";
 }
 
 async function generateFloorMinScoreImage(startFloor, endFloor) {

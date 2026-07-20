@@ -230,6 +230,7 @@ main {
 .metric,
 .chartPanel,
 .historyPanel,
+.achievementPanel,
 .toolPanel,
 .tagsPanel,
 .readmePanel,
@@ -265,6 +266,128 @@ main {
 .historyPanel {
   margin-bottom: 12px;
   padding: 12px;
+}
+
+.achievementPanel {
+  margin-bottom: 12px;
+  padding: 14px;
+}
+
+.achievementHeader {
+  align-items: flex-start;
+}
+
+.achievementActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.achievementControls {
+  margin: 12px 0;
+}
+
+.achievementControls input {
+  width: 92px;
+}
+
+.achievementSelectionSummary {
+  align-self: end;
+  padding: 8px 0;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.achievementList {
+  display: grid;
+  gap: 8px;
+}
+
+.achievementItem {
+  display: grid;
+  grid-template-columns: 28px 72px minmax(220px, 1fr) minmax(170px, 0.65fr) 32px minmax(170px, 0.65fr);
+  gap: 12px;
+  align-items: center;
+  min-height: 96px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.achievementItem:nth-child(even) {
+  background: var(--table-alt);
+}
+
+.achievementItem.selected {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.achievementItem > input {
+  width: 18px;
+  min-width: 0;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.achievementJacket {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--subtle);
+}
+
+.achievementSong,
+.achievementSide {
+  min-width: 0;
+}
+
+.achievementSong strong,
+.achievementSide strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.achievementSong span,
+.achievementSong small,
+.achievementSide span,
+.achievementSide small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.achievementSide strong {
+  font-size: 19px;
+}
+
+.achievementSide.after strong,
+.achievementDiff {
+  color: var(--accent);
+}
+
+.achievementArrow {
+  color: var(--muted);
+  font-size: 24px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.achievementEmpty {
+  padding: 28px;
+  color: var(--muted);
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--subtle);
 }
 
 .toolPanel,
@@ -1531,6 +1654,16 @@ tr:hover td.reversalCell {
     grid-template-columns: repeat(4, minmax(110px, 1fr));
   }
 
+  .achievementItem {
+    grid-template-columns: 28px 64px minmax(180px, 1fr) minmax(150px, 0.7fr) 24px minmax(150px, 0.7fr);
+    gap: 8px;
+  }
+
+  .achievementJacket {
+    width: 64px;
+    height: 64px;
+  }
+
   .actions {
     width: 100%;
     flex-wrap: wrap;
@@ -1601,6 +1734,28 @@ tr:hover td.reversalCell {
 
   .tagsControls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .achievementItem {
+    grid-template-columns: 28px 58px minmax(0, 1fr);
+  }
+
+  .achievementJacket {
+    width: 58px;
+    height: 58px;
+  }
+
+  .achievementSide.before {
+    grid-column: 2 / 3;
+  }
+
+  .achievementArrow {
+    grid-column: 2 / 3;
+    font-size: 18px;
+  }
+
+  .achievementSide.after {
+    grid-column: 3 / 4;
   }
 
   .tagsControls input,
