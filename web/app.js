@@ -149,8 +149,17 @@ const TOP_IMAGE_COLUMNS = 5;
 const TOP_IMAGE_ROWS = 6;
 const TOP_IMAGE_COUNT = TOP_IMAGE_COLUMNS * TOP_IMAGE_ROWS;
 const DJPOWER_TARGET_TOP100_MAX = 10000;
-// Tier manual graph approximation. Keep these together so the curve can be retuned easily.
-const TIER_POINT_CURVE = Object.freeze({ scale: 31.63619265, rate: 0.298122157, exponent: 0.773445314 });
+// Piecewise exponential fit of the Tier manual curve. Each score is a segment start.
+const TIER_POINT_CURVE_SEGMENTS = Object.freeze([
+  Object.freeze({ start: 90, offset: 65.47836917, scale: 7.10672003, rate: 0.150921113 }),
+  Object.freeze({ start: 96.6, offset: 77.67745665, scale: 11.68845869, rate: 0.26556245 }),
+  Object.freeze({ start: 97.35, offset: 80.25698148, scale: 11.14500267, rate: 0.338194598 }),
+  Object.freeze({ start: 98.22, offset: 84.07711157, scale: 10.74440895, rate: 0.468633503 }),
+  Object.freeze({ start: 99, offset: 88.82865645, scale: 10.91357237, rate: 0.666423035 }),
+  Object.freeze({ start: 99.49, offset: 93.05034666, scale: 10.95234705, rate: 0.919919871 }),
+  Object.freeze({ start: 99.85, offset: 97.35499095, scale: 12.0649348, rate: 1.173770886 }),
+  Object.freeze({ start: 99.98, offset: 99.3423453, scale: 0.10288963, rate: 100 }),
+]);
 const TIER_NON_MAX_COMBO_PENALTY = 2;
 const DJPOWER_SC_DIFFICULTY_CONSTANTS = Object.freeze({
   15: 44, 14: 42, 13: 40, 12: 38, 11: 36,
@@ -6536,9 +6545,9 @@ function tierPointPercentForScore(score) {
   const value = Number(score);
   if (!Number.isFinite(value)) return NaN;
   const clampedScore = Math.min(100, Math.max(0, value));
-  const distance = 100 - clampedScore;
-  const { scale, rate, exponent } = TIER_POINT_CURVE;
-  const point = 100 - scale * Math.pow(1 - Math.exp(-rate * distance), exponent);
+  if (clampedScore < TIER_POINT_CURVE_SEGMENTS[0].start) return 0;
+  const segment = TIER_POINT_CURVE_SEGMENTS.findLast((item) => clampedScore >= item.start) || TIER_POINT_CURVE_SEGMENTS[0];
+  const point = segment.offset + segment.scale * (Math.exp(segment.rate * (clampedScore - segment.start)) - 1);
   return Math.max(0, Math.min(100, point));
 }
 
