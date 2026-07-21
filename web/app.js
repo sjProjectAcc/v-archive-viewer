@@ -189,6 +189,20 @@ const columns = {
     ["maxCombo", "maxCombo"],
     ["updatedAt", "updatedAt"],
   ],
+  points: [
+    ["button", "button"],
+    ["rank", "rank"],
+    ["rating", "rating"],
+    ["maxRating", "maxrating"],
+    ["ratingRate", "rate"],
+    ["name", "name"],
+    ["pattern", "pattern"],
+    ["level", "level"],
+    ["floorName", "floor"],
+    ["score", "score"],
+    ["maxCombo", "maxCombo"],
+    ["updatedAt", "updatedAt"],
+  ],
   records: [
     ["button", "button"],
     ["name", "name"],
@@ -476,7 +490,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-calculator-v5";
+const UI_SCHEMA_VERSION = "v-log-calculator-v6";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -487,6 +501,7 @@ const REQUIRED_UI_IDS = [
   "compareChartScaleModeSelect",
   "compareFloorTrendInput",
   "compareChartShareButton",
+  "pointsTab",
   "historyPanel",
   "achievementPanel",
   "achievementAutoLogPowerInput",
@@ -4411,9 +4426,9 @@ function handleViewTabKeydown(event) {
 
 function updateContextualControls() {
   const view = viewSelect.value;
-  const filterViews = new Set(["chart", "compare", "top100", "djPowerTop100", "records", "tags", "history", "achievements", "selfCompare", "floorMinScore", "debug", "errors"]);
-  const limitViews = new Set(["compare", "top100", "djPowerTop100", "records", "history", "selfCompare", "floorMinScore", "errors"]);
-  const nameWidthViews = new Set(["compare", "top100", "djPowerTop100", "records", "history", "selfCompare", "floorMinScore", "errors"]);
+  const filterViews = new Set(["chart", "compare", "top100", "points", "djPowerTop100", "records", "tags", "history", "achievements", "selfCompare", "floorMinScore", "debug", "errors"]);
+  const limitViews = new Set(["compare", "top100", "points", "djPowerTop100", "records", "history", "selfCompare", "floorMinScore", "errors"]);
+  const nameWidthViews = new Set(["compare", "top100", "points", "djPowerTop100", "records", "history", "selfCompare", "floorMinScore", "errors"]);
   const showCommonFilters = filterViews.has(view);
   buttonFilterControl.hidden = !showCommonFilters;
   patternFilterControl.hidden = !showCommonFilters;
@@ -5172,6 +5187,10 @@ function renderTableSummary(view, rows) {
     renderDjPowerTop100Summary(rows);
     return;
   }
+  if (view === "points") {
+    renderPointsSummary(rows);
+    return;
+  }
   if (view !== "top100") {
     tableSummary.hidden = true;
     tableSummary.innerHTML = "";
@@ -5309,6 +5328,24 @@ function renderTop100Metric(button, rows) {
   </div>`;
 }
 
+function renderPointsSummary(rows) {
+  const buttons = buttonFilter.value ? [buttonFilter.value] : BUTTONS.map(String);
+  const allPointRows = buildPointRows(state.payload?.records || []);
+  tableSummary.innerHTML = buttons.map((button) => {
+    const top50Sum = allPointRows
+      .filter((row) => String(row.button) === String(button) && row.rank <= 50)
+      .reduce((sum, row) => sum + Number(row.rating || 0), 0);
+    const tier = (state.payload?.tiers || []).find((row) => String(row.button) === String(button));
+    const tierName = tier?.tierName || "-";
+    return `<div class="tableMetric">
+      <span>${escapeHtml(button)}B Rating TOP50</span>
+      <strong>${top50Sum.toFixed(2)}</strong>
+      <small>Tier ${escapeHtml(tierName)} · ${rows.filter((row) => String(row.button) === String(button)).length} records</small>
+    </div>`;
+  }).join("");
+  tableSummary.hidden = false;
+}
+
 function renderCompareSummary(rows) {
   const both = rows.filter((row) => row.mineScore !== null && row.otherScore !== null);
   const logPowerBoth = both.filter((row) => Number.isFinite(row.logPowerDiff));
@@ -5403,6 +5440,7 @@ function applyNameWidth() {
 function getRowsForView(view) {
   if (view === "compare") return buildCompareRows();
   if (view === "top100") return buildTop100Rows(state.payload.records || []);
+  if (view === "points") return buildPointRows(state.payload.records || []);
   if (view === "djPowerTop100") return buildDjPowerTop100Rows(state.payload.records || []);
   if (view === "history") return [...state.historyRows];
   if (view === "selfCompare") return [...state.selfCompareRows];
@@ -5413,6 +5451,27 @@ function buildTop100Rows(records) {
   const selectedButton = buttonFilter.value;
   const buttons = selectedButton ? [selectedButton] : ["4", "5", "6", "8"];
   return buttons.flatMap((button) => buildTopRowsForButton(records, button, 0));
+}
+
+function buildPointRows(records) {
+  const selectedButton = buttonFilter.value;
+  const buttons = selectedButton ? [selectedButton] : BUTTONS.map(String);
+  return buttons.flatMap((button) => records
+    .filter((row) => String(row.button) === String(button))
+    .map((row) => {
+      const rating = Number(row.rating);
+      const maxRating = Number(row.maxRating);
+      return {
+        ...row,
+        floorName: getFloorLabel(row) || row.floorName,
+        rating,
+        maxRating,
+        ratingRate: Number.isFinite(rating) && Number.isFinite(maxRating) && maxRating > 0 ? (rating / maxRating) * 100 : NaN,
+      };
+    })
+    .filter((row) => Number.isFinite(row.rating))
+    .sort((a, b) => b.rating - a.rating || b.maxRating - a.maxRating || compare(a.name, b.name))
+    .map((row, index) => ({ ...row, rank: index + 1 })));
 }
 
 function buildTopRowsForButton(records, button, limit = 100) {
@@ -6917,7 +6976,7 @@ function renderCell(row, key) {
   const classes = [];
   if (key === "name") classes.push("nameCell");
   if (key === "name" && isRecentRecord(row.updatedAt)) classes.push("recentName");
-  if (["button", "rank", "floor", "score", "previousScore", "currentScore", "mineScore", "otherScore", "scoreDiff", "previousLogPower", "currentLogPower", "mineLogPower", "otherLogPower", "logPowerDiff", "minePoint", "otherPoint", "pointDiff", "scorePoint", "difficultyConstant", "floorMaxPoint", "logPower", "rating", "maxRating", "djpower", "maxDjpower", "rawDjPower", "normalizedDjPower", "normalizedMaxDjPower", "top50sum", "tierPoint", "nextRating", "djPowerSum", "djPowerConversion", "maxDjPower"].includes(key)) classes.push("num");
+  if (["button", "rank", "floor", "score", "previousScore", "currentScore", "mineScore", "otherScore", "scoreDiff", "previousLogPower", "currentLogPower", "mineLogPower", "otherLogPower", "logPowerDiff", "minePoint", "otherPoint", "pointDiff", "scorePoint", "difficultyConstant", "floorMaxPoint", "logPower", "rating", "maxRating", "ratingRate", "djpower", "maxDjpower", "rawDjPower", "normalizedDjPower", "normalizedMaxDjPower", "top50sum", "tierPoint", "nextRating", "djPowerSum", "djPowerConversion", "maxDjPower"].includes(key)) classes.push("num");
   if (key === "pattern") classes.push("pattern");
   if (key === "level") classes.push("level");
   if (key === "score" && row.maxCombo === true) classes.push("comboScore");
@@ -6969,7 +7028,8 @@ function formatValue(value, key = "") {
   if (["previousScore", "currentScore", "mineScore", "otherScore", "scoreDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
   if (["previousLogPower", "currentLogPower", "mineLogPower", "otherLogPower", "logPowerDiff", "absLogPowerDiff", "minePoint", "otherPoint", "pointDiff", "absPointDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
   if (["scorePoint", "difficultyConstant", "floorMaxPoint", "logPower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
-  if (["rating", "djpower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
+  if (["rating", "maxRating", "djpower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
+  if (key === "ratingRate" && Number.isFinite(Number(value))) return `${Number(value).toFixed(2)}%`;
   if (["rawDjPower", "normalizedDjPower", "normalizedMaxDjPower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
   if (["updatedAt", "generatedAt", "previousUpdatedAt", "currentUpdatedAt"].includes(key)) return formatDate(value);
   return value;
