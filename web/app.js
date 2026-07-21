@@ -373,6 +373,7 @@ const debugFloorMaxLegend = document.querySelector("#debugFloorMaxLegend");
 const debugFloorTable = document.querySelector("#debugFloorTable");
 const debugDjPowerSummary = document.querySelector("#debugDjPowerSummary");
 const debugDjPowerChart = document.querySelector("#debugDjPowerChart");
+const debugDjPowerErrorChart = document.querySelector("#debugDjPowerErrorChart");
 const debugDjPowerTable = document.querySelector("#debugDjPowerTable");
 const readmePanel = document.querySelector("#readmePanel");
 const overviewPanel = document.querySelector("#overviewPanel");
@@ -6090,6 +6091,7 @@ function renderDebugDjPowerDiagnostics(records) {
   if (!rows.length) {
     debugDjPowerSummary.innerHTML = `<div class="metric"><span>DJPower 진단</span><strong>원본 DJPower 기록 없음</strong></div>`;
     debugDjPowerChart.innerHTML = `<div class="empty">표시할 DJPower 원본값이 없습니다.</div>`;
+    debugDjPowerErrorChart.innerHTML = "";
     debugDjPowerTable.innerHTML = "";
     return;
   }
@@ -6104,6 +6106,7 @@ function renderDebugDjPowerDiagnostics(records) {
   ].map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong><span>계산 - 원본</span></div>`).join("");
 
   renderDebugDjPowerChart(rows, maxAbsoluteDifference);
+  renderDebugDjPowerErrorChart(rows, maxAbsoluteDifference);
   debugDjPowerTable.innerHTML = `<thead><tr><th>순위</th><th>button</th><th>name</th><th>pattern</th><th>level</th><th>score</th><th>원본 DJPower</th><th>계산 DJPower</th><th>차이</th></tr></thead><tbody>${rows.map((row, index) => {
     const diffClass = row.difference > 0.000001 ? "positiveDiff" : row.difference < -0.000001 ? "negativeDiff" : "";
     return `<tr><td class="num">${index + 1}</td><td>${escapeHtml(row.button)}B</td><td class="nameCell">${escapeHtml(row.name || "-")}</td><td>${escapeHtml(row.pattern || "-")}</td><td class="num">${escapeHtml(row.level ?? "-")}</td><td class="num">${Number(row.score).toFixed(2)}</td><td class="num">${row.original.toFixed(4)}</td><td class="num">${row.calculated.toFixed(4)}</td><td class="num ${diffClass}">${formatSigned(row.difference, 4)}</td></tr>`;
@@ -6152,6 +6155,45 @@ function renderDebugDjPowerChart(rows, maxAbsoluteDifference) {
   }).join("");
   debugDjPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="레벨과 score에 따른 DJPower 계산 오차 그래프"><defs><clipPath id="debugDjPowerPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" x="0" y="0" width="${width}" height="${height}"></rect>${grid}<g clip-path="url(#debugDjPowerPlotClip)">${dots}</g><text class="axisTitle" x="16" y="18">level</text><text class="axisTitle" x="${width - 74}" y="${height - 14}">score</text></svg>`;
   debugDjPowerChart.querySelectorAll(".debugDjPowerPoint").forEach((point) => {
+    point.addEventListener("pointermove", (event) => showDebugDjPowerTooltip(event, point.dataset.info));
+    point.addEventListener("pointerenter", (event) => showDebugDjPowerTooltip(event, point.dataset.info));
+    point.addEventListener("focus", (event) => showDebugDjPowerTooltip(event, point.dataset.info));
+    point.addEventListener("pointerleave", hideDebugChartTooltip);
+    point.addEventListener("blur", hideDebugChartTooltip);
+  });
+}
+
+function renderDebugDjPowerErrorChart(rows, maxAbsoluteDifference) {
+  const width = Math.max(760, debugDjPowerErrorChart.clientWidth || 1000);
+  const height = 330;
+  const pad = { left: 58, right: 24, top: 34, bottom: 52 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const scoreMin = Math.max(0, Math.floor((Math.min(...rows.map((row) => Number(row.score))) - 0.1) * 10) / 10);
+  const scoreMax = Math.min(100, Math.ceil((Math.max(...rows.map((row) => Number(row.score))) + 0.1) * 10) / 10);
+  const xSpan = Math.max(scoreMax - scoreMin, 0.2);
+  const observedMin = Math.min(...rows.map((row) => row.difference), 0);
+  const observedMax = Math.max(...rows.map((row) => row.difference), 0);
+  const yPadding = Math.max((observedMax - observedMin) * 0.12, maxAbsoluteDifference * 0.08, 0.002);
+  const yMin = observedMin - yPadding;
+  const yMax = observedMax + yPadding;
+  const ySpan = Math.max(yMax - yMin, 0.01);
+  const xFor = (score) => pad.left + ((score - scoreMin) / xSpan) * plotW;
+  const yFor = (difference) => pad.top + (1 - ((difference - yMin) / ySpan)) * plotH;
+  const xTicks = Array.from({ length: 6 }, (_, index) => scoreMin + (xSpan * index) / 5);
+  const yTicks = Array.from({ length: 5 }, (_, index) => yMin + (ySpan * index) / 4);
+  const grid = [
+    ...xTicks.map((value) => `<line class="chartGridLine" x1="${xFor(value)}" x2="${xFor(value)}" y1="${pad.top}" y2="${pad.top + plotH}"></line><text class="axisLabel" x="${xFor(value)}" y="${height - 30}" text-anchor="middle">${value.toFixed(2)}</text>`),
+    ...yTicks.map((value) => `<line class="chartGridLine" x1="${pad.left}" x2="${pad.left + plotW}" y1="${yFor(value)}" y2="${yFor(value)}"></line><text class="axisLabel" x="${pad.left - 10}" y="${yFor(value) + 4}" text-anchor="end">${formatSigned(value, 3)}</text>`),
+  ].join("");
+  const dots = rows.map((row) => {
+    const info = encodeURIComponent(JSON.stringify({ name: row.name || "", button: row.button, pattern: row.pattern || "", level: row.level, score: row.score, original: row.original, calculated: row.calculated, difference: row.difference }));
+    const color = debugDjPowerErrorColor(row.difference, maxAbsoluteDifference);
+    return `<circle class="chartDot debugDjPowerPoint" cx="${xFor(Number(row.score)).toFixed(2)}" cy="${yFor(row.difference).toFixed(2)}" r="4.4" style="fill:${color};stroke:${color}" data-info="${info}" tabindex="0"></circle>`;
+  }).join("");
+  const zeroY = yFor(0);
+  debugDjPowerErrorChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="score에 따른 DJPower 계산 오차 그래프"><defs><clipPath id="debugDjPowerErrorPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" x="0" y="0" width="${width}" height="${height}"></rect>${grid}<g clip-path="url(#debugDjPowerErrorPlotClip)"><line class="zeroLine" x1="${pad.left}" x2="${pad.left + plotW}" y1="${zeroY}" y2="${zeroY}"></line>${dots}</g><text class="axisTitle" x="16" y="18">calculated - original</text><text class="axisTitle" x="${width - 74}" y="${height - 14}">score</text></svg>`;
+  debugDjPowerErrorChart.querySelectorAll(".debugDjPowerPoint").forEach((point) => {
     point.addEventListener("pointermove", (event) => showDebugDjPowerTooltip(event, point.dataset.info));
     point.addEventListener("pointerenter", (event) => showDebugDjPowerTooltip(event, point.dataset.info));
     point.addEventListener("focus", (event) => showDebugDjPowerTooltip(event, point.dataset.info));

@@ -956,6 +956,18 @@ main {
   min-height: 430px;
 }
 
+.debugDjPowerChart + .debugDjPowerChart {
+  min-height: 330px;
+  margin-top: 14px;
+}
+
+.zeroLine {
+  stroke: var(--text);
+  stroke-width: 1.4;
+  stroke-dasharray: 5 4;
+  opacity: 0.72;
+}
+
 .debugErrorNegative {
   background: #d67661;
 }
