@@ -3549,7 +3549,7 @@ function getDjPowerHistorySeriesCacheKey(entries) {
   const history = entries.map((entry) => `${entry.id}|${entry.sourceUpdatedAt || ""}|${(entry.history || []).map((event) => `${event.ymdt}:${event.score}`).join(",")}`).sort().join(";");
   const releases = Object.entries(state.djPowerHistoryReleaseAtByTitle).sort(([a], [b]) => compare(a, b)).map(([title, time]) => `${title}:${time}`).join(",");
   return hashDjPowerHistoryCacheKey([
-    "v8",
+    "v9",
     buttonFilter.value,
     patternFilter.value,
     state.djPowerHistoryCatalogUpdatedAt,
@@ -3676,6 +3676,20 @@ function buildDjPowerHistorySeries(entries) {
         ? [...new Set(event.records.map((record) => record.button))]
         : [event.button];
     for (const button of affectedButtons) {
+      if (event.type === "snapshot") {
+        const currentRecords = event.records.filter((record) => record.button === button);
+        const basic = currentRecords.filter((record) => !isNewTabRecord(record.entry)).map((record) => record.value);
+        const newTab = currentRecords.filter((record) => isNewTabRecord(record.entry)).map((record) => record.value);
+        const rawSum = [...basic].sort((a, b) => b - a).slice(0, 70)
+          .concat([...newTab].sort((a, b) => b - a).slice(0, 30))
+          .reduce((total, value) => total + value, 0);
+        const multiplier = Number(getDjPowerTop100Scale(button)?.multiplier);
+        const sum = rawSum * (Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1);
+        const points = series.get(button);
+        const previous = points[points.length - 1];
+        if (!previous || Math.abs(previous.value - sum) > 0.0001) points.push({ time: event.time, value: sum });
+        continue;
+      }
       const values = valuesByButton.get(button);
       if (!values.size) continue;
       const basic = [];
