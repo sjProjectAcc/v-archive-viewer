@@ -149,6 +149,9 @@ const TOP_IMAGE_COLUMNS = 5;
 const TOP_IMAGE_ROWS = 6;
 const TOP_IMAGE_COUNT = TOP_IMAGE_COLUMNS * TOP_IMAGE_ROWS;
 const DJPOWER_TARGET_TOP100_MAX = 10000;
+// Tier manual graph approximation. Keep these together so the curve can be retuned easily.
+const TIER_POINT_CURVE = Object.freeze({ scale: 31.63619265, rate: 0.298122157, exponent: 0.773445314 });
+const TIER_NON_MAX_COMBO_PENALTY = 2;
 const DJPOWER_SC_DIFFICULTY_CONSTANTS = Object.freeze({
   15: 44, 14: 42, 13: 40, 12: 38, 11: 36,
   10: 34, 9: 32, 8: 30, 7: 29, 6: 28,
@@ -193,6 +196,8 @@ const columns = {
     ["button", "button"],
     ["rank", "rank"],
     ["rating", "rating"],
+    ["estimatedRating", "estimated rating"],
+    ["ratingError", "error"],
     ["maxRating", "maxrating"],
     ["ratingRate", "rate"],
     ["name", "name"],
@@ -5332,15 +5337,16 @@ function renderPointsSummary(rows) {
   const buttons = buttonFilter.value ? [buttonFilter.value] : BUTTONS.map(String);
   const allPointRows = buildPointRows(state.payload?.records || []);
   tableSummary.innerHTML = buttons.map((button) => {
-    const top50Sum = allPointRows
-      .filter((row) => String(row.button) === String(button) && row.rank <= 50)
-      .reduce((sum, row) => sum + Number(row.rating || 0), 0);
+    const top50Rows = allPointRows
+      .filter((row) => String(row.button) === String(button) && row.rank <= 50);
+    const top50Sum = top50Rows.reduce((sum, row) => sum + Number(row.rating || 0), 0);
+    const estimatedTop50Sum = top50Rows.reduce((sum, row) => sum + Number(row.estimatedRating || 0), 0);
     const tier = (state.payload?.tiers || []).find((row) => String(row.button) === String(button));
     const tierName = tier?.tierName || "-";
     return `<div class="tableMetric">
       <span>${escapeHtml(button)}B Rating TOP50</span>
       <strong>${top50Sum.toFixed(2)}</strong>
-      <small>Tier ${escapeHtml(tierName)} · ${rows.filter((row) => String(row.button) === String(button)).length} records</small>
+      <small>Est. ${estimatedTop50Sum.toFixed(2)} (${formatSigned(estimatedTop50Sum - top50Sum)}) · Tier ${escapeHtml(tierName)}</small>
     </div>`;
   }).join("");
   tableSummary.hidden = false;
@@ -5461,11 +5467,14 @@ function buildPointRows(records) {
     .map((row) => {
       const rating = Number(row.rating);
       const maxRating = Number(row.maxRating);
+      const estimatedRating = estimateTierRating(row.score, maxRating, row.maxCombo);
       return {
         ...row,
         floorName: getFloorLabel(row) || row.floorName,
         rating,
         maxRating,
+        estimatedRating,
+        ratingError: Number.isFinite(rating) && Number.isFinite(estimatedRating) ? estimatedRating - rating : NaN,
         ratingRate: Number.isFinite(rating) && Number.isFinite(maxRating) && maxRating > 0 ? (rating / maxRating) * 100 : NaN,
       };
     })
@@ -6510,6 +6519,24 @@ function scoreToPoint(score) {
   return Math.max(0, Math.min(10, point));
 }
 
+function tierPointPercentForScore(score) {
+  const value = Number(score);
+  if (!Number.isFinite(value)) return NaN;
+  const clampedScore = Math.min(100, Math.max(0, value));
+  const distance = 100 - clampedScore;
+  const { scale, rate, exponent } = TIER_POINT_CURVE;
+  const point = 100 - scale * Math.pow(1 - Math.exp(-rate * distance), exponent);
+  return Math.max(0, Math.min(100, point));
+}
+
+function estimateTierRating(score, maxRating, maxCombo) {
+  const pointPercent = tierPointPercentForScore(score);
+  const maximum = Number(maxRating);
+  if (!Number.isFinite(pointPercent) || !Number.isFinite(maximum) || maximum <= 0) return NaN;
+  const comboPenalty = maxCombo === true ? 0 : TIER_NON_MAX_COMBO_PENALTY;
+  return Math.max(0, maximum * pointPercent / 100 - comboPenalty);
+}
+
 function difficultyConstantForFloor(floorLabel, button) {
   const baseDifficultyConstant = baseDifficultyConstantForFloor(floorLabel);
   if (!Number.isFinite(baseDifficultyConstant)) return NaN;
@@ -6976,6 +7003,7 @@ function renderCell(row, key) {
   const classes = [];
   if (key === "name") classes.push("nameCell");
   if (key === "name" && isRecentRecord(row.updatedAt)) classes.push("recentName");
+  if (["estimatedRating", "ratingError"].includes(key)) classes.push("num");
   if (["button", "rank", "floor", "score", "previousScore", "currentScore", "mineScore", "otherScore", "scoreDiff", "previousLogPower", "currentLogPower", "mineLogPower", "otherLogPower", "logPowerDiff", "minePoint", "otherPoint", "pointDiff", "scorePoint", "difficultyConstant", "floorMaxPoint", "logPower", "rating", "maxRating", "ratingRate", "djpower", "maxDjpower", "rawDjPower", "normalizedDjPower", "normalizedMaxDjPower", "top50sum", "tierPoint", "nextRating", "djPowerSum", "djPowerConversion", "maxDjPower"].includes(key)) classes.push("num");
   if (key === "pattern") classes.push("pattern");
   if (key === "level") classes.push("level");
@@ -7028,7 +7056,7 @@ function formatValue(value, key = "") {
   if (["previousScore", "currentScore", "mineScore", "otherScore", "scoreDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
   if (["previousLogPower", "currentLogPower", "mineLogPower", "otherLogPower", "logPowerDiff", "absLogPowerDiff", "minePoint", "otherPoint", "pointDiff", "absPointDiff"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
   if (["scorePoint", "difficultyConstant", "floorMaxPoint", "logPower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
-  if (["rating", "maxRating", "djpower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
+  if (["rating", "estimatedRating", "ratingError", "maxRating", "djpower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
   if (key === "ratingRate" && Number.isFinite(Number(value))) return `${Number(value).toFixed(2)}%`;
   if (["rawDjPower", "normalizedDjPower", "normalizedMaxDjPower"].includes(key) && Number.isFinite(Number(value))) return Number(value).toFixed(2);
   if (["updatedAt", "generatedAt", "previousUpdatedAt", "currentUpdatedAt"].includes(key)) return formatDate(value);
