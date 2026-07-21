@@ -7,9 +7,11 @@ const state = {
   djPowerTop100MaxByButton: null,
   songNewTabByTitle: null,
   djPowerHistoryCatalog: null,
+  djPowerHistoryCatalogUpdatedAt: 0,
   djPowerHistoryReleaseAtByTitle: {},
   djPowerHistoryUpdateTimes: [],
   djPowerHistoryPreparing: null,
+  djPowerHistorySeriesCache: new Map(),
   floorPatternCounts: null,
   view: "chart",
   chartMetric: "score",
@@ -72,6 +74,7 @@ const TOP50_SCALE_CACHE_KEY = "vArchiveTop50ScaleCache0900DjPowerV2";
 const TOP50_SCALE_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 const DJPOWER_HISTORY_CATALOG_CACHE_KEY = "vArchiveDjPowerHistoryCatalogV1";
 const DJPOWER_HISTORY_RELEASE_CACHE_KEY = "vArchiveDjPowerHistoryReleaseV1";
+const DJPOWER_HISTORY_SERIES_CACHE_KEY = "vArchiveDjPowerHistorySeriesV1";
 const DJPOWER_HISTORY_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 const DJPOWER_NEW_RULE_CHANGED_AT = Date.parse("2025-09-11T00:00:00.000Z");
 const DJPOWER_BASE_DLC_CODES = new Set(["R", "RV", "P1", "P2"]);
@@ -3424,6 +3427,7 @@ async function ensureDjPowerHistoryMetadata() {
       metadata = buildDjPowerHistoryMetadata(source.songs, source.dlcs, dynamicCache.releaseAtByTitle);
     }
     state.djPowerHistoryCatalog = metadata.catalog;
+    state.djPowerHistoryCatalogUpdatedAt = Number(source.updatedAt) || 0;
     state.djPowerHistoryReleaseAtByTitle = metadata.releaseAtByTitle;
     state.djPowerHistoryUpdateTimes = metadata.updateTimes;
     return metadata;
@@ -3499,10 +3503,66 @@ function getHistoricalDjPowerTop100Scale(button, time) {
   return { rawMax, multiplier: DJPOWER_TARGET_TOP100_MAX / rawMax };
 }
 
+function hashDjPowerHistoryCacheKey(value) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function getDjPowerHistorySeriesCacheKey(entries) {
+  const history = entries.map((entry) => `${entry.id}|${entry.sourceUpdatedAt || ""}|${(entry.history || []).map((event) => `${event.ymdt}:${event.score}`).join(",")}`).sort().join(";");
+  const releases = Object.entries(state.djPowerHistoryReleaseAtByTitle).sort(([a], [b]) => compare(a, b)).map(([title, time]) => `${title}:${time}`).join(",");
+  return hashDjPowerHistoryCacheKey([
+    "v1",
+    buttonFilter.value,
+    patternFilter.value,
+    state.djPowerHistoryCatalogUpdatedAt,
+    state.djPowerHistoryUpdateTimes.join(","),
+    releases,
+    history,
+  ].join("|"));
+}
+
+function loadDjPowerHistorySeriesCache() {
+  try {
+    const cached = JSON.parse(appStorageGetItem(DJPOWER_HISTORY_SERIES_CACHE_KEY) || "null");
+    return cached?.entries && typeof cached.entries === "object" ? cached.entries : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveDjPowerHistorySeriesCache(cacheEntries) {
+  const kept = Object.entries(cacheEntries)
+    .sort(([, a], [, b]) => Number(b.savedAt || 0) - Number(a.savedAt || 0))
+    .slice(0, 16);
+  appStorageSetItem(DJPOWER_HISTORY_SERIES_CACHE_KEY, JSON.stringify({ entries: Object.fromEntries(kept) }));
+}
+
+function serializeHistorySeries(series) {
+  return Object.fromEntries([...series.entries()].map(([button, points]) => [button, points]));
+}
+
+function deserializeHistorySeries(serialized, buttons) {
+  return new Map(buttons.map((button) => [button, Array.isArray(serialized?.[button]) ? serialized[button] : []]));
+}
+
 function buildDjPowerHistorySeries(entries) {
   const selectedButton = buttonFilter.value;
   const selectedPattern = patternFilter.value;
   const buttons = selectedButton ? [Number(selectedButton)] : BUTTONS;
+  const cacheKey = getDjPowerHistorySeriesCacheKey(entries);
+  const memoryCached = state.djPowerHistorySeriesCache.get(cacheKey);
+  if (memoryCached) return constrainHistorySeries(deserializeHistorySeries(memoryCached, buttons), getHistoryTimeRange());
+  const storedCache = loadDjPowerHistorySeriesCache();
+  const stored = storedCache[cacheKey];
+  if (stored?.series) {
+    state.djPowerHistorySeriesCache.set(cacheKey, stored.series);
+    return constrainHistorySeries(deserializeHistorySeries(stored.series, buttons), getHistoryTimeRange());
+  }
   const series = new Map(buttons.map((button) => [button, []]));
   const valuesByButton = new Map(buttons.map((button) => [button, new Map()]));
   const events = [];
@@ -3547,6 +3607,10 @@ function buildDjPowerHistorySeries(entries) {
       if (!previous || Math.abs(previous.value - sum) > 0.0001) points.push({ time: event.time, value: sum });
     }
   }
+  const serialized = serializeHistorySeries(series);
+  state.djPowerHistorySeriesCache.set(cacheKey, serialized);
+  storedCache[cacheKey] = { savedAt: Date.now(), series: serialized };
+  saveDjPowerHistorySeriesCache(storedCache);
   return constrainHistorySeries(series, getHistoryTimeRange());
 }
 
