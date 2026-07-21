@@ -371,6 +371,9 @@ const debugScatterChart = document.querySelector("#debugScatterChart");
 const debugChartTooltip = document.querySelector("#debugChartTooltip");
 const debugFloorMaxLegend = document.querySelector("#debugFloorMaxLegend");
 const debugFloorTable = document.querySelector("#debugFloorTable");
+const debugDjPowerSummary = document.querySelector("#debugDjPowerSummary");
+const debugDjPowerChart = document.querySelector("#debugDjPowerChart");
+const debugDjPowerTable = document.querySelector("#debugDjPowerTable");
 const readmePanel = document.querySelector("#readmePanel");
 const overviewPanel = document.querySelector("#overviewPanel");
 const overviewTierTable = document.querySelector("#overviewTierTable");
@@ -6066,6 +6069,105 @@ function renderDebugView() {
     return `<tr><td>${floorLabel}</td><td class="num">${current.toFixed(2)}</td><td class="num">${simulated.toFixed(2)}</td><td class="num ${simulated >= current ? "positiveDiff" : "negativeDiff"}">${formatSigned(((simulated / current) - 1) * 100, 2)}%</td></tr>`;
   }).join("");
   debugFloorTable.innerHTML = `<thead><tr><th>floor</th><th>현재 base floorMax</th><th>시뮬레이션 base floorMax</th><th>변화율</th></tr></thead><tbody>${rows}</tbody>`;
+  renderDebugDjPowerDiagnostics(records);
+}
+
+function renderDebugDjPowerDiagnostics(records) {
+  const rows = records.map((record) => {
+    const original = Number(record.djpower);
+    const apiMax = Number(record.maxDjpower);
+    const rawMax = Number.isFinite(apiMax) ? apiMax : maxDjPowerForPattern(record.pattern, record.level);
+    const calculated = djPowerScoreRatio(Number(record.score)) * rawMax;
+    return {
+      ...record,
+      original,
+      calculated,
+      difference: calculated - original,
+    };
+  }).filter((row) => Number.isFinite(row.original) && Number.isFinite(row.calculated) && Number.isFinite(Number(row.level)) && Number.isFinite(Number(row.score)))
+    .sort((a, b) => b.original - a.original);
+
+  if (!rows.length) {
+    debugDjPowerSummary.innerHTML = `<div class="metric"><span>DJPower 진단</span><strong>원본 DJPower 기록 없음</strong></div>`;
+    debugDjPowerChart.innerHTML = `<div class="empty">표시할 DJPower 원본값이 없습니다.</div>`;
+    debugDjPowerTable.innerHTML = "";
+    return;
+  }
+
+  const absoluteDifferences = rows.map((row) => Math.abs(row.difference));
+  const meanAbsoluteDifference = absoluteDifferences.reduce((sum, value) => sum + value, 0) / rows.length;
+  const maxAbsoluteDifference = Math.max(...absoluteDifferences);
+  debugDjPowerSummary.innerHTML = [
+    ["비교 기록", `${rows.length.toLocaleString()}개`],
+    ["평균 절대 오차", meanAbsoluteDifference.toFixed(4)],
+    ["최대 절대 오차", maxAbsoluteDifference.toFixed(4)],
+  ].map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong><span>계산 - 원본</span></div>`).join("");
+
+  renderDebugDjPowerChart(rows, maxAbsoluteDifference);
+  debugDjPowerTable.innerHTML = `<thead><tr><th>순위</th><th>button</th><th>name</th><th>pattern</th><th>level</th><th>score</th><th>원본 DJPower</th><th>계산 DJPower</th><th>차이</th></tr></thead><tbody>${rows.map((row, index) => {
+    const diffClass = row.difference > 0.000001 ? "positiveDiff" : row.difference < -0.000001 ? "negativeDiff" : "";
+    return `<tr><td class="num">${index + 1}</td><td>${escapeHtml(row.button)}B</td><td class="nameCell">${escapeHtml(row.name || "-")}</td><td>${escapeHtml(row.pattern || "-")}</td><td class="num">${escapeHtml(row.level ?? "-")}</td><td class="num">${Number(row.score).toFixed(2)}</td><td class="num">${row.original.toFixed(4)}</td><td class="num">${row.calculated.toFixed(4)}</td><td class="num ${diffClass}">${formatSigned(row.difference, 4)}</td></tr>`;
+  }).join("")}</tbody>`;
+}
+
+function debugDjPowerErrorColor(difference, maxAbsoluteDifference) {
+  const ratio = Math.min(1, Math.abs(difference) / Math.max(maxAbsoluteDifference, 0.0001));
+  if (Math.abs(difference) < 0.0001) return "#8793a3";
+  if (difference > 0) return `rgb(${Math.round(104 - ratio * 54)}, ${Math.round(169 - ratio * 65)}, ${Math.round(218 - ratio * 36)})`;
+  return `rgb(${Math.round(214 + ratio * 31)}, ${Math.round(118 - ratio * 65)}, ${Math.round(112 - ratio * 51)})`;
+}
+
+function renderDebugDjPowerChart(rows, maxAbsoluteDifference) {
+  const width = Math.max(760, debugDjPowerChart.clientWidth || 1000);
+  const height = 430;
+  const pad = { left: 54, right: 24, top: 24, bottom: 52 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const scoreMin = Math.max(0, Math.floor((Math.min(...rows.map((row) => Number(row.score))) - 0.1) * 10) / 10);
+  const scoreMax = Math.min(100, Math.ceil((Math.max(...rows.map((row) => Number(row.score))) + 0.1) * 10) / 10);
+  const xSpan = Math.max(scoreMax - scoreMin, 0.2);
+  const levelMax = Math.max(15, ...rows.map((row) => Number(row.level)));
+  const xFor = (score) => pad.left + ((score - scoreMin) / xSpan) * plotW;
+  const yFor = (level) => pad.top + (1 - ((level - 1) / Math.max(1, levelMax - 1))) * plotH;
+  const xTicks = Array.from({ length: 6 }, (_, index) => scoreMin + (xSpan * index) / 5);
+  const yTicks = Array.from({ length: levelMax }, (_, index) => index + 1);
+  const grid = [
+    ...xTicks.map((value) => `<line class="chartGridLine" x1="${xFor(value)}" x2="${xFor(value)}" y1="${pad.top}" y2="${pad.top + plotH}"></line><text class="axisLabel" x="${xFor(value)}" y="${height - 30}" text-anchor="middle">${value.toFixed(2)}</text>`),
+    ...yTicks.map((value) => `<line class="chartGridLine" x1="${pad.left}" x2="${pad.left + plotW}" y1="${yFor(value)}" y2="${yFor(value)}"></line><text class="axisLabel" x="${pad.left - 10}" y="${yFor(value) + 4}" text-anchor="end">${value}</text>`),
+  ].join("");
+  const dots = rows.map((row) => {
+    const jitter = stableJitter(`djpower-error-${recordKey(row)}`) * Math.min(plotH / Math.max(18, levelMax * 2), 5);
+    const info = encodeURIComponent(JSON.stringify({
+      name: row.name || "",
+      button: row.button,
+      pattern: row.pattern || "",
+      level: row.level,
+      score: row.score,
+      original: row.original,
+      calculated: row.calculated,
+      difference: row.difference,
+    }));
+    return `<circle class="chartDot debugDjPowerPoint" cx="${xFor(Number(row.score)).toFixed(2)}" cy="${(yFor(Number(row.level)) + jitter).toFixed(2)}" r="4.4" fill="${debugDjPowerErrorColor(row.difference, maxAbsoluteDifference)}" data-info="${info}" tabindex="0"></circle>`;
+  }).join("");
+  debugDjPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="레벨과 score에 따른 DJPower 계산 오차 그래프"><defs><clipPath id="debugDjPowerPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" x="0" y="0" width="${width}" height="${height}"></rect>${grid}<g clip-path="url(#debugDjPowerPlotClip)">${dots}</g><text class="axisTitle" x="16" y="18">level</text><text class="axisTitle" x="${width - 74}" y="${height - 14}">score</text></svg>`;
+  debugDjPowerChart.querySelectorAll(".debugDjPowerPoint").forEach((point) => {
+    point.addEventListener("pointermove", (event) => showDebugDjPowerTooltip(event, point.dataset.info));
+    point.addEventListener("pointerenter", (event) => showDebugDjPowerTooltip(event, point.dataset.info));
+    point.addEventListener("focus", (event) => showDebugDjPowerTooltip(event, point.dataset.info));
+    point.addEventListener("pointerleave", hideDebugChartTooltip);
+    point.addEventListener("blur", hideDebugChartTooltip);
+  });
+}
+
+function showDebugDjPowerTooltip(event, encodedInfo) {
+  if (!encodedInfo) return;
+  const info = JSON.parse(decodeURIComponent(encodedInfo));
+  debugChartTooltip.innerHTML = `<strong>${escapeHtml(info.name)}</strong><span>${escapeHtml(info.button)}B · ${escapeHtml(info.pattern)} · Lv.${escapeHtml(info.level)} · score ${Number(info.score).toFixed(2)}</span><span>원본 ${Number(info.original).toFixed(4)} · 계산 ${Number(info.calculated).toFixed(4)}</span><span>차이 (계산 - 원본) ${escapeHtml(formatSigned(info.difference, 4))}</span>`;
+  debugChartTooltip.hidden = false;
+  const x = (event.clientX || window.innerWidth / 2) + 14;
+  const y = (event.clientY || window.innerHeight / 2) + 14;
+  debugChartTooltip.style.left = `${Math.max(12, Math.min(x, window.innerWidth - debugChartTooltip.offsetWidth - 12))}px`;
+  debugChartTooltip.style.top = `${Math.max(12, Math.min(y, window.innerHeight - debugChartTooltip.offsetHeight - 12))}px`;
 }
 
 function renderDebugScatter(records, relation, baseMaxByButton) {

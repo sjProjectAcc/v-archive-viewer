@@ -952,6 +952,22 @@ main {
   font-size: 12px;
 }
 
+.debugDjPowerChart {
+  min-height: 430px;
+}
+
+.debugErrorNegative {
+  background: #d67661;
+}
+
+.debugErrorNeutral {
+  background: #8793a3;
+}
+
+.debugErrorPositive {
+  background: #5095c8;
+}
+
 .chartLegend {
   display: flex;
   flex-wrap: wrap;

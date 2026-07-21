@@ -467,6 +467,22 @@
         <div id="debugScatterChart" class="svgChart debugScatterChart"></div>
       </section>
       <div class="overviewTableWrap"><table id="debugFloorTable"></table></div>
+      <section class="debugChartSection">
+        <div class="chartHeader">
+          <div>
+            <h3>DJPower 원본값 진단</h3>
+            <p>원본은 V-ARCHIVE API가 준 DJPower이며, 차이는 계산값 - 원본값입니다.</p>
+          </div>
+          <div class="chartLegend" aria-label="DJPower 오차 색상 범례">
+            <span><i class="dot debugErrorNegative"></i>계산값이 낮음</span>
+            <span><i class="dot debugErrorNeutral"></i>오차 작음</span>
+            <span><i class="dot debugErrorPositive"></i>계산값이 높음</span>
+          </div>
+        </div>
+        <div id="debugDjPowerSummary" class="summary"></div>
+        <div id="debugDjPowerChart" class="svgChart debugDjPowerChart"></div>
+      </section>
+      <div class="overviewTableWrap"><table id="debugDjPowerTable"></table></div>
       <div class="chartTooltip" id="debugChartTooltip" hidden></div>
     </section>
 
