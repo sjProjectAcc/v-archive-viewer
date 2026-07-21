@@ -3549,7 +3549,7 @@ function getDjPowerHistorySeriesCacheKey(entries) {
   const history = entries.map((entry) => `${entry.id}|${entry.sourceUpdatedAt || ""}|${(entry.history || []).map((event) => `${event.ymdt}:${event.score}`).join(",")}`).sort().join(";");
   const releases = Object.entries(state.djPowerHistoryReleaseAtByTitle).sort(([a], [b]) => compare(a, b)).map(([title, time]) => `${title}:${time}`).join(",");
   return hashDjPowerHistoryCacheKey([
-    "v9",
+    "v10",
     buttonFilter.value,
     patternFilter.value,
     state.djPowerHistoryCatalogUpdatedAt,
@@ -3586,11 +3586,8 @@ function deserializeHistorySeries(serialized, buttons) {
 }
 
 function getDjPowerHistorySnapshotTime() {
-  const latestUpdate = latestDjPowerUpdateAt(Date.now());
-  const latestRecord = Math.max(...(state.payload?.records || [])
-    .map((record) => new Date(record.updatedAt || "").getTime())
-    .filter(Number.isFinite));
-  return Math.max(Number.isFinite(latestUpdate) ? latestUpdate : 0, Number.isFinite(latestRecord) ? latestRecord : 0);
+  // The snapshot represents the currently loaded records, so it must follow every saved history event.
+  return Date.now();
 }
 
 function getCurrentDjPowerByRecordKey() {
