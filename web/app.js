@@ -23,6 +23,8 @@ const state = {
   chartXMode: "floor",
   compareChartMetric: "score",
   compareChartRanges: {},
+  compareChartExcludedByScope: {},
+  compareChartTooltipPinned: false,
   historyEntries: [],
   historyRows: [],
   historyMetric: "logPower",
@@ -294,6 +296,8 @@ const compareChartMaxInput = document.querySelector("#compareChartMaxInput");
 const compareChartOtherMinInput = document.querySelector("#compareChartOtherMinInput");
 const compareChartOtherMaxInput = document.querySelector("#compareChartOtherMaxInput");
 const compareChartAutoInput = document.querySelector("#compareChartAutoInput");
+const compareFloorTrendInput = document.querySelector("#compareFloorTrendInput");
+const compareChartExclusionResetButton = document.querySelector("#compareChartExclusionResetButton");
 const compareChartImageButton = document.querySelector("#compareChartImageButton");
 const compareScatterChart = document.querySelector("#compareScatterChart");
 const compareChartTooltip = document.querySelector("#compareChartTooltip");
@@ -822,6 +826,16 @@ function wireEvents() {
     saveSettings();
     renderCompareChart();
   });
+  compareFloorTrendInput.addEventListener("change", () => {
+    saveSettings();
+    renderCompareChart();
+  });
+  compareChartExclusionResetButton.addEventListener("click", () => {
+    const metric = getCompareChartMetric();
+    delete state.compareChartExcludedByScope[compareChartExclusionScope(metric.key)];
+    saveSettings();
+    renderCompareChart();
+  });
   compareChartImageButton.addEventListener("click", exportCompareChartImage);
   [xMinSelect, xMaxSelect, yMinInput, yMinAutoInput, yMaxInput, yMaxAutoInput].forEach((el) => {
     el.addEventListener("input", () => {
@@ -1033,9 +1047,11 @@ function applySavedSettings() {
   setIfOptionExists(recordsFloorMaxSelect, settings.recordsFloorMax || "17.3");
   setIfOptionExists(compareChartMetricSelect, settings.compareChartMetric || "score");
   setIfOptionExists(compareChartScaleModeSelect, settings.compareChartScaleMode || (settings.compareChartIndividualScale === true ? "individual" : "same"));
+  compareFloorTrendInput.checked = settings.compareFloorTrend !== false;
   syncCompareChartRangesForSharedScale();
   state.compareChartMetric = compareChartMetricSelect.value;
   state.compareChartRanges = settings.compareChartRanges || {};
+  state.compareChartExcludedByScope = settings.compareChartExcludedByScope || {};
   historyStartDate.value = settings.historyStartDate || "";
   historyEndDate.value = settings.historyEndDate || "";
   setIfOptionExists(historyMetricSelect, settings.historyMetric || "logPower");
@@ -1099,7 +1115,9 @@ function saveSettings() {
     recordsFloorMax: recordsFloorMaxSelect.value,
     compareChartMetric: compareChartMetricSelect.value,
     compareChartScaleMode: compareChartScaleModeSelect.value,
+    compareFloorTrend: compareFloorTrendInput.checked,
     compareChartRanges: state.compareChartRanges,
+    compareChartExcludedByScope: state.compareChartExcludedByScope,
     limitSelect: limitSelect.value,
     nameWidth: nameWidthInput.value,
     chartMetric: chartMetricSelect.value,
@@ -2528,8 +2546,12 @@ function renderCompareChart() {
   if (!state.payload || viewSelect.value !== "compare") return;
   renderCompareProfileSummary();
   const metric = getCompareChartMetric();
+  const excludedKeys = getCompareChartExcludedKeys(metric.key);
+  compareChartExclusionResetButton.hidden = excludedKeys.size === 0;
+  compareChartExclusionResetButton.textContent = `제외 초기화 (${excludedKeys.size})`;
   const rows = filterRows(buildCompareRows())
     .map((row) => ({ ...row, xValue: row[metric.mineKey], yValue: row[metric.otherKey] }))
+    .filter((row) => !excludedKeys.has(recordKey(row)))
     .filter((row) => Number.isFinite(row.xValue) && Number.isFinite(row.yValue));
   const mineName = state.payload.nickname || "내 계정";
   const otherName = state.comparePayload?.nickname || "비교 계정";
@@ -2618,7 +2640,9 @@ function renderCompareVectorChart({ rows, metric, mineName, otherName, xRange, y
       ${index === 0 ? "" : `<text class="compareVectorLabel" x="${otherStart.x - 8}" y="${otherStart.y + 18}" text-anchor="end">${otherLabel}</text>`}`;
   }).join("");
   const visibleRows = rows.filter((row) => row.xValue >= xRange.min && row.xValue <= xRange.max && row.yValue >= yRange.min && row.yValue <= yRange.max);
-  const floorTrend = buildCompareFloorTrend(visibleRows, (center) => pointFor(normalizedMine(center.xValue), normalizedOther(center.yValue)), { metric, mineName, otherName });
+  const floorTrend = compareFloorTrendInput.checked
+    ? buildCompareFloorTrend(visibleRows, (center) => pointFor(normalizedMine(center.xValue), normalizedOther(center.yValue)), { metric, mineName, otherName })
+    : "";
   const points = visibleRows.map((row) => {
     const point = pointFor(normalizedMine(row.xValue), normalizedOther(row.yValue));
     const diff = row.xValue - row.yValue;
@@ -2635,6 +2659,7 @@ function renderCompareVectorChart({ rows, metric, mineName, otherName, xRange, y
       mineValue: row.xValue,
       otherValue: row.yValue,
       diff,
+      key: recordKey(row),
     }));
     return `<circle class="chartDot compareChartPoint ${className}" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4.2" data-info="${info}" tabindex="0"></circle>`;
   }).join("");
@@ -2757,6 +2782,25 @@ function updateCompareChartRangeControls() {
   compareChartOtherMaxInput.disabled = lockOtherAxis;
 }
 
+function compareChartExclusionScope(metricKey) {
+  return `${cacheKey(state.payload?.nickname || getCurrentNickname())}|${cacheKey(state.comparePayload?.nickname || "")}|${metricKey}`;
+}
+
+function getCompareChartExcludedKeys(metricKey) {
+  return new Set(state.compareChartExcludedByScope[compareChartExclusionScope(metricKey)] || []);
+}
+
+function excludeCompareChartPoint(metricKey, key) {
+  const scope = compareChartExclusionScope(metricKey);
+  const keys = getCompareChartExcludedKeys(metricKey);
+  keys.add(key);
+  state.compareChartExcludedByScope[scope] = [...keys];
+  state.compareChartTooltipPinned = false;
+  hideCompareChartTooltip();
+  saveSettings();
+  renderCompareChart();
+}
+
 function syncCompareChartRangesForSharedScale() {
   if (compareChartScaleModeSelect.value !== "same") return;
   compareChartOtherMinInput.value = compareChartMinInput.value;
@@ -2773,11 +2817,16 @@ function formatCompareChartAxis(value, metricKey) {
 
 function bindCompareChartTooltips() {
   compareScatterChart.querySelectorAll(".compareChartPoint, .compareFloorMidpoint").forEach((point) => {
-    point.addEventListener("pointermove", (event) => showCompareChartTooltip(event, point.dataset.info));
-    point.addEventListener("pointerenter", (event) => showCompareChartTooltip(event, point.dataset.info));
-    point.addEventListener("focus", (event) => showCompareChartTooltip(event, point.dataset.info));
-    point.addEventListener("pointerleave", hideCompareChartTooltip);
-    point.addEventListener("blur", hideCompareChartTooltip);
+    point.addEventListener("pointermove", (event) => { if (!state.compareChartTooltipPinned) showCompareChartTooltip(event, point.dataset.info); });
+    point.addEventListener("pointerenter", (event) => { if (!state.compareChartTooltipPinned) showCompareChartTooltip(event, point.dataset.info); });
+    point.addEventListener("focus", (event) => { if (!state.compareChartTooltipPinned) showCompareChartTooltip(event, point.dataset.info); });
+    point.addEventListener("pointerleave", () => { if (!state.compareChartTooltipPinned) hideCompareChartTooltip(); });
+    point.addEventListener("blur", () => { if (!state.compareChartTooltipPinned) hideCompareChartTooltip(); });
+    point.addEventListener("click", (event) => {
+      if (!point.classList.contains("compareChartPoint")) return;
+      state.compareChartTooltipPinned = true;
+      showCompareChartTooltip(event, point.dataset.info);
+    });
   });
 }
 
@@ -2795,7 +2844,15 @@ function showCompareChartTooltip(event, encodedInfo) {
     <span>${escapeHtml(info.pattern)} · Lv.${escapeHtml(info.level)} · floor ${escapeHtml(info.floor)}</span>
     <span>${escapeHtml(info.mineName)} ${escapeHtml(formatCompareMetricValue(info.mineValue, info.metricKey))}</span>
     <span>${escapeHtml(info.otherName)} ${escapeHtml(formatCompareMetricValue(info.otherValue, info.metricKey))}</span>
-    <span>차이 ${escapeHtml(formatSignedCompareMetric(info.diff, info.metricKey))}</span>`;
+    <span>차이 ${escapeHtml(formatSignedCompareMetric(info.diff, info.metricKey))}</span>
+    ${info.key ? `<button class="chartTooltipAction" type="button" data-compare-exclude="${escapeHtml(info.key)}" data-compare-metric="${escapeHtml(info.metricKey)}">이 그래프에서 제외</button>` : ""}`;
+  }
+  const excludeButton = compareChartTooltip.querySelector("[data-compare-exclude]");
+  if (excludeButton) {
+    compareChartTooltip.classList.add("hasAction");
+    excludeButton.addEventListener("click", () => excludeCompareChartPoint(excludeButton.dataset.compareMetric, excludeButton.dataset.compareExclude));
+  } else {
+    compareChartTooltip.classList.remove("hasAction");
   }
   compareChartTooltip.hidden = false;
   const x = (event.clientX || window.innerWidth / 2) + 14;
@@ -2815,6 +2872,8 @@ function formatSignedCompareMetric(value, metricKey) {
 }
 
 function hideCompareChartTooltip() {
+  state.compareChartTooltipPinned = false;
+  compareChartTooltip.classList.remove("hasAction");
   compareChartTooltip.hidden = true;
 }
 

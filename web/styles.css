@@ -1416,6 +1416,26 @@ main {
   display: block;
 }
 
+.chartTooltip.hasAction {
+  pointer-events: auto;
+}
+
+.chartTooltipAction {
+  width: 100%;
+  margin-top: 8px;
+  padding: 5px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 4px;
+  background: #173f67;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chartTooltipAction:hover {
+  background: #0f2f52;
+}
+
 .chartTooltip strong {
   margin-bottom: 3px;
   font-size: 13px;
