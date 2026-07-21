@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::Mutex,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 use tauri::{AppHandle, Manager, State};
 
@@ -466,13 +466,22 @@ async fn fetch_pattern_grade_history(title: u32) -> Result<Value, String> {
 }
 
 async fn fetch_update_manifest() -> Result<UpdateManifest, String> {
+    let channel = update_channel();
+    let mut manifest_url = update_manifest_url().to_string();
+    if channel == "test" {
+        let cache_buster = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        manifest_url.push_str(&format!("?build-check={cache_buster}"));
+    }
     let response = Client::builder()
         .user_agent("V-LOG-Updater/0.1")
         .connect_timeout(HTTP_CONNECT_TIMEOUT)
         .timeout(UPDATE_CHECK_TIMEOUT)
         .build()
         .map_err(|error| format!("업데이트 클라이언트 생성 실패: {error}"))?
-        .get(update_manifest_url())
+        .get(manifest_url)
         .header(reqwest::header::ACCEPT, "application/json")
         .header(reqwest::header::CACHE_CONTROL, "no-cache, no-store")
         .send()
@@ -548,6 +557,8 @@ fn build_update_script(
     let source = powershell_quote(&stage_path.join("v-archive-viewer.exe"));
     let repair_target = powershell_quote(&install_dir.join("v-archive-repair.bat"));
     let repair_source = powershell_quote(&stage_path.join("v-archive-repair.bat"));
+    let test_marker_target = powershell_quote(&install_dir.join(TEST_MARKER_FILE));
+    let test_marker_source = powershell_quote(&stage_path.join(TEST_MARKER_FILE));
     let working_dir = powershell_quote(install_dir);
     let log = powershell_quote(log_path);
     [
@@ -564,6 +575,7 @@ fn build_update_script(
         format!("  Expand-Archive -LiteralPath {zip} -DestinationPath {stage} -Force"),
         format!("  if (-not (Test-Path -LiteralPath {source})) {{ throw '업데이트 EXE를 찾을 수 없습니다.' }}"),
         format!("  Copy-Item -LiteralPath {source} -Destination {target} -Force"),
+        format!("  if (Test-Path -LiteralPath {test_marker_source}) {{ Copy-Item -LiteralPath {test_marker_source} -Destination {test_marker_target} -Force }}"),
         format!("  if ((-not (Test-Path -LiteralPath {repair_target})) -and (Test-Path -LiteralPath {repair_source})) {{ Copy-Item -LiteralPath {repair_source} -Destination {repair_target} }}"),
         format!("  Start-Process -FilePath {target} -WorkingDirectory {working_dir}"),
         format!("  Remove-Item -LiteralPath {zip} -Force -ErrorAction SilentlyContinue"),
@@ -601,10 +613,15 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
         return Err("업데이트 버전 형식이 올바르지 않습니다.".into());
     }
 
-    let download_url = Url::parse(&manifest.url)
+    let mut download_url = Url::parse(&manifest.url)
         .map_err(|error| format!("업데이트 다운로드 URL 오류: {error}"))?;
     if download_url.scheme() != "https" || download_url.host_str() != Some(UPDATE_HOST) {
         return Err("허용되지 않은 업데이트 다운로드 주소입니다.".into());
+    }
+    if channel == "test" {
+        download_url
+            .query_pairs_mut()
+            .append_pair("build", &manifest.build.to_string());
     }
 
     let response = Client::builder()
@@ -724,6 +741,7 @@ mod tests {
             "$webviewRoot = Join-Path $env:LOCALAPPDATA 'net.varchive.viewer\\EBWebView'"
         ));
         assert!(script.contains("Default\\Service Worker"));
+        assert!(script.contains("Copy-Item -LiteralPath 'C:\\temp\\stage\\TEST.txt' -Destination 'C:\\app\\TEST.txt' -Force"));
     }
 
     #[test]
