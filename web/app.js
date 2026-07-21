@@ -45,6 +45,8 @@ const state = {
   hangyTagsTargets: [],
   hangyTagsLoading: false,
   hangyTagsStatus: "",
+  hangyTagsSortKey: "name",
+  hangyTagsSortDir: "asc",
   isTestMode: false,
   sortKey: null,
   sortDir: "asc",
@@ -1685,7 +1687,17 @@ function normalizeHangyTagRow(record, response) {
     hangySong: response?.data?.song || {},
     hangyTags: Array.isArray(response?.data?.tags) ? response.data.tags : [],
     traits: values,
+    traitTotal: HANGY_TAG_CODES.reduce((sum, code) => sum + (Number(values[code]) || 0), 0),
   };
+}
+
+function toggleHangyTagsSort(key) {
+  if (state.hangyTagsSortKey === key) state.hangyTagsSortDir = state.hangyTagsSortDir === "asc" ? "desc" : "asc";
+  else {
+    state.hangyTagsSortKey = key;
+    state.hangyTagsSortDir = key === "name" ? "asc" : "desc";
+  }
+  renderHangyTagsView();
 }
 
 async function collectHangyTags(force) {
@@ -1755,14 +1767,23 @@ async function collectHangyTags(force) {
 function renderHangyTagsView() {
   if (viewSelect.value !== "hangyTags") return;
   const targets = hangyTargets();
-  const rows = [...state.hangyTagsRows].sort((a, b) => compare(a.name, b.name) || compare(a.title, b.title));
+  const sortKey = state.hangyTagsSortKey;
+  const sortDir = state.hangyTagsSortDir === "asc" ? 1 : -1;
+  const traitTotal = (row) => HANGY_TAG_CODES.reduce((sum, code) => sum + (Number(row.traits?.[code]) || 0), 0);
+  const valueForSort = (row, key) => key === "traitTotal" ? traitTotal(row) : HANGY_TAG_CODES.includes(key) ? row.traits?.[key] : row[key];
+  const rows = [...state.hangyTagsRows].sort((a, b) => sortDir * compareForSort(valueForSort(a, sortKey), valueForSort(b, sortKey)) || compare(a.title, b.title));
   hangyTagsStatus.textContent = state.hangyTagsStatus || `${targets.length}개 패턴의 태그 수집이 필요합니다.`;
   hangyTagsSummary.textContent = `${hangyTagsButtonSelect.value}B · ${hangyTagsPatternSelect.value} · 현재 기록 ${targets.length}개 · 태그 수집 ${rows.length}개`;
   if (!rows.length) {
     hangyTagsTable.innerHTML = `<tbody><tr><td class="empty">태그 수집을 누르면 기록 유무와 관계없이 선택한 모든 패턴의 태그를 가져옵니다.</td></tr></tbody>`;
     return;
   }
-  hangyTagsTable.innerHTML = `<thead><tr><th>title</th><th>name</th><th>level</th><th>score</th>${HANGY_TAG_CODES.map((code) => `<th>${escapeHtml(code)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr><td class="num">${escapeHtml(row.title)}</td><td class="nameCell">${escapeHtml(row.name)}</td><td class="num">${escapeHtml(row.level ?? "-")}</td><td class="num">${Number.isFinite(Number(row.score)) ? Number(row.score).toFixed(2) : "-"}</td>${HANGY_TAG_CODES.map((code) => `<td class="num">${Number(row.traits?.[code]) || 0}</td>`).join("")}</tr>`).join("")}</tbody>`;
+  const columns = [["title", "title"], ["name", "name"], ["level", "level"], ["score", "score"], ["traitTotal", "sum"], ...HANGY_TAG_CODES.map((code) => [code, code])];
+  const sortMark = (key) => state.hangyTagsSortKey === key ? (state.hangyTagsSortDir === "asc" ? " ▲" : " ▼") : "";
+  hangyTagsTable.innerHTML = `<thead><tr>${columns.map(([key, label]) => `<th data-hangy-key="${escapeHtml(key)}">${escapeHtml(label)}${sortMark(key)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr><td class="num">${escapeHtml(row.title)}</td><td class="nameCell">${escapeHtml(row.name)}</td><td class="num">${escapeHtml(row.level ?? "-")}</td><td class="num">${Number.isFinite(Number(row.score)) ? Number(row.score).toFixed(2) : "-"}</td><td class="num">${traitTotal(row)}</td>${HANGY_TAG_CODES.map((code) => `<td class="num">${Number(row.traits?.[code]) || 0}</td>`).join("")}</tr>`).join("")}</tbody>`;
+  hangyTagsTable.querySelectorAll("th[data-hangy-key]").forEach((header) => {
+    header.addEventListener("click", () => toggleHangyTagsSort(header.dataset.hangyKey));
+  });
 }
 
 function renderTagsView() {
