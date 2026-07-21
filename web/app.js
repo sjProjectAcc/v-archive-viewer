@@ -287,7 +287,7 @@ const compareChartPanel = document.querySelector("#compareChartPanel");
 const compareProfileSummary = document.querySelector("#compareProfileSummary");
 const compareChartTitle = document.querySelector("#compareChartTitle");
 const compareChartDescription = document.querySelector("#compareChartDescription");
-const compareChartIndividualScaleInput = document.querySelector("#compareChartIndividualScaleInput");
+const compareChartScaleModeSelect = document.querySelector("#compareChartScaleModeSelect");
 const compareChartMetricSelect = document.querySelector("#compareChartMetricSelect");
 const compareChartMinInput = document.querySelector("#compareChartMinInput");
 const compareChartMaxInput = document.querySelector("#compareChartMaxInput");
@@ -402,6 +402,8 @@ const readmePanel = document.querySelector("#readmePanel");
 const overviewPanel = document.querySelector("#overviewPanel");
 const overviewTierTable = document.querySelector("#overviewTierTable");
 const overviewDjClassTable = document.querySelector("#overviewDjClassTable");
+const overviewErrorSection = document.querySelector("#overviewErrorSection");
+const overviewErrorTable = document.querySelector("#overviewErrorTable");
 const nativeOnlyEls = document.querySelectorAll(".nativeOnly");
 const webOnlyEls = document.querySelectorAll(".webOnly");
 const desktopOnlyEls = document.querySelectorAll(".desktopOnly");
@@ -798,7 +800,7 @@ function wireEvents() {
     saveSettings();
     renderCompareChart();
   });
-  compareChartIndividualScaleInput.addEventListener("change", () => {
+  compareChartScaleModeSelect.addEventListener("change", () => {
     syncCompareChartRangesForSharedScale();
     updateCompareChartRangeControls();
     saveSettings();
@@ -1030,7 +1032,7 @@ function applySavedSettings() {
   setIfOptionExists(recordsFloorMinSelect, settings.recordsFloorMin || "1.1");
   setIfOptionExists(recordsFloorMaxSelect, settings.recordsFloorMax || "17.3");
   setIfOptionExists(compareChartMetricSelect, settings.compareChartMetric || "score");
-  compareChartIndividualScaleInput.checked = settings.compareChartIndividualScale === true;
+  setIfOptionExists(compareChartScaleModeSelect, settings.compareChartScaleMode || (settings.compareChartIndividualScale === true ? "individual" : "same"));
   syncCompareChartRangesForSharedScale();
   state.compareChartMetric = compareChartMetricSelect.value;
   state.compareChartRanges = settings.compareChartRanges || {};
@@ -1096,7 +1098,7 @@ function saveSettings() {
     recordsFloorMin: recordsFloorMinSelect.value,
     recordsFloorMax: recordsFloorMaxSelect.value,
     compareChartMetric: compareChartMetricSelect.value,
-    compareChartIndividualScale: compareChartIndividualScaleInput.checked,
+    compareChartScaleMode: compareChartScaleModeSelect.value,
     compareChartRanges: state.compareChartRanges,
     limitSelect: limitSelect.value,
     nameWidth: nameWidthInput.value,
@@ -2554,8 +2556,9 @@ function renderCompareChart() {
   const sharedAutoRange = getCompareChartRange(rows.flatMap((row) => [row.xValue, row.yValue]), metric.key);
   let xRange = getManualCompareChartRange(compareChartMinInput, compareChartMaxInput, xAutoRange);
   let yRange = getManualCompareChartRange(compareChartOtherMinInput, compareChartOtherMaxInput, yAutoRange);
-  const useIndividualScale = compareChartIndividualScaleInput.checked;
-  if (compareChartAutoInput.checked && !useIndividualScale) {
+  const scaleMode = compareChartScaleModeSelect.value;
+  const usesSharedRange = scaleMode === "same";
+  if (compareChartAutoInput.checked && usesSharedRange) {
     xRange = sharedAutoRange;
     yRange = sharedAutoRange;
     compareChartMinInput.value = formatCompareRangeInput(xRange.min);
@@ -2569,7 +2572,7 @@ function renderCompareChart() {
     compareChartMaxInput.value = formatCompareRangeInput(xRange.max);
     compareChartOtherMinInput.value = formatCompareRangeInput(yRange.min);
     compareChartOtherMaxInput.value = formatCompareRangeInput(yRange.max);
-  } else if (!useIndividualScale) {
+  } else if (usesSharedRange) {
     yRange = xRange;
     compareChartOtherMinInput.value = compareChartMinInput.value;
     compareChartOtherMaxInput.value = compareChartMaxInput.value;
@@ -2580,9 +2583,9 @@ function renderCompareChart() {
 function renderCompareVectorChart({ rows, metric, mineName, otherName, xRange, yRange, width, height, pad, plotW, plotH }) {
   const mineSpan = xRange.max - xRange.min;
   const otherSpan = yRange.max - yRange.min;
-  const useIndividualScale = compareChartIndividualScaleInput.checked;
-  const mineWeight = useIndividualScale ? 1 : mineSpan;
-  const otherWeight = useIndividualScale ? 1 : otherSpan;
+  const scaleMode = compareChartScaleModeSelect.value;
+  const mineWeight = scaleMode === "parallelogram" ? mineSpan : 1;
+  const otherWeight = scaleMode === "parallelogram" ? otherSpan : 1;
   const weightTotal = mineWeight + otherWeight;
   const mineVector = { x: (plotW * mineWeight) / weightTotal, y: (-plotH * mineWeight) / weightTotal };
   const otherVector = { x: (-plotW * otherWeight) / weightTotal, y: (-plotH * otherWeight) / weightTotal };
@@ -2749,13 +2752,13 @@ function restoreCompareChartRange(metricKey) {
 function updateCompareChartRangeControls() {
   compareChartMinInput.disabled = compareChartAutoInput.checked;
   compareChartMaxInput.disabled = compareChartAutoInput.checked;
-  const lockOtherAxis = compareChartAutoInput.checked || !compareChartIndividualScaleInput.checked;
+  const lockOtherAxis = compareChartAutoInput.checked || compareChartScaleModeSelect.value === "same";
   compareChartOtherMinInput.disabled = lockOtherAxis;
   compareChartOtherMaxInput.disabled = lockOtherAxis;
 }
 
 function syncCompareChartRangesForSharedScale() {
-  if (compareChartIndividualScaleInput.checked) return;
+  if (compareChartScaleModeSelect.value !== "same") return;
   compareChartOtherMinInput.value = compareChartMinInput.value;
   compareChartOtherMaxInput.value = compareChartMaxInput.value;
 }
@@ -2866,7 +2869,8 @@ async function drawCompareChartImage(svg) {
   ctx.fillText(`${mineName} vs ${otherName} · ${metric.label}`, margin, margin + 34);
   ctx.fillStyle = "#687282";
   ctx.font = "16px Segoe UI, Malgun Gothic, Arial";
-  const rangeLabel = `내 ${compareChartMinInput.value}-${compareChartMaxInput.value} · 상대 ${compareChartOtherMinInput.value}-${compareChartOtherMaxInput.value} · ${compareChartIndividualScaleInput.checked ? "개별 scale" : "동일 scale"}`;
+  const scaleModeLabel = { same: "동일", parallelogram: "평행사변형", individual: "개별 scale" }[compareChartScaleModeSelect.value] || "동일";
+  const rangeLabel = `내 ${compareChartMinInput.value}-${compareChartMaxInput.value} · 상대 ${compareChartOtherMinInput.value}-${compareChartOtherMaxInput.value} · ${scaleModeLabel}`;
   ctx.fillText(`${modeLabel} · ${rangeLabel}`, margin, margin + 66);
   const version = document.querySelector('meta[name="v-archive-version"]')?.content || "local";
   ctx.textAlign = "right";
@@ -4283,15 +4287,13 @@ function renderOverview() {
   renderSummary();
   renderOverviewTable(overviewTierTable, "tiers", state.payload.tiers || []);
   renderOverviewTable(overviewDjClassTable, "djClasses", state.payload.djClasses || []);
+  const errors = state.payload.errors || [];
+  overviewErrorSection.hidden = errors.length === 0;
+  if (errors.length) renderOverviewTable(overviewErrorTable, "errors", errors);
 }
 
 function renderOverviewTable(table, view, sourceRows) {
-  const button = buttonFilter.value;
-  const query = searchInput.value.trim().toLowerCase();
-  const rows = sourceRows
-    .filter((row) => !button || String(row.button) === button)
-    .filter((row) => !query || JSON.stringify(row).toLowerCase().includes(query))
-    .sort((a, b) => compare(a.button, b.button));
+  const rows = [...sourceRows].sort((a, b) => compare(a.button, b.button));
   const colDefs = columns[view] || [];
   if (!rows.length) {
     table.innerHTML = `<tbody><tr><td class="empty">표시할 데이터가 없습니다.</td></tr></tbody>`;

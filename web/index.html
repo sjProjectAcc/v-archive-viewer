@@ -241,9 +241,13 @@
           <p id="compareChartDescription">X축은 내 계정, Y축은 비교 계정입니다.</p>
         </div>
         <div class="chartControls">
-          <label class="checkLabel compareVectorScale">
-            개별 scale
-            <input id="compareChartIndividualScaleInput" type="checkbox">
+          <label class="compareVectorScale">
+            scale
+            <select id="compareChartScaleModeSelect">
+              <option value="same">동일</option>
+              <option value="parallelogram">평행사변형</option>
+              <option value="individual">개별 scale</option>
+            </select>
           </label>
           <label>
             수치
@@ -546,6 +550,10 @@
         <section class="overviewTableSection">
           <h2>DJClass</h2>
           <div class="overviewTableWrap"><table id="overviewDjClassTable"></table></div>
+        </section>
+        <section class="overviewTableSection overviewErrorSection" id="overviewErrorSection" hidden>
+          <h2>오류 기록</h2>
+          <div class="overviewTableWrap"><table id="overviewErrorTable"></table></div>
         </section>
       </div>
     </section>

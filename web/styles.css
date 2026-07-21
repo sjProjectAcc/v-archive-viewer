@@ -1221,6 +1221,10 @@ main {
   min-width: 0;
 }
 
+.overviewErrorSection {
+  grid-column: 1 / -1;
+}
+
 .overviewTableWrap {
   max-width: 100%;
   overflow-x: auto;
