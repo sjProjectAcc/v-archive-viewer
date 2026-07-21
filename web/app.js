@@ -3520,7 +3520,7 @@ function getDjPowerHistorySeriesCacheKey(entries) {
   const history = entries.map((entry) => `${entry.id}|${entry.sourceUpdatedAt || ""}|${(entry.history || []).map((event) => `${event.ymdt}:${event.score}`).join(",")}`).sort().join(";");
   const releases = Object.entries(state.djPowerHistoryReleaseAtByTitle).sort(([a], [b]) => compare(a, b)).map(([title, time]) => `${title}:${time}`).join(",");
   return hashDjPowerHistoryCacheKey([
-    "v4",
+    "v5",
     buttonFilter.value,
     patternFilter.value,
     state.djPowerHistoryCatalogUpdatedAt,
@@ -5890,7 +5890,19 @@ function buildDjPowerGroupRows(records, group, limit, multiplier) {
     .map((row, index) => ({ ...row, rank: index + 1 }));
 }
 
-function djPowerScoreRatio(score) {
+const DJPOWER_RATIO_CORRECTIONS = [
+  { min: 90, max: 94.5, coefficients: [0.00186212976663, -0.00879920541401, 0.00824326266798] },
+  { min: 94.5, max: 95.5, coefficients: [0.000662350441154, -0.0039894650279, 0.00613346654864] },
+  { min: 95.5, max: 96, coefficients: [0.00267165459431, 0.00606779936142, -0.00881800793194] },
+  { min: 96, max: 96.5, coefficients: [-0.000496363718609, -0.034825051055, 0.00139598197779] },
+  { min: 96.5, max: 97.5, coefficients: [0.00300140204701, 0.00290140366776, -0.00436613645528] },
+  { min: 97.5, max: 98, coefficients: [0.000743661680381, 0.00176544561258, -0.00643012112583] },
+  { min: 98, max: 98.5, coefficients: [0.000843528220612, 0.00717951168991, -0.00543145975773] },
+  { min: 98.5, max: 99, coefficients: [0.00334551624811, 0.00082840170078, -0.00378639170941] },
+  { min: 99, max: 100, coefficients: [0.000347849559633, 0.00603496431619], fixedEnd: true },
+];
+
+function djPowerScoreRatioBase(score) {
   const x = Number(score);
   if (!Number.isFinite(x) || x < 90 || x > 100) return 0;
   const lowExponential = (value) => (24 / 135) * Math.exp((8 / 9) * (value - 95)) + 0.125;
@@ -5910,6 +5922,25 @@ function djPowerScoreRatio(score) {
   if (x < 99) return logarithmic * ((x - 44) / 50);
   if (x < 100) return (8 / 27) * Math.log((x - 95) / 5) + 1;
   return 1;
+}
+
+function djPowerScoreCorrection(score) {
+  const x = Number(score);
+  if (!Number.isFinite(x) || x < 90 || x >= 100) return 0;
+  const segment = DJPOWER_RATIO_CORRECTIONS.find(({ min, max }) => x >= min && x < max);
+  if (!segment) return 0;
+  const t = (x - segment.min) / (segment.max - segment.min);
+  const [a, b, c = 0] = segment.coefficients;
+  return segment.fixedEnd
+    ? (1 - t) * (a + b * t)
+    : a + b * t + c * t * t;
+}
+
+function djPowerScoreRatio(score) {
+  const x = Number(score);
+  const base = djPowerScoreRatioBase(x);
+  if (!Number.isFinite(x) || x < 90 || x > 100 || x === 100) return base;
+  return Math.min(1, Math.max(0, base + djPowerScoreCorrection(x)));
 }
 
 function renderDjPowerTop100Summary(rows) {
@@ -6100,6 +6131,7 @@ function renderDebugDjPowerDiagnostics(records) {
   const meanAbsoluteDifference = absoluteDifferences.reduce((sum, value) => sum + value, 0) / rows.length;
   const maxAbsoluteDifference = Math.max(...absoluteDifferences);
   debugDjPowerSummary.innerHTML = [
+    ["보정 표본", "4계정 · 1,503개"],
     ["비교 기록", `${rows.length.toLocaleString()}개`],
     ["평균 절대 오차", meanAbsoluteDifference.toFixed(4)],
     ["최대 절대 오차", maxAbsoluteDifference.toFixed(4)],
@@ -6107,7 +6139,7 @@ function renderDebugDjPowerDiagnostics(records) {
 
   renderDebugDjPowerChart(rows, maxAbsoluteDifference);
   renderDebugDjPowerErrorChart(rows, maxAbsoluteDifference);
-  debugDjPowerTable.innerHTML = `<thead><tr><th>순위</th><th>button</th><th>name</th><th>pattern</th><th>level</th><th>score</th><th>원본 DJPower</th><th>계산 DJPower</th><th>차이</th></tr></thead><tbody>${rows.map((row, index) => {
+  debugDjPowerTable.innerHTML = `<thead><tr><th>순위</th><th>button</th><th>name</th><th>pattern</th><th>level</th><th>score</th><th>원본 DJPower</th><th>보정 계산 DJPower</th><th>차이</th></tr></thead><tbody>${rows.map((row, index) => {
     const diffClass = row.difference > 0.000001 ? "positiveDiff" : row.difference < -0.000001 ? "negativeDiff" : "";
     return `<tr><td class="num">${index + 1}</td><td>${escapeHtml(row.button)}B</td><td class="nameCell">${escapeHtml(row.name || "-")}</td><td>${escapeHtml(row.pattern || "-")}</td><td class="num">${escapeHtml(row.level ?? "-")}</td><td class="num">${Number(row.score).toFixed(2)}</td><td class="num">${row.original.toFixed(4)}</td><td class="num">${row.calculated.toFixed(4)}</td><td class="num ${diffClass}">${formatSigned(row.difference, 4)}</td></tr>`;
   }).join("")}</tbody>`;
@@ -6205,7 +6237,7 @@ function renderDebugDjPowerErrorChart(rows, maxAbsoluteDifference) {
 function showDebugDjPowerTooltip(event, encodedInfo) {
   if (!encodedInfo) return;
   const info = JSON.parse(decodeURIComponent(encodedInfo));
-  debugChartTooltip.innerHTML = `<strong>${escapeHtml(info.name)}</strong><span>${escapeHtml(info.button)}B · ${escapeHtml(info.pattern)} · Lv.${escapeHtml(info.level)} · score ${Number(info.score).toFixed(2)}</span><span>원본 ${Number(info.original).toFixed(4)} · 계산 ${Number(info.calculated).toFixed(4)}</span><span>차이 (계산 - 원본) ${escapeHtml(formatSigned(info.difference, 4))}</span>`;
+  debugChartTooltip.innerHTML = `<strong>${escapeHtml(info.name)}</strong><span>${escapeHtml(info.button)}B · ${escapeHtml(info.pattern)} · Lv.${escapeHtml(info.level)} · score ${Number(info.score).toFixed(2)}</span><span>원본 ${Number(info.original).toFixed(4)} · 보정 계산 ${Number(info.calculated).toFixed(4)}</span><span>차이 (보정 계산 - 원본) ${escapeHtml(formatSigned(info.difference, 4))}</span>`;
   debugChartTooltip.hidden = false;
   const x = (event.clientX || window.innerWidth / 2) + 14;
   const y = (event.clientY || window.innerHeight / 2) + 14;
