@@ -3353,7 +3353,12 @@ function buildDjPowerHistoryMetadata(songs, dlcs, dynamicReleaseAtByTitle = {}) 
   for (const song of Array.isArray(songs) ? songs : []) {
     const title = String(song?.title);
     if (!title || title === "undefined") continue;
-    const compact = { title: Number(song.title), name: song.name || "", dlcCode: String(song.dlcCode || "") };
+    const compact = {
+      title: Number(song.title),
+      name: song.name || "",
+      dlcCode: String(song.dlcCode || ""),
+      patterns: song.patterns && typeof song.patterns === "object" ? song.patterns : {},
+    };
     catalog[title] = compact;
     const fixedAt = parseDjPowerDate(DJPOWER_STATIC_RELEASE_BY_TITLE[title]);
     const namedAt = releaseByName.get(normalizeDjPowerSongName(compact.name));
@@ -3469,6 +3474,31 @@ function isDjPowerNewAt(entry, time) {
   return releaseAt === latestRelease;
 }
 
+function getHistoricalDjPowerTop100Scale(button, time) {
+  const updateAt = latestDjPowerUpdateAt(time);
+  if (!Number.isFinite(updateAt) || !state.djPowerHistoryCatalog) return getDjPowerTop100Scale(button);
+  const basicMaxes = [];
+  const newMaxes = [];
+  for (const song of Object.values(state.djPowerHistoryCatalog)) {
+    const releaseAt = Number(state.djPowerHistoryReleaseAtByTitle[String(song.title)]);
+    if (!Number.isFinite(releaseAt) || releaseAt > updateAt) continue;
+    const patterns = song.patterns?.[`${button}B`];
+    if (!patterns || typeof patterns !== "object") continue;
+    const isNew = isDjPowerNewAt(song, time);
+    for (const [pattern, details] of Object.entries(patterns)) {
+      const max = maxDjPowerForPattern(pattern, details?.level);
+      if (Number.isFinite(max)) (isNew ? newMaxes : basicMaxes).push(max);
+    }
+  }
+  if (basicMaxes.length < 70 || newMaxes.length < 30) return getDjPowerTop100Scale(button);
+  basicMaxes.sort((a, b) => b - a);
+  newMaxes.sort((a, b) => b - a);
+  const rawMax = basicMaxes.slice(0, 70).reduce((sum, value) => sum + value, 0)
+    + newMaxes.slice(0, 30).reduce((sum, value) => sum + value, 0);
+  if (!Number.isFinite(rawMax) || rawMax <= 0) return getDjPowerTop100Scale(button);
+  return { rawMax, multiplier: DJPOWER_TARGET_TOP100_MAX / rawMax };
+}
+
 function buildDjPowerHistorySeries(entries) {
   const selectedButton = buttonFilter.value;
   const selectedPattern = patternFilter.value;
@@ -3484,12 +3514,11 @@ function buildDjPowerHistorySeries(entries) {
   for (const entry of entries) {
     const button = Number(entry.button);
     if (!series.has(button) || (selectedPattern && entry.pattern !== selectedPattern)) continue;
-    const multiplier = Number(getDjPowerTop100Scale(button)?.multiplier);
     const rawMax = maxDjPowerForPattern(entry.pattern, entry.level);
-    if (!Number.isFinite(multiplier) || multiplier <= 0 || !Number.isFinite(rawMax)) continue;
+    if (!Number.isFinite(rawMax)) continue;
     for (const event of entry.history || []) {
       const time = new Date(event.ymdt).getTime();
-      const value = djPowerScoreRatio(Number(event.score)) * rawMax * multiplier;
+      const value = djPowerScoreRatio(Number(event.score)) * rawMax;
       if (Number.isFinite(time) && Number.isFinite(value)) {
         events.push({ type: "score", button, key: entry.id, time, value, entry });
       }
@@ -3508,9 +3537,11 @@ function buildDjPowerHistorySeries(entries) {
       for (const value of values.values()) {
         (isDjPowerNewAt(value.entry, event.time) ? newTab : basic).push(value.value);
       }
-      const sum = [...basic].sort((a, b) => b - a).slice(0, 70)
+      const rawSum = [...basic].sort((a, b) => b - a).slice(0, 70)
         .concat([...newTab].sort((a, b) => b - a).slice(0, 30))
         .reduce((total, value) => total + value, 0);
+      const multiplier = Number(getHistoricalDjPowerTop100Scale(button, event.time)?.multiplier);
+      const sum = rawSum * (Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1);
       const points = series.get(button);
       const previous = points[points.length - 1];
       if (!previous || Math.abs(previous.value - sum) > 0.0001) points.push({ time: event.time, value: sum });
