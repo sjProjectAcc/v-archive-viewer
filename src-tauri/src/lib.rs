@@ -465,6 +465,43 @@ async fn fetch_pattern_grade_history(title: u32) -> Result<Value, String> {
     serde_json::from_str(&body).map_err(|error| format!("패턴 이력 JSON 해석 실패: {error}"))
 }
 
+#[tauri::command]
+async fn fetch_pattern_tag(title: u32, button: u8, pattern: String) -> Result<Value, String> {
+    if !matches!(button, 4 | 5 | 6 | 8) {
+        return Err("button은 4, 5, 6, 8 중 하나여야 합니다.".into());
+    }
+    if !matches!(pattern.as_str(), "NM" | "HD" | "MX" | "SC") {
+        return Err("pattern은 NM, HD, MX, SC 중 하나여야 합니다.".into());
+    }
+    let client = Client::builder()
+        .user_agent("V-LOG/0.1")
+        .connect_timeout(HTTP_CONNECT_TIMEOUT)
+        .timeout(API_REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("행이봇 태그 클라이언트 생성 실패: {error}"))?;
+    let mut url = Url::parse(&format!("{API_BASE_URL}/api/v3/pattern-tag"))
+        .map_err(|error| format!("행이봇 태그 API URL 생성 실패: {error}"))?;
+    url.query_pairs_mut()
+        .append_pair("title", &title.to_string())
+        .append_pair("button", &button.to_string())
+        .append_pair("pattern", &pattern);
+    let response = client
+        .get(url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .send()
+        .await
+        .map_err(|error| format!("행이봇 태그 요청 실패: {error}"))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|error| format!("행이봇 태그 응답 읽기 실패: {error}"))?;
+    if !status.is_success() {
+        return Err(response_error("행이봇 태그 요청 실패", status, &body));
+    }
+    serde_json::from_str(&body).map_err(|error| format!("행이봇 태그 JSON 해석 실패: {error}"))
+}
+
 async fn fetch_update_manifest() -> Result<UpdateManifest, String> {
     let channel = update_channel();
     let mut manifest_url = update_manifest_url().to_string();
@@ -764,6 +801,7 @@ pub fn run() {
             select_account_file,
             fetch_record_history,
             fetch_pattern_grade_history,
+            fetch_pattern_tag,
             get_update_channel,
             check_for_update,
             install_update

@@ -53,7 +53,8 @@
       <button class="viewTab desktopOnly" type="button" role="tab" data-view="selfCompare">시점 비교</button>
       <button class="viewTab desktopOnly" type="button" role="tab" data-view="history">성장 기록</button>
       <button class="viewTab desktopOnly" type="button" role="tab" data-view="achievements">성과 카드</button>
-      <button class="viewTab" type="button" role="tab" data-view="tags">곡 태그</button>
+      <button class="viewTab" type="button" role="tab" data-view="tags">태그*로페봇</button>
+      <button class="viewTab desktopOnly" type="button" role="tab" data-view="hangyTags">태그*행이봇</button>
       <button class="viewTab viewTabUtility" type="button" role="tab" data-view="logPowerCalculator">계산기</button>
       <button class="viewTab viewTabUtility testOnly" type="button" role="tab" data-view="debug" hidden>실험실</button>
       <button class="viewTab viewTabUtility" type="button" role="tab" data-view="readme">도움말</button>
@@ -70,7 +71,8 @@
           <option value="djPowerTop100">DJPower</option>
           <option value="logPowerCalculator">계산기</option>
           <option value="records">기록</option>
-          <option value="tags">곡 태그</option>
+          <option value="tags">태그*로페봇</option>
+          <option value="hangyTags" class="desktopOnly">태그*행이봇</option>
           <option value="history" class="desktopOnly">성장 기록</option>
           <option value="achievements" class="desktopOnly">성과 카드</option>
           <option value="selfCompare" class="desktopOnly">시점 비교</option>
@@ -403,6 +405,26 @@
       <div id="tagsResultSummary" class="tagsResultSummary"></div>
       <div class="tagsTableWrap"><table id="tagsTable"></table></div>
       <p class="tagsSource">태그 데이터: song_tags_2 · 곡 정보: V-ARCHIVE songs.json · 데이터는 사용자 기기에 캐시됩니다.</p>
+    </section>
+
+    <section class="tagsPanel desktopOnly" id="hangyTagsPanel" hidden>
+      <div class="toolHeader tagsHeader">
+        <div>
+          <h2>태그*행이봇</h2>
+          <p id="hangyTagsStatus">4B SC 기록 태그를 아직 수집하지 않았습니다.</p>
+        </div>
+        <div class="tagsHeaderActions">
+          <button id="hangyTagsCollectButton" type="button">태그 수집</button>
+          <button id="hangyTagsFullCollectButton" class="secondaryButton" type="button">전체 재수집</button>
+        </div>
+      </div>
+      <div class="tagsControls">
+        <label>버튼 <select id="hangyTagsButtonSelect"><option value="4" selected>4B</option><option value="5">5B</option><option value="6">6B</option><option value="8">8B</option></select></label>
+        <label>패턴 <select id="hangyTagsPatternSelect"><option value="NM">NM</option><option value="HD">HD</option><option value="MX">MX</option><option value="SC" selected>SC</option></select></label>
+      </div>
+      <div class="tagsResultSummary" id="hangyTagsSummary"></div>
+      <div class="tagsTableWrap"><table id="hangyTagsTable"></table></div>
+      <p class="tagsSource">태그 데이터: V-ARCHIVE pattern-tag (행이봇) · 현재 기록의 변경된 패턴만 다시 수집해 기기에 캐시합니다.</p>
     </section>
 
     <section class="toolPanel" id="logPowerCalculatorPanel" hidden>

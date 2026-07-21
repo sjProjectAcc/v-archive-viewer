@@ -41,6 +41,9 @@ const state = {
   tagsUpdatedAt: 0,
   tagsLoading: false,
   tagsLoadError: "",
+  hangyTagsRows: [],
+  hangyTagsLoading: false,
+  hangyTagsStatus: "",
   isTestMode: false,
   sortKey: null,
   sortDir: "asc",
@@ -65,6 +68,8 @@ const DB_NAME = "vArchiveViewerCache";
 const DB_VERSION = 2;
 const PROFILE_STORE = "profiles";
 const HISTORY_STORE = "recordHistories";
+const HANGY_TAG_CACHE_KEY = "vArchiveHangyPatternTagsV1";
+const HANGY_TAG_CODES = ["brain", "chord", "doubleTap", "jack", "longNote", "roll", "stream", "trill"];
 const SCORE_BASE = Math.pow(30, 1 / 10);
 const ANCHOR_FLOOR_LABEL = "15.2";
 const ANCHOR_DIFFICULTY_CONSTANT = 10;
@@ -342,6 +347,14 @@ const tagsSelectedSummary = document.querySelector("#tagsSelectedSummary");
 const tagsFacetList = document.querySelector("#tagsFacetList");
 const tagsResultSummary = document.querySelector("#tagsResultSummary");
 const tagsTable = document.querySelector("#tagsTable");
+const hangyTagsPanel = document.querySelector("#hangyTagsPanel");
+const hangyTagsStatus = document.querySelector("#hangyTagsStatus");
+const hangyTagsCollectButton = document.querySelector("#hangyTagsCollectButton");
+const hangyTagsFullCollectButton = document.querySelector("#hangyTagsFullCollectButton");
+const hangyTagsButtonSelect = document.querySelector("#hangyTagsButtonSelect");
+const hangyTagsPatternSelect = document.querySelector("#hangyTagsPatternSelect");
+const hangyTagsSummary = document.querySelector("#hangyTagsSummary");
+const hangyTagsTable = document.querySelector("#hangyTagsTable");
 const logPowerCalculatorPanel = document.querySelector("#logPowerCalculatorPanel");
 const calculatorTitle = document.querySelector("#calculatorTitle");
 const logPowerCalculatorContext = document.querySelector("#logPowerCalculatorContext");
@@ -920,6 +933,15 @@ function wireEvents() {
     renderTagsView();
   });
   tagsRefreshButton.addEventListener("click", () => loadTagsData(true));
+  hangyTagsCollectButton.addEventListener("click", () => collectHangyTags(false));
+  hangyTagsFullCollectButton.addEventListener("click", () => collectHangyTags(true));
+  [hangyTagsButtonSelect, hangyTagsPatternSelect].forEach((control) => {
+    control.addEventListener("change", () => {
+      saveSettings();
+      loadHangyTagsFromCache();
+      renderHangyTagsView();
+    });
+  });
   debugRatioInput.addEventListener("input", () => {
     setDebugRatio(debugRatioInput.value);
     saveSettings();
@@ -1033,6 +1055,8 @@ function applySavedSettings() {
   tagsFacetSearchInput.value = settings.tagsFacetSearch || "";
   tagsGenreSelect.dataset.savedValue = settings.tagsGenre || "";
   state.tagsSelected = new Set(Array.isArray(settings.tagsSelected) ? settings.tagsSelected.filter(Boolean) : []);
+  setIfOptionExists(hangyTagsButtonSelect, settings.hangyTagsButton || "4");
+  setIfOptionExists(hangyTagsPatternSelect, settings.hangyTagsPattern || "SC");
   const savedDebugRatio = Number(settings.debugRatio);
   const migratedDebugRatio = Math.abs(savedDebugRatio - 0.905) < 1e-9 ? currentFloorRelation() : settings.debugRatio;
   setDebugRatio(migratedDebugRatio || currentFloorRelation());
@@ -1107,6 +1131,8 @@ function saveSettings() {
     tagsSort: tagsSortSelect.value,
     tagsFacetSearch: tagsFacetSearchInput.value,
     tagsSelected: [...state.tagsSelected],
+    hangyTagsButton: hangyTagsButtonSelect.value,
+    hangyTagsPattern: hangyTagsPatternSelect.value,
     debugRatio: debugRatioInput.value,
     debugDjPowerScoreMin: debugDjPowerScoreMin.value,
     debugDjPowerScoreMax: debugDjPowerScoreMax.value,
@@ -1566,6 +1592,126 @@ function tagRowHasAvailablePattern(row) {
   if (!pattern) return true;
   if (button) return (row.availablePatterns?.[button] || []).includes(pattern);
   return BUTTONS.some((item) => (row.availablePatterns?.[String(item)] || []).includes(pattern));
+}
+
+function hangyTagsScopeKey(nickname, button, pattern) {
+  return `${cacheKey(nickname)}|${button}|${pattern}`;
+}
+
+function loadHangyTagsCache() {
+  try {
+    const cached = JSON.parse(appStorageGetItem(HANGY_TAG_CACHE_KEY) || "null");
+    return cached?.scopes && typeof cached.scopes === "object" ? cached : { scopes: {} };
+  } catch {
+    return { scopes: {} };
+  }
+}
+
+function saveHangyTagsCache(cache) {
+  appStorageSetItem(HANGY_TAG_CACHE_KEY, JSON.stringify(cache));
+}
+
+function hangyRecordSignature(record) {
+  return `${record.updatedAt || ""}|${record.score ?? ""}|${record.level ?? ""}`;
+}
+
+function hangyTargets() {
+  if (!state.payload?.records) return [];
+  const button = Number(hangyTagsButtonSelect.value);
+  const pattern = hangyTagsPatternSelect.value;
+  return state.payload.records.filter((record) => Number(record.button) === button && record.pattern === pattern);
+}
+
+function loadHangyTagsFromCache() {
+  const nickname = state.payload?.nickname || getCurrentNickname();
+  const scope = loadHangyTagsCache().scopes[hangyTagsScopeKey(nickname, hangyTagsButtonSelect.value, hangyTagsPatternSelect.value)];
+  const targets = hangyTargets();
+  const entries = scope?.entries || {};
+  state.hangyTagsRows = targets.map((record) => entries[recordKey(record)]?.row).filter(Boolean);
+  state.hangyTagsStatus = state.hangyTagsRows.length
+    ? `${state.hangyTagsRows.length}/${targets.length}개 패턴을 캐시에서 불러왔습니다.`
+    : `${targets.length}개 패턴의 태그 수집이 필요합니다.`;
+}
+
+function normalizeHangyTagRow(record, response) {
+  const traits = Object.fromEntries((response?.data?.traits || []).map((trait) => [String(trait.tagCode || ""), Number(trait.value) || 0]));
+  const values = Object.fromEntries(HANGY_TAG_CODES.map((code) => [code, Number(traits[code]) || 0]));
+  return {
+    ...record,
+    name: response?.data?.song?.name || record.name || "-",
+    hangySong: response?.data?.song || {},
+    hangyTags: Array.isArray(response?.data?.tags) ? response.data.tags : [],
+    traits: values,
+  };
+}
+
+async function collectHangyTags(force) {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (!invoke) {
+    state.hangyTagsStatus = "행이봇 태그 수집은 데스크톱 앱에서만 가능합니다.";
+    renderHangyTagsView();
+    return;
+  }
+  const nickname = state.payload?.nickname || getCurrentNickname();
+  const button = hangyTagsButtonSelect.value;
+  const pattern = hangyTagsPatternSelect.value;
+  const targets = hangyTargets();
+  const cache = loadHangyTagsCache();
+  const scopeKey = hangyTagsScopeKey(nickname, button, pattern);
+  const scope = cache.scopes[scopeKey] || { entries: {} };
+  const queue = force ? targets : targets.filter((record) => scope.entries[recordKey(record)]?.signature !== hangyRecordSignature(record));
+  if (!queue.length) {
+    loadHangyTagsFromCache();
+    renderHangyTagsView();
+    return;
+  }
+  state.hangyTagsLoading = true;
+  hangyTagsCollectButton.disabled = true;
+  hangyTagsFullCollectButton.disabled = true;
+  let delayMs = 350;
+  let completed = 0;
+  let failed = 0;
+  try {
+    for (const record of queue) {
+      try {
+        const response = await invoke("fetch_pattern_tag", { title: Number(record.title), button: Number(button), pattern });
+        if (response?.success !== true) throw new Error("API 응답 오류");
+        scope.entries[recordKey(record)] = { signature: hangyRecordSignature(record), row: normalizeHangyTagRow(record, response) };
+        completed += 1;
+        delayMs = Math.max(100, Math.round(delayMs * 0.9));
+      } catch {
+        failed += 1;
+        delayMs = Math.min(8000, Math.round(delayMs * 2));
+      }
+      state.hangyTagsStatus = `${button}B ${pattern} · ${completed + failed}/${queue.length} 수집 · 성공 ${completed} · 실패 ${failed}`;
+      renderHangyTagsView();
+      if (completed + failed < queue.length) await delay(delayMs);
+    }
+    const targetKeys = new Set(targets.map(recordKey));
+    Object.keys(scope.entries).forEach((key) => { if (!targetKeys.has(key)) delete scope.entries[key]; });
+    cache.scopes[scopeKey] = scope;
+    saveHangyTagsCache(cache);
+    loadHangyTagsFromCache();
+    state.hangyTagsStatus = `${button}B ${pattern} · ${state.hangyTagsRows.length}/${targets.length}개 수집 완료${failed ? ` · 실패 ${failed}` : ""}`;
+  } finally {
+    state.hangyTagsLoading = false;
+    hangyTagsCollectButton.disabled = false;
+    hangyTagsFullCollectButton.disabled = false;
+    renderHangyTagsView();
+  }
+}
+
+function renderHangyTagsView() {
+  if (viewSelect.value !== "hangyTags") return;
+  const targets = hangyTargets();
+  const rows = [...state.hangyTagsRows].sort((a, b) => compare(a.name, b.name) || compare(a.title, b.title));
+  hangyTagsStatus.textContent = state.hangyTagsStatus || `${targets.length}개 패턴의 태그 수집이 필요합니다.`;
+  hangyTagsSummary.textContent = `${hangyTagsButtonSelect.value}B · ${hangyTagsPatternSelect.value} · 현재 기록 ${targets.length}개 · 태그 수집 ${rows.length}개`;
+  if (!rows.length) {
+    hangyTagsTable.innerHTML = `<tbody><tr><td class="empty">태그 수집을 누르면 현재 기록의 패턴 태그를 가져옵니다.</td></tr></tbody>`;
+    return;
+  }
+  hangyTagsTable.innerHTML = `<thead><tr><th>title</th><th>name</th><th>level</th><th>score</th>${HANGY_TAG_CODES.map((code) => `<th>${escapeHtml(code)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr><td class="num">${escapeHtml(row.title)}</td><td class="nameCell">${escapeHtml(row.name)}</td><td class="num">${escapeHtml(row.level ?? "-")}</td><td class="num">${Number(row.score).toFixed(2)}</td>${HANGY_TAG_CODES.map((code) => `<td class="num">${Number(row.traits?.[code]) || 0}</td>`).join("")}</tr>`).join("")}</tbody>`;
 }
 
 function renderTagsView() {
@@ -2253,6 +2399,7 @@ function renderActiveView() {
   const isAchievements = viewSelect.value === "achievements";
   const isSelfCompare = viewSelect.value === "selfCompare";
   const isTags = viewSelect.value === "tags";
+  const isHangyTags = viewSelect.value === "hangyTags";
   const isLogPowerCalculator = viewSelect.value === "logPowerCalculator";
   const isDebug = viewSelect.value === "debug";
   const isReadme = viewSelect.value === "readme";
@@ -2264,11 +2411,12 @@ function renderActiveView() {
     [achievementPanel, !isAchievements],
     [selfComparePanel, !isSelfCompare],
     [tagsPanel, !isTags],
+    [hangyTagsPanel, !isHangyTags],
     [logPowerCalculatorPanel, !isLogPowerCalculator],
     [debugPanel, !isDebug],
     [readmePanel, !isReadme],
     [overviewPanel, !isOverview],
-    [tableSection, isChart || isOverview || isDebug || isReadme || isTags || isAchievements || isLogPowerCalculator],
+    [tableSection, isChart || isOverview || isDebug || isReadme || isTags || isHangyTags || isAchievements || isLogPowerCalculator],
   ].forEach(([element, hidden]) => {
     if (element) element.hidden = hidden;
   });
@@ -2287,6 +2435,10 @@ function renderActiveView() {
   }
   else if (isSelfCompare) renderSelfCompareView();
   else if (isTags) renderTagsView();
+  else if (isHangyTags) {
+    loadHangyTagsFromCache();
+    renderHangyTagsView();
+  }
   else if (isLogPowerCalculator) renderLogPowerCalculator();
   else if (isDebug) renderDebugView();
   else if (isOverview) renderOverview();
