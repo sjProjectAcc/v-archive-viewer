@@ -6,6 +6,10 @@ const state = {
   buttonTop50BaseMax: null,
   djPowerTop100MaxByButton: null,
   songNewTabByTitle: null,
+  djPowerHistoryCatalog: null,
+  djPowerHistoryReleaseAtByTitle: {},
+  djPowerHistoryUpdateTimes: [],
+  djPowerHistoryPreparing: null,
   floorPatternCounts: null,
   view: "chart",
   chartMetric: "score",
@@ -47,6 +51,7 @@ const HISTORY_ACCOUNT_NICKNAME_KEY = "vArchiveHistoryAccountNickname";
 const DEFAULT_NICKNAME = "lemoncube7";
 const API_BASE_URL = "https://v-archive.net";
 const SONG_DB_URL = `${API_BASE_URL}/db/v2/songs.json`;
+const DLC_DB_URL = `${API_BASE_URL}/db/dlcs.json`;
 const BUTTONS = [4, 5, 6, 8];
 const MAX_ACHIEVEMENT_COLUMNS = 12;
 const CHART_DOT_EDGE_INSET = 6.5;
@@ -65,6 +70,53 @@ const FLOOR_STEP_RATIO = 10 / 9;
 const TARGET_TOP50_MAX = 5000;
 const TOP50_SCALE_CACHE_KEY = "vArchiveTop50ScaleCache0900DjPowerV2";
 const TOP50_SCALE_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+const DJPOWER_HISTORY_CATALOG_CACHE_KEY = "vArchiveDjPowerHistoryCatalogV1";
+const DJPOWER_HISTORY_RELEASE_CACHE_KEY = "vArchiveDjPowerHistoryReleaseV1";
+const DJPOWER_HISTORY_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+const DJPOWER_NEW_RULE_CHANGED_AT = Date.parse("2025-09-11T00:00:00.000Z");
+const DJPOWER_BASE_DLC_CODES = new Set(["R", "RV", "P1", "P2"]);
+const DJPOWER_LEGACY_DLC_CODES = new Set(["TR", "CE", "T1", "T2", "T3", "ES", "P3", "TQ", "BS"]);
+const DJPOWER_INITIAL_RV_TITLES = new Set(["2", "9", "25"]);
+const DJPOWER_RV_CP_CODES = new Set(["RV", "CP"]);
+const DJPOWER_STATIC_RELEASES = Object.freeze([
+  ["2019-12-26", ["Sad Machine", "Ghost Voices"]],
+  ["2020-01-02", ["Bleed", "Kingdom", "So Happy"]],
+  ["2020-01-09", ["POP/STARS", "Get Jinxed"]],
+  ["2020-05-21", ["Break a Spell", "Marionette", "Holy Orders (Be Just Or Be Dead)"]],
+  ["2020-06-18", ["Watch Your Step", "Chemical Slave", "RockSTAR"]],
+  ["2020-06-24", ["혜성"]],
+  ["2020-08-06", ["I want You ~반짝★반짝 Sunshine~"]],
+  ["2021-01-28", ["Dance of the Dead", "염라"]],
+  ["2021-03-12", ["Grid System"]],
+  ["2021-08-19", ["서울여자"]],
+  ["2021-08-30", ["Relation Again (ESTi's Remix)"]],
+  ["2021-09-14", ["너로피어오라"]],
+  ["2022-03-17", ["너랑 있으면", "Aurora Borealis"]],
+  ["2022-04-28", ["Airlock", "Daylight", "OrBiTal"]],
+  ["2022-06-23", ["Angelic Tears"]],
+  ["2022-10-06", ["모차르트 교향곡 40번 1악장"]],
+  ["2022-11-24", ["Mr.Lonely"]],
+  ["2023-01-18", ["Dancin' Planet"]],
+  ["2023-03-09", ["I'M ALIVE"]],
+  ["2023-04-27", ["Dark Lightning"]],
+  ["2023-08-10", ["From Hell to Breakfast", "Celestial Tears"]],
+  ["2023-11-23", ["SURVIVOR", "Can We Talk (Broken Dog Leg Mix)"]],
+  ["2024-03-14", ["BlueWhite"]],
+  ["2024-05-13", ["Re:BIRTH", "Kamui"]],
+  ["2024-08-29", ["Insane Drift"]],
+  ["2024-12-05", ["Kill Trap"]],
+  ["2025-03-27", ["alliance", "Phoenix Virus"]],
+  ["2025-07-17", ["PUPA (xi Remix)", "DUKA -Special Edit-"]],
+  ["2025-10-23", ["Gate of Elysium", "AURORA"]],
+  ["2026-01-29", ["DATAMOSH++"]],
+  ["2026-04-08", ["River Flow"]],
+  ["2026-05-07", ["MAGATONiX PHANTOM"]],
+  ["2022-01-25", ["너로피어오라 ~Original Ver.~"]],
+  ["2023-06-01", ["염라 ~Original Ver.~"]],
+  ["2024-12-19", ["Diomedes ~Extended Mix~"]],
+  ["2026-06-26", ["Megingjord"]],
+]);
+const DJPOWER_STATIC_RELEASE_BY_TITLE = Object.freeze({ "441": "2021-12-02" });
 const TAGS_API_URL = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/song_tags_2?select=song_title%2Ctags%2Caka&limit=1000";
 const TAGS_ABILITY_API_URL = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/ability?select=id%2Cability_set&order=id";
 const TAGS_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqd3V1b2RtdHR0cW9oeHN5Y3ZwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUxNDkwNjYsImV4cCI6MjA3MDcyNTA2Nn0.FItZtjt2v2otOUnmDtqhKG4IrPD4FjaRc_tVy-nxpsI";
@@ -2838,6 +2890,10 @@ async function renderHistoryView(options = {}) {
     state.historyEntries = entries.filter((entry) => targetKeys.has(recordKey(entry)));
     updateHistoryRangeBounds(state.historyEntries);
     state.historyRows = buildHistoryRows(state.historyEntries, getHistoryTimeRange());
+    if (state.historyMetric === "djPower") {
+      await ensureDjPowerHistoryMetadata();
+      if (renderToken !== state.historyRenderToken || viewSelect.value !== "history") return;
+    }
     if (!options.preserveStatus && !state.historyCollecting) {
       const eventCount = state.historyRows.length;
       historyStatus.textContent = `${state.historyEntries.length}/${targetKeys.size}개 패턴 · ${eventCount}개 기록`;
@@ -3237,6 +3293,182 @@ function buildLogPowerHistorySeries(entries) {
   return constrainHistorySeries(series, getHistoryTimeRange());
 }
 
+function normalizeDjPowerSongName(name) {
+  return String(name || "").normalize("NFC").trim().toLowerCase();
+}
+
+function djPowerDlcGroup(song) {
+  const code = String(song?.dlcCode || "");
+  if (code === "RV") return DJPOWER_INITIAL_RV_TITLES.has(String(song?.title)) ? "excluded" : "free";
+  if (code === "CP") return "free";
+  if (DJPOWER_BASE_DLC_CODES.has(code) || DJPOWER_LEGACY_DLC_CODES.has(code)) return "excluded";
+  if (/^PLI\d*$/i.test(code)) return "pli";
+  if (/^(?:VE|VL)\d*$/i.test(code)) return "regular";
+  return "collaboration";
+}
+
+function parseDjPowerDate(value) {
+  const time = Date.parse(`${value}T00:00:00.000Z`);
+  return Number.isFinite(time) ? time : NaN;
+}
+
+function addSixMonths(time) {
+  const date = new Date(time);
+  date.setUTCMonth(date.getUTCMonth() + 6);
+  return date.getTime();
+}
+
+function loadDjPowerHistoryReleaseCache() {
+  try {
+    const cached = JSON.parse(appStorageGetItem(DJPOWER_HISTORY_RELEASE_CACHE_KEY) || "null");
+    if (!cached || typeof cached !== "object") return { releaseAtByTitle: {}, checkedTitles: {} };
+    return {
+      releaseAtByTitle: cached.releaseAtByTitle && typeof cached.releaseAtByTitle === "object" ? cached.releaseAtByTitle : {},
+      checkedTitles: cached.checkedTitles && typeof cached.checkedTitles === "object" ? cached.checkedTitles : {},
+    };
+  } catch {
+    return { releaseAtByTitle: {}, checkedTitles: {} };
+  }
+}
+
+function buildDjPowerHistoryMetadata(songs, dlcs, dynamicReleaseAtByTitle = {}) {
+  const catalog = {};
+  const releaseAtByTitle = {};
+  const releaseByName = new Map();
+  const updateTimes = new Set();
+  const dlcReleaseAtByCode = new Map();
+
+  for (const dlc of Array.isArray(dlcs) ? dlcs : []) {
+    const releaseAt = Date.parse(dlc?.ymdt || "");
+    if (!Number.isFinite(releaseAt)) continue;
+    dlcReleaseAtByCode.set(String(dlc.dlcCode || ""), releaseAt);
+    updateTimes.add(releaseAt);
+  }
+  for (const [date, names] of DJPOWER_STATIC_RELEASES) {
+    const releaseAt = parseDjPowerDate(date);
+    if (!Number.isFinite(releaseAt)) continue;
+    updateTimes.add(releaseAt);
+    for (const name of names) releaseByName.set(normalizeDjPowerSongName(name), releaseAt);
+  }
+  for (const song of Array.isArray(songs) ? songs : []) {
+    const title = String(song?.title);
+    if (!title || title === "undefined") continue;
+    const compact = { title: Number(song.title), name: song.name || "", dlcCode: String(song.dlcCode || "") };
+    catalog[title] = compact;
+    const fixedAt = parseDjPowerDate(DJPOWER_STATIC_RELEASE_BY_TITLE[title]);
+    const namedAt = releaseByName.get(normalizeDjPowerSongName(compact.name));
+    const dynamicAt = Number(dynamicReleaseAtByTitle[title]);
+    const dlcAt = dlcReleaseAtByCode.get(compact.dlcCode);
+    const releaseAt = Number.isFinite(fixedAt) ? fixedAt
+      : Number.isFinite(namedAt) ? namedAt
+        : Number.isFinite(dynamicAt) ? dynamicAt
+          : dlcAt;
+    if (Number.isFinite(releaseAt)) releaseAtByTitle[title] = releaseAt;
+    if (Number.isFinite(fixedAt) || Number.isFinite(namedAt) || (DJPOWER_RV_CP_CODES.has(compact.dlcCode) && Number.isFinite(dynamicAt))) {
+      updateTimes.add(releaseAt);
+    }
+  }
+  return {
+    catalog,
+    releaseAtByTitle,
+    updateTimes: [...updateTimes].filter(Number.isFinite).sort((a, b) => a - b),
+  };
+}
+
+async function ensureDjPowerHistoryMetadata() {
+  if (state.djPowerHistoryPreparing) return state.djPowerHistoryPreparing;
+  state.djPowerHistoryPreparing = (async () => {
+    let source;
+    try {
+      const cached = JSON.parse(appStorageGetItem(DJPOWER_HISTORY_CATALOG_CACHE_KEY) || "null");
+      if (cached?.songs && cached?.dlcs && Date.now() - Number(cached.updatedAt || 0) < DJPOWER_HISTORY_CACHE_TTL) source = cached;
+    } catch {}
+    if (!source) {
+      const [songsResponse, dlcsResponse] = await Promise.all([
+        fetchWithTimeout(SONG_DB_URL, { credentials: "omit" }),
+        fetchWithTimeout(DLC_DB_URL, { credentials: "omit" }),
+      ]);
+      if (!songsResponse.ok || !dlcsResponse.ok) throw new Error("곡 또는 DLC 목록을 불러오지 못했습니다.");
+      source = { updatedAt: Date.now(), songs: await songsResponse.json(), dlcs: await dlcsResponse.json() };
+      appStorageSetItem(DJPOWER_HISTORY_CATALOG_CACHE_KEY, JSON.stringify(source));
+    }
+
+    const dynamicCache = loadDjPowerHistoryReleaseCache();
+    let metadata = buildDjPowerHistoryMetadata(source.songs, source.dlcs, dynamicCache.releaseAtByTitle);
+    const staticNames = new Set(DJPOWER_STATIC_RELEASES.flatMap(([, names]) => names.map(normalizeDjPowerSongName)));
+    const unresolved = Object.values(metadata.catalog).filter((song) => {
+      if (!DJPOWER_RV_CP_CODES.has(song.dlcCode)) return false;
+      if (DJPOWER_INITIAL_RV_TITLES.has(String(song.title))) return false;
+      if (DJPOWER_STATIC_RELEASE_BY_TITLE[String(song.title)] || staticNames.has(normalizeDjPowerSongName(song.name))) return false;
+      return !dynamicCache.checkedTitles[String(song.title)];
+    });
+    const invoke = window.__TAURI__?.core?.invoke;
+    if (unresolved.length && invoke) {
+      for (let index = 0; index < unresolved.length; index += 1) {
+        const song = unresolved[index];
+        historyStatus.textContent = `DJPower 출시 시점 확인 ${index + 1}/${unresolved.length} · ${song.name}`;
+        try {
+          const response = await invoke("fetch_pattern_grade_history", { title: Number(song.title) });
+          const dates = (response?.items || []).map((item) => Date.parse(item?.ymdt || item?.ymd || "")).filter(Number.isFinite);
+          if (dates.length) dynamicCache.releaseAtByTitle[String(song.title)] = Math.min(...dates);
+        } catch {}
+        dynamicCache.checkedTitles[String(song.title)] = true;
+        if (index + 1 < unresolved.length) await delay(150);
+      }
+      appStorageSetItem(DJPOWER_HISTORY_RELEASE_CACHE_KEY, JSON.stringify(dynamicCache));
+      metadata = buildDjPowerHistoryMetadata(source.songs, source.dlcs, dynamicCache.releaseAtByTitle);
+    }
+    state.djPowerHistoryCatalog = metadata.catalog;
+    state.djPowerHistoryReleaseAtByTitle = metadata.releaseAtByTitle;
+    state.djPowerHistoryUpdateTimes = metadata.updateTimes;
+    return metadata;
+  })();
+  try {
+    return await state.djPowerHistoryPreparing;
+  } finally {
+    state.djPowerHistoryPreparing = null;
+  }
+}
+
+function latestDjPowerUpdateAt(time) {
+  const updates = state.djPowerHistoryUpdateTimes;
+  let latest = NaN;
+  for (const updateAt of updates) {
+    if (updateAt > time) break;
+    latest = updateAt;
+  }
+  return latest;
+}
+
+function isDjPowerNewAt(entry, time) {
+  const song = state.djPowerHistoryCatalog?.[String(entry.title)];
+  if (!song) return isNewTabRecord(entry);
+  if (DJPOWER_INITIAL_RV_TITLES.has(String(song.title)) || djPowerDlcGroup(song) === "excluded") return false;
+  const releaseAt = Number(state.djPowerHistoryReleaseAtByTitle[String(song.title)]);
+  if (!Number.isFinite(releaseAt) || time < releaseAt) return false;
+  if (time >= DJPOWER_NEW_RULE_CHANGED_AT) {
+    const updateAt = latestDjPowerUpdateAt(time);
+    return Number.isFinite(updateAt) && updateAt >= releaseAt && updateAt < addSixMonths(releaseAt);
+  }
+  const group = djPowerDlcGroup(song);
+  if (group === "free") {
+    const latestByGroup = ["regular", "collaboration", "pli"].map((targetGroup) => {
+      const releases = Object.values(state.djPowerHistoryCatalog || {})
+        .filter((candidate) => djPowerDlcGroup(candidate) === targetGroup)
+        .map((candidate) => Number(state.djPowerHistoryReleaseAtByTitle[String(candidate.title)]))
+        .filter((candidateReleaseAt) => Number.isFinite(candidateReleaseAt) && candidateReleaseAt <= time);
+      return Math.max(...releases);
+    });
+    const periodStart = Math.min(...latestByGroup.filter(Number.isFinite));
+    return Number.isFinite(periodStart) && releaseAt >= periodStart;
+  }
+  const candidates = Object.values(state.djPowerHistoryCatalog || {}).filter((candidate) => djPowerDlcGroup(candidate) === group);
+  const latestRelease = Math.max(...candidates
+    .map((candidate) => Number(state.djPowerHistoryReleaseAtByTitle[String(candidate.title)]))
+    .filter((candidateReleaseAt) => Number.isFinite(candidateReleaseAt) && candidateReleaseAt <= time));
+  return releaseAt === latestRelease;
+}
+
 function buildDjPowerHistorySeries(entries) {
   const selectedButton = buttonFilter.value;
   const selectedPattern = patternFilter.value;
@@ -3244,6 +3476,10 @@ function buildDjPowerHistorySeries(entries) {
   const series = new Map(buttons.map((button) => [button, []]));
   const valuesByButton = new Map(buttons.map((button) => [button, new Map()]));
   const events = [];
+
+  for (const updateAt of state.djPowerHistoryUpdateTimes) {
+    if (Number.isFinite(updateAt)) events.push({ type: "update", time: updateAt });
+  }
 
   for (const entry of entries) {
     const button = Number(entry.button);
@@ -3255,24 +3491,30 @@ function buildDjPowerHistorySeries(entries) {
       const time = new Date(event.ymdt).getTime();
       const value = djPowerScoreRatio(Number(event.score)) * rawMax * multiplier;
       if (Number.isFinite(time) && Number.isFinite(value)) {
-        events.push({ button, key: entry.id, time, value, newTab: isNewTabRecord(entry) });
+        events.push({ type: "score", button, key: entry.id, time, value, entry });
       }
     }
   }
-  events.sort((a, b) => a.time - b.time);
+  events.sort((a, b) => a.time - b.time || (a.type === "update" ? -1 : 1));
 
   for (const event of events) {
-    const values = valuesByButton.get(event.button);
-    values.set(event.key, event);
-    const basic = [];
-    const newTab = [];
-    for (const value of values.values()) (value.newTab ? newTab : basic).push(value.value);
-    const sum = [...basic].sort((a, b) => b - a).slice(0, 70)
-      .concat([...newTab].sort((a, b) => b - a).slice(0, 30))
-      .reduce((total, value) => total + value, 0);
-    const points = series.get(event.button);
-    const previous = points[points.length - 1];
-    if (!previous || Math.abs(previous.value - sum) > 0.0001) points.push({ time: event.time, value: sum });
+    if (event.type === "score") valuesByButton.get(event.button).set(event.key, event);
+    const affectedButtons = event.type === "update" ? buttons : [event.button];
+    for (const button of affectedButtons) {
+      const values = valuesByButton.get(button);
+      if (!values.size) continue;
+      const basic = [];
+      const newTab = [];
+      for (const value of values.values()) {
+        (isDjPowerNewAt(value.entry, event.time) ? newTab : basic).push(value.value);
+      }
+      const sum = [...basic].sort((a, b) => b - a).slice(0, 70)
+        .concat([...newTab].sort((a, b) => b - a).slice(0, 30))
+        .reduce((total, value) => total + value, 0);
+      const points = series.get(button);
+      const previous = points[points.length - 1];
+      if (!previous || Math.abs(previous.value - sum) > 0.0001) points.push({ time: event.time, value: sum });
+    }
   }
   return constrainHistorySeries(series, getHistoryTimeRange());
 }
