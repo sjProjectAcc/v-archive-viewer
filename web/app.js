@@ -1036,10 +1036,11 @@ function applySavedSettings() {
   const savedDebugRatio = Number(settings.debugRatio);
   const migratedDebugRatio = Math.abs(savedDebugRatio - 0.905) < 1e-9 ? currentFloorRelation() : settings.debugRatio;
   setDebugRatio(migratedDebugRatio || currentFloorRelation());
-  debugDjPowerScoreMin.value = settings.debugDjPowerScoreMin || "";
-  debugDjPowerScoreMax.value = settings.debugDjPowerScoreMax || "";
-  debugDjPowerErrorMin.value = settings.debugDjPowerErrorMin || "";
-  debugDjPowerErrorMax.value = settings.debugDjPowerErrorMax || "";
+  const hasRatioRangeSettings = settings.debugDjPowerRangeKind === "ratio";
+  debugDjPowerScoreMin.value = hasRatioRangeSettings ? settings.debugDjPowerScoreMin || "" : "";
+  debugDjPowerScoreMax.value = hasRatioRangeSettings ? settings.debugDjPowerScoreMax || "" : "";
+  debugDjPowerErrorMin.value = hasRatioRangeSettings ? settings.debugDjPowerErrorMin || "" : "";
+  debugDjPowerErrorMax.value = hasRatioRangeSettings ? settings.debugDjPowerErrorMax || "" : "";
   applyTheme(settings.theme || "light");
   restoreCompareChartRange(state.compareChartMetric);
   state.view = viewSelect.value;
@@ -1111,6 +1112,7 @@ function saveSettings() {
     debugDjPowerScoreMax: debugDjPowerScoreMax.value,
     debugDjPowerErrorMin: debugDjPowerErrorMin.value,
     debugDjPowerErrorMax: debugDjPowerErrorMax.value,
+    debugDjPowerRangeKind: "ratio",
     theme: document.documentElement.dataset.theme || "light",
   };
   appStorageSetItem(SETTINGS_KEY, JSON.stringify(settings));
@@ -3547,7 +3549,7 @@ function getDjPowerHistorySeriesCacheKey(entries) {
   const history = entries.map((entry) => `${entry.id}|${entry.sourceUpdatedAt || ""}|${(entry.history || []).map((event) => `${event.ymdt}:${event.score}`).join(",")}`).sort().join(";");
   const releases = Object.entries(state.djPowerHistoryReleaseAtByTitle).sort(([a], [b]) => compare(a, b)).map(([title, time]) => `${title}:${time}`).join(",");
   return hashDjPowerHistoryCacheKey([
-    "v4",
+    "v6",
     buttonFilter.value,
     patternFilter.value,
     state.djPowerHistoryCatalogUpdatedAt,
@@ -5917,7 +5919,40 @@ function buildDjPowerGroupRows(records, group, limit, multiplier) {
     .map((row, index) => ({ ...row, rank: index + 1 }));
 }
 
-function djPowerScoreRatio(score) {
+const DJPOWER_RATIO_CORRECTIONS = [
+  [90, 91.5, 0.00133925276755, -0.000827813926188, -0.000727142689261],
+  [91.5, 92.7, -0.0000302157879147, -0.0011173084284, 0.00058527820861],
+  [92.7, 93.5, -0.000555336293971, 0.0000546418528992, 0.000552262959846],
+  [93.5, 94, 0.000045340586611, 0.000778365038929, 0.00000934565038842],
+  [94, 95, 0.0011181611385, -0.000951504943187, -0.000353325630275],
+  [95, 95.6, 0.000167978494033, 0.00151796797252, 0.00193223700625],
+  [95.6, 96.1, 0.00314448324353, 0.00594975231161, -0.0138010609472],
+  [96.1, 96.5, -0.00753084347148, -0.026874472545, 0.000421219780493],
+  [96.5, 97.5, 0.00300140204701, 0.00290140366776, -0.00436613645528],
+  [97.5, 98, 0.000743661680381, 0.00176544561258, -0.00643012112583],
+  [98, 98.1, 0.00159999636767, -0.000700356254607, -0.000250100806514],
+  [98.1, 98.2, 0.00292678853318, -0.00119808765255, -0.000242260538942],
+  [98.2, 98.3, 0.00384124884717, -0.0016965321241, -0.000221095363129],
+  [98.3, 98.4, 0.00434410459004, -0.00215564910564, -0.000226043889249],
+  [98.4, 98.5, 0.00445285730402, -0.00261032253276, -0.000215443907861],
+  [98.5, 98.6, 0.00417826431667, -0.0022393924029, -0.000187083234789],
+  [98.6, 98.7, 0.00436304016269, -0.0026233920467, -0.000191499606077],
+  [98.7, 98.8, 0.0042212699324, -0.00299921705905, -0.000174951330677],
+  [98.8, 98.9, 0.00376829563607, -0.00334994886411, -0.000160351704146],
+  [98.9, 99, 0.00302840314398, -0.00366868642443, -0.000155280170389],
+  [99, 99.1, 0.00202488701614, -0.00227238436636, -0.000126880784335],
+  [99.1, 99.2, 0.00248633408586, -0.00251932305533, -0.000118143095945],
+  [99.2, 99.3, 0.00275091965247, -0.00275060132811, -0.000100174518723],
+  [99.3, 99.4, 0.00284041700615, -0.00295626219847, -0.0000906824678761],
+  [99.4, 99.5, 0.00276747752062, -0.00313786512847, -0.0000830063393003],
+  [99.5, 99.6, 0.00255095228039, -0.00324926888745, 0.0000707171117549],
+  [99.6, 99.7, 0.00237216863486, -0.00310684528289, 0.0000680452635529],
+  [99.7, 99.8, 0.0023334833227, -0.00297059084667, 0.0000659088876404],
+  [99.8, 99.9, 0.0024287028903, 0.000494898548295, 0.0000620797724145],
+  [99.9, 100, 0.00265256120891, -0.00271244020383, 0.0000599542223241],
+];
+
+function djPowerScoreRatioBase(score) {
   const x = Number(score);
   if (!Number.isFinite(x) || x < 90 || x > 100) return 0;
   const lowExponential = (value) => (24 / 135) * Math.exp((8 / 9) * (value - 95)) + 0.125;
@@ -5937,6 +5972,17 @@ function djPowerScoreRatio(score) {
   if (x < 99) return logarithmic * ((x - 44) / 50);
   if (x < 100) return (8 / 27) * Math.log((x - 95) / 5) + 1;
   return 1;
+}
+
+function djPowerScoreRatio(score) {
+  const x = Number(score);
+  const base = djPowerScoreRatioBase(x);
+  if (!Number.isFinite(x) || x < 90 || x >= 100) return base;
+  const segment = DJPOWER_RATIO_CORRECTIONS.find(([min, max]) => x >= min && x < max);
+  if (!segment) return base;
+  const [min, max, a, b, c] = segment;
+  const t = (x - min) / (max - min);
+  return Math.min(1, Math.max(0, base + a + b * t + c * t * t));
 }
 
 function renderDjPowerTop100Summary(rows) {
@@ -6111,8 +6157,11 @@ function renderDebugDjPowerDiagnostics(records) {
       original,
       calculated,
       difference: calculated - original,
+      originalRatio: original / rawMax,
+      calculatedRatio: djPowerScoreRatio(Number(record.score)),
     };
-  }).filter((row) => Number.isFinite(row.original) && Number.isFinite(row.calculated) && Number.isFinite(Number(row.level)) && Number.isFinite(Number(row.score)))
+  }).map((row) => ({ ...row, ratioDifference: row.calculatedRatio - row.originalRatio }))
+    .filter((row) => Number.isFinite(row.original) && Number.isFinite(row.calculated) && Number.isFinite(row.originalRatio) && Number.isFinite(row.calculatedRatio) && Number.isFinite(Number(row.level)) && Number.isFinite(Number(row.score)))
     .sort((a, b) => b.original - a.original);
 
   if (!rows.length) {
@@ -6123,14 +6172,14 @@ function renderDebugDjPowerDiagnostics(records) {
     return;
   }
 
-  const absoluteDifferences = rows.map((row) => Math.abs(row.difference));
+  const absoluteDifferences = rows.map((row) => Math.abs(row.ratioDifference));
   const meanAbsoluteDifference = absoluteDifferences.reduce((sum, value) => sum + value, 0) / rows.length;
   const maxAbsoluteDifference = Math.max(...absoluteDifferences);
   debugDjPowerSummary.innerHTML = [
     ["비교 기록", `${rows.length.toLocaleString()}개`],
-    ["평균 절대 오차", meanAbsoluteDifference.toFixed(4)],
-    ["최대 절대 오차", maxAbsoluteDifference.toFixed(4)],
-  ].map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong><span>계산 - 원본</span></div>`).join("");
+    ["평균 절대 비율 오차", meanAbsoluteDifference.toFixed(6)],
+    ["최대 절대 비율 오차", maxAbsoluteDifference.toFixed(6)],
+  ].map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong><span>계산 비율 - 원본 비율</span></div>`).join("");
 
   renderDebugDjPowerChart(rows, maxAbsoluteDifference);
   renderDebugDjPowerErrorChart(rows, maxAbsoluteDifference);
@@ -6160,8 +6209,8 @@ function debugDjPowerScoreRange(rows) {
 function debugDjPowerErrorRange(rows, scoreRange, maxAbsoluteDifference) {
   const scoped = rows.filter((row) => Number(row.score) >= scoreRange.min && Number(row.score) <= scoreRange.max);
   const source = scoped.length ? scoped : rows;
-  const observedMin = Math.min(...source.map((row) => row.difference), 0);
-  const observedMax = Math.max(...source.map((row) => row.difference), 0);
+  const observedMin = Math.min(...source.map((row) => row.ratioDifference), 0);
+  const observedMax = Math.max(...source.map((row) => row.ratioDifference), 0);
   const padding = Math.max((observedMax - observedMin) * 0.12, maxAbsoluteDifference * 0.08, 0.002);
   const autoMin = observedMin - padding;
   const autoMax = observedMax + padding;
@@ -6199,9 +6248,11 @@ function renderDebugDjPowerChart(rows, maxAbsoluteDifference) {
       score: row.score,
       original: row.original,
       calculated: row.calculated,
-      difference: row.difference,
+      difference: row.ratioDifference,
+      originalRatio: row.originalRatio,
+      calculatedRatio: row.calculatedRatio,
     }));
-    const color = debugDjPowerErrorColor(row.difference, maxAbsoluteDifference);
+    const color = debugDjPowerErrorColor(row.ratioDifference, maxAbsoluteDifference);
     return `<circle class="chartDot debugDjPowerPoint" cx="${xFor(Number(row.score)).toFixed(2)}" cy="${(yFor(Number(row.level)) + jitter).toFixed(2)}" r="4.4" style="fill:${color};stroke:${color}" data-info="${info}" tabindex="0"></circle>`;
   }).join("");
   debugDjPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="레벨과 score에 따른 DJPower 계산 오차 그래프"><defs><clipPath id="debugDjPowerPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" x="0" y="0" width="${width}" height="${height}"></rect>${grid}<g clip-path="url(#debugDjPowerPlotClip)">${dots}</g><text class="axisTitle" x="16" y="18">level</text><text class="axisTitle" x="${width - 74}" y="${height - 14}">score</text></svg>`;
@@ -6234,9 +6285,9 @@ function renderDebugDjPowerErrorChart(rows, maxAbsoluteDifference) {
     ...yTicks.map((value) => `<line class="chartGridLine" x1="${pad.left}" x2="${pad.left + plotW}" y1="${yFor(value)}" y2="${yFor(value)}"></line><text class="axisLabel" x="${pad.left - 10}" y="${yFor(value) + 4}" text-anchor="end">${formatSigned(value, 3)}</text>`),
   ].join("");
   const dots = rows.map((row) => {
-    const info = encodeURIComponent(JSON.stringify({ name: row.name || "", button: row.button, pattern: row.pattern || "", level: row.level, score: row.score, original: row.original, calculated: row.calculated, difference: row.difference }));
-    const color = debugDjPowerErrorColor(row.difference, maxAbsoluteDifference);
-    return `<circle class="chartDot debugDjPowerPoint" cx="${xFor(Number(row.score)).toFixed(2)}" cy="${yFor(row.difference).toFixed(2)}" r="4.4" style="fill:${color};stroke:${color}" data-info="${info}" tabindex="0"></circle>`;
+    const info = encodeURIComponent(JSON.stringify({ name: row.name || "", button: row.button, pattern: row.pattern || "", level: row.level, score: row.score, original: row.original, calculated: row.calculated, difference: row.ratioDifference, originalRatio: row.originalRatio, calculatedRatio: row.calculatedRatio }));
+    const color = debugDjPowerErrorColor(row.ratioDifference, maxAbsoluteDifference);
+    return `<circle class="chartDot debugDjPowerPoint" cx="${xFor(Number(row.score)).toFixed(2)}" cy="${yFor(row.ratioDifference).toFixed(2)}" r="4.4" style="fill:${color};stroke:${color}" data-info="${info}" tabindex="0"></circle>`;
   }).join("");
   const zeroY = yFor(0);
   debugDjPowerErrorChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="score에 따른 DJPower 계산 오차 그래프"><defs><clipPath id="debugDjPowerErrorPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" x="0" y="0" width="${width}" height="${height}"></rect>${grid}<g clip-path="url(#debugDjPowerErrorPlotClip)"><line class="zeroLine" x1="${pad.left}" x2="${pad.left + plotW}" y1="${zeroY}" y2="${zeroY}"></line>${dots}</g><text class="axisTitle" x="16" y="18">calculated - original</text><text class="axisTitle" x="${width - 74}" y="${height - 14}">score</text></svg>`;
@@ -6252,7 +6303,7 @@ function renderDebugDjPowerErrorChart(rows, maxAbsoluteDifference) {
 function showDebugDjPowerTooltip(event, encodedInfo) {
   if (!encodedInfo) return;
   const info = JSON.parse(decodeURIComponent(encodedInfo));
-  debugChartTooltip.innerHTML = `<strong>${escapeHtml(info.name)}</strong><span>${escapeHtml(info.button)}B · ${escapeHtml(info.pattern)} · Lv.${escapeHtml(info.level)} · score ${Number(info.score).toFixed(2)}</span><span>원본 ${Number(info.original).toFixed(4)} · 계산 ${Number(info.calculated).toFixed(4)}</span><span>차이 (계산 - 원본) ${escapeHtml(formatSigned(info.difference, 4))}</span>`;
+  debugChartTooltip.innerHTML = `<strong>${escapeHtml(info.name)}</strong><span>${escapeHtml(info.button)}B · ${escapeHtml(info.pattern)} · Lv.${escapeHtml(info.level)} · score ${Number(info.score).toFixed(2)}</span><span>원본 비율 ${Number(info.originalRatio).toFixed(6)} · 계산 비율 ${Number(info.calculatedRatio).toFixed(6)}</span><span>비율 차이 ${escapeHtml(formatSigned(info.difference, 6))}</span><span>원본 ${Number(info.original).toFixed(4)} · 계산 ${Number(info.calculated).toFixed(4)}</span>`;
   debugChartTooltip.hidden = false;
   const x = (event.clientX || window.innerWidth / 2) + 14;
   const y = (event.clientY || window.innerHeight / 2) + 14;
