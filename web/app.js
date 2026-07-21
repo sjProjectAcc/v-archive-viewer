@@ -3549,7 +3549,7 @@ function getDjPowerHistorySeriesCacheKey(entries) {
   const history = entries.map((entry) => `${entry.id}|${entry.sourceUpdatedAt || ""}|${(entry.history || []).map((event) => `${event.ymdt}:${event.score}`).join(",")}`).sort().join(";");
   const releases = Object.entries(state.djPowerHistoryReleaseAtByTitle).sort(([a], [b]) => compare(a, b)).map(([title, time]) => `${title}:${time}`).join(",");
   return hashDjPowerHistoryCacheKey([
-    "v7",
+    "v8",
     buttonFilter.value,
     patternFilter.value,
     state.djPowerHistoryCatalogUpdatedAt,
@@ -5930,7 +5930,8 @@ const DJPOWER_RATIO_CORRECTIONS = [
   [95, 95.6, 0.000167978494033, 0.00151796797252, 0.00193223700625],
   [95.6, 95.7, 0.00343638812997, 0.000667299018568, -0.000465188739228],
   [95.7, 95.9, 0.00366532110036, -0.000132929176003, -0.0016353566631],
-  [95.9, 96.1, 0.00182864893312, -0.00238299267975, -0.00608841920434],
+  [95.9, 96, 0.0018798971141265, -0.0017813571144367, -0.00049721659296069],
+  [96, 96.1, -0.00043709175265470226, -0.007134511863114806, 0],
   [96.1, 96.5, -0.00753084347148, -0.026874472545, 0.000421219780493],
   [96.5, 96.8, 0.00400635502163, -0.0030578608868, 0.00199497499055],
   [96.8, 97, 0.00288257373477, 0.000381625319869, 0.0000524367538718],
