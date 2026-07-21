@@ -6147,7 +6147,8 @@ function renderDebugDjPowerChart(rows, maxAbsoluteDifference) {
       calculated: row.calculated,
       difference: row.difference,
     }));
-    return `<circle class="chartDot debugDjPowerPoint" cx="${xFor(Number(row.score)).toFixed(2)}" cy="${(yFor(Number(row.level)) + jitter).toFixed(2)}" r="4.4" fill="${debugDjPowerErrorColor(row.difference, maxAbsoluteDifference)}" data-info="${info}" tabindex="0"></circle>`;
+    const color = debugDjPowerErrorColor(row.difference, maxAbsoluteDifference);
+    return `<circle class="chartDot debugDjPowerPoint" cx="${xFor(Number(row.score)).toFixed(2)}" cy="${(yFor(Number(row.level)) + jitter).toFixed(2)}" r="4.4" style="fill:${color};stroke:${color}" data-info="${info}" tabindex="0"></circle>`;
   }).join("");
   debugDjPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="레벨과 score에 따른 DJPower 계산 오차 그래프"><defs><clipPath id="debugDjPowerPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" x="0" y="0" width="${width}" height="${height}"></rect>${grid}<g clip-path="url(#debugDjPowerPlotClip)">${dots}</g><text class="axisTitle" x="16" y="18">level</text><text class="axisTitle" x="${width - 74}" y="${height - 14}">score</text></svg>`;
   debugDjPowerChart.querySelectorAll(".debugDjPowerPoint").forEach((point) => {
