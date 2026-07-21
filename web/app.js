@@ -24,7 +24,7 @@ const state = {
   compareChartMetric: "score",
   compareChartRanges: {},
   compareChartExcludedByScope: {},
-  compareChartTooltipPinned: false,
+  pendingSharedComparison: false,
   historyEntries: [],
   historyRows: [],
   historyMetric: "logPower",
@@ -298,6 +298,7 @@ const compareChartOtherMaxInput = document.querySelector("#compareChartOtherMaxI
 const compareChartAutoInput = document.querySelector("#compareChartAutoInput");
 const compareFloorTrendInput = document.querySelector("#compareFloorTrendInput");
 const compareChartExclusionResetButton = document.querySelector("#compareChartExclusionResetButton");
+const compareChartShareButton = document.querySelector("#compareChartShareButton");
 const compareChartImageButton = document.querySelector("#compareChartImageButton");
 const compareScatterChart = document.querySelector("#compareScatterChart");
 const compareChartTooltip = document.querySelector("#compareChartTooltip");
@@ -474,7 +475,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-calculator-v4";
+const UI_SCHEMA_VERSION = "v-log-calculator-v5";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -482,6 +483,9 @@ const REQUIRED_UI_IDS = [
   "chartPanel",
   "compareChartPanel",
   "compareProfileSummary",
+  "compareChartScaleModeSelect",
+  "compareFloorTrendInput",
+  "compareChartShareButton",
   "historyPanel",
   "achievementPanel",
   "achievementAutoLogPowerInput",
@@ -510,10 +514,47 @@ window.addEventListener("load", async () => {
   initPwa();
   await initDesktopBridge();
   initFloorSelectors();
+  applySharedCompareLinkState();
   wireEvents();
   loadTop50ScaleCache();
-  refresh(false);
+  await refresh(false);
+  if (state.pendingSharedComparison) {
+    state.pendingSharedComparison = false;
+    await loadComparison(false);
+  }
 });
+
+const SHARED_COMPARE_PARAMS = ["view", "user", "against", "metric", "button", "pattern", "filter", "sort", "floorMin", "floorMax", "scale", "auto", "mineMin", "mineMax", "otherMin", "otherMax", "trend", "exclude"];
+
+function applySharedCompareLinkState() {
+  const params = new URLSearchParams(location.search);
+  if (params.get("view") !== "compare" || !params.get("user") || !params.get("against")) return;
+  nicknameInput.value = params.get("user").trim();
+  compareNicknameInput.value = params.get("against").trim();
+  setIfOptionExists(viewSelect, "compare");
+  setIfOptionExists(buttonFilter, params.get("button") || "");
+  setIfOptionExists(patternFilter, params.get("pattern") || "");
+  setIfOptionExists(compareModeSelect, params.get("filter") || "");
+  setIfOptionExists(compareSortSelect, params.get("sort") || "absScoreDiff");
+  setIfOptionExists(compareFloorMinSelect, params.get("floorMin") || "1.1");
+  setIfOptionExists(compareFloorMaxSelect, params.get("floorMax") || "17.3");
+  setIfOptionExists(compareChartMetricSelect, params.get("metric") || "score");
+  setIfOptionExists(compareChartScaleModeSelect, params.get("scale") || "same");
+  compareChartAutoInput.checked = params.get("auto") !== "0";
+  compareFloorTrendInput.checked = params.get("trend") !== "0";
+  compareChartMinInput.value = params.get("mineMin") || "";
+  compareChartMaxInput.value = params.get("mineMax") || "";
+  compareChartOtherMinInput.value = params.get("otherMin") || "";
+  compareChartOtherMaxInput.value = params.get("otherMax") || "";
+  state.view = "compare";
+  state.compareChartMetric = compareChartMetricSelect.value;
+  state.pendingSharedComparison = true;
+  state.pendingSharedCompareExclusions = {
+    metric: compareChartMetricSelect.value,
+    keys: (params.get("exclude") || "").split(",").filter(Boolean),
+  };
+  updateCompareChartRangeControls();
+}
 
 function checkWebVersion() {
   const current = document.querySelector('meta[name="v-archive-version"]')?.content?.trim();
@@ -524,7 +565,7 @@ function checkWebVersion() {
     .then((latest) => {
       const next = latest.trim();
       if (!next || next === current) return;
-      const appUrl = new URL(".", location.href);
+      const appUrl = new URL(location.href);
       appUrl.searchParams.set("v", next);
       location.replace(appUrl.toString());
     })
@@ -838,6 +879,7 @@ function wireEvents() {
     saveSettings();
     renderCompareChart();
   });
+  compareChartShareButton.addEventListener("click", copyCompareShareLink);
   compareChartImageButton.addEventListener("click", exportCompareChartImage);
   [xMinSelect, xMaxSelect, yMinInput, yMinAutoInput, yMaxInput, yMaxAutoInput].forEach((el) => {
     el.addEventListener("input", () => {
@@ -2104,6 +2146,7 @@ async function loadComparison(full = false) {
   setBusy(true, `비교 기록 불러오는 중: ${compareNickname}`);
   try {
     state.comparePayload = await fetchArchive(compareNickname, full);
+    applyPendingSharedCompareExclusions();
     viewSelect.value = "compare";
     state.view = "compare";
     saveSettings();
@@ -2112,6 +2155,7 @@ async function loadComparison(full = false) {
     statusText.textContent = `비교 오류: ${error.message}`;
     try {
       state.comparePayload = await loadCachedPayload(compareNickname);
+      applyPendingSharedCompareExclusions();
       viewSelect.value = "compare";
       state.view = "compare";
       render();
@@ -2605,6 +2649,7 @@ function renderCompareChart() {
     compareChartOtherMaxInput.value = compareChartMaxInput.value;
   }
   renderCompareVectorChart({ rows, metric, mineName, otherName, xRange, yRange, width, height, pad, plotW, plotH });
+  syncCompareShareUrl();
 }
 
 function renderCompareVectorChart({ rows, metric, mineName, otherName, xRange, yRange, width, height, pad, plotW, plotH }) {
@@ -2800,10 +2845,60 @@ function excludeCompareChartPoint(metricKey, key) {
   const keys = getCompareChartExcludedKeys(metricKey);
   keys.add(key);
   state.compareChartExcludedByScope[scope] = [...keys];
-  state.compareChartTooltipPinned = false;
   hideCompareChartTooltip();
   saveSettings();
   renderCompareChart();
+}
+
+function applyPendingSharedCompareExclusions() {
+  const pending = state.pendingSharedCompareExclusions;
+  if (!pending?.keys?.length) return;
+  const scope = compareChartExclusionScope(pending.metric);
+  state.compareChartExcludedByScope[scope] = [...new Set(pending.keys)];
+  state.pendingSharedCompareExclusions = null;
+}
+
+function syncCompareShareUrl() {
+  if (viewSelect.value !== "compare" || !state.payload?.nickname || !state.comparePayload?.nickname) return;
+  const url = new URL(location.href);
+  SHARED_COMPARE_PARAMS.forEach((key) => url.searchParams.delete(key));
+  const set = (key, value, fallback = "") => {
+    if (value !== undefined && value !== null && String(value) !== String(fallback)) url.searchParams.set(key, String(value));
+  };
+  url.searchParams.set("view", "compare");
+  url.searchParams.set("user", state.payload.nickname);
+  url.searchParams.set("against", state.comparePayload.nickname);
+  set("metric", compareChartMetricSelect.value, "score");
+  set("button", buttonFilter.value);
+  set("pattern", patternFilter.value);
+  set("filter", compareModeSelect.value);
+  set("sort", compareSortSelect.value, "absScoreDiff");
+  set("floorMin", compareFloorMinSelect.value, "1.1");
+  set("floorMax", compareFloorMaxSelect.value, "17.3");
+  set("scale", compareChartScaleModeSelect.value, "same");
+  set("auto", compareChartAutoInput.checked ? "1" : "0", "1");
+  set("mineMin", compareChartMinInput.value);
+  set("mineMax", compareChartMaxInput.value);
+  set("otherMin", compareChartOtherMinInput.value);
+  set("otherMax", compareChartOtherMaxInput.value);
+  set("trend", compareFloorTrendInput.checked ? "1" : "0", "1");
+  const excluded = [...getCompareChartExcludedKeys(getCompareChartMetric().key)];
+  if (excluded.length && excluded.length <= 120) url.searchParams.set("exclude", excluded.join(","));
+  try {
+    history.replaceState(null, "", url.toString());
+  } catch {
+    // Tauri's custom protocol can reject history changes in older webviews.
+  }
+}
+
+async function copyCompareShareLink() {
+  syncCompareShareUrl();
+  try {
+    await navigator.clipboard.writeText(location.href);
+    statusText.textContent = "비교 링크를 클립보드에 복사했습니다.";
+  } catch {
+    statusText.textContent = "비교 링크를 복사하지 못했습니다.";
+  }
 }
 
 function syncCompareChartRangesForSharedScale() {
@@ -2822,15 +2917,16 @@ function formatCompareChartAxis(value, metricKey) {
 
 function bindCompareChartTooltips() {
   compareScatterChart.querySelectorAll(".compareChartPoint, .compareFloorMidpoint").forEach((point) => {
-    point.addEventListener("pointermove", (event) => { if (!state.compareChartTooltipPinned) showCompareChartTooltip(event, point.dataset.info); });
-    point.addEventListener("pointerenter", (event) => { if (!state.compareChartTooltipPinned) showCompareChartTooltip(event, point.dataset.info); });
-    point.addEventListener("focus", (event) => { if (!state.compareChartTooltipPinned) showCompareChartTooltip(event, point.dataset.info); });
-    point.addEventListener("pointerleave", () => { if (!state.compareChartTooltipPinned) hideCompareChartTooltip(); });
-    point.addEventListener("blur", () => { if (!state.compareChartTooltipPinned) hideCompareChartTooltip(); });
-    point.addEventListener("click", (event) => {
+    point.addEventListener("pointermove", (event) => showCompareChartTooltip(event, point.dataset.info));
+    point.addEventListener("pointerenter", (event) => showCompareChartTooltip(event, point.dataset.info));
+    point.addEventListener("focus", (event) => showCompareChartTooltip(event, point.dataset.info));
+    point.addEventListener("pointerleave", hideCompareChartTooltip);
+    point.addEventListener("blur", hideCompareChartTooltip);
+    point.addEventListener("contextmenu", (event) => {
       if (!point.classList.contains("compareChartPoint")) return;
-      state.compareChartTooltipPinned = true;
-      showCompareChartTooltip(event, point.dataset.info);
+      event.preventDefault();
+      const info = JSON.parse(decodeURIComponent(point.dataset.info || "{}"));
+      if (info.key && info.metricKey) excludeCompareChartPoint(info.metricKey, info.key);
     });
   });
 }
@@ -2849,15 +2945,7 @@ function showCompareChartTooltip(event, encodedInfo) {
     <span>${escapeHtml(info.pattern)} · Lv.${escapeHtml(info.level)} · floor ${escapeHtml(info.floor)}</span>
     <span>${escapeHtml(info.mineName)} ${escapeHtml(formatCompareMetricValue(info.mineValue, info.metricKey))}</span>
     <span>${escapeHtml(info.otherName)} ${escapeHtml(formatCompareMetricValue(info.otherValue, info.metricKey))}</span>
-    <span>차이 ${escapeHtml(formatSignedCompareMetric(info.diff, info.metricKey))}</span>
-    ${info.key ? `<button class="chartTooltipAction" type="button" data-compare-exclude="${escapeHtml(info.key)}" data-compare-metric="${escapeHtml(info.metricKey)}">이 그래프에서 제외</button>` : ""}`;
-  }
-  const excludeButton = compareChartTooltip.querySelector("[data-compare-exclude]");
-  if (excludeButton) {
-    compareChartTooltip.classList.add("hasAction");
-    excludeButton.addEventListener("click", () => excludeCompareChartPoint(excludeButton.dataset.compareMetric, excludeButton.dataset.compareExclude));
-  } else {
-    compareChartTooltip.classList.remove("hasAction");
+    <span>차이 ${escapeHtml(formatSignedCompareMetric(info.diff, info.metricKey))}</span>`;
   }
   compareChartTooltip.hidden = false;
   const x = (event.clientX || window.innerWidth / 2) + 14;
@@ -2877,8 +2965,6 @@ function formatSignedCompareMetric(value, metricKey) {
 }
 
 function hideCompareChartTooltip() {
-  state.compareChartTooltipPinned = false;
-  compareChartTooltip.classList.remove("hasAction");
   compareChartTooltip.hidden = true;
 }
 
