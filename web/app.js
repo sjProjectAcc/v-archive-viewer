@@ -151,9 +151,14 @@ const TOP_IMAGE_COUNT = TOP_IMAGE_COLUMNS * TOP_IMAGE_ROWS;
 const DJPOWER_TARGET_TOP100_MAX = 10000;
 // Piecewise exponential fit of the Tier manual curve. Each score is a segment start.
 const TIER_POINT_CURVE_SEGMENTS = Object.freeze([
-  Object.freeze({ start: 90, offset: 65.34907956, scale: 11.38176075, rate: 0.105252953 }),
-  Object.freeze({ start: 92.3, offset: 68.47535404, scale: 10.3863068, rate: 0.145025543 }),
-  Object.freeze({ start: 95.2, offset: 73.91530899, scale: 11.47051612, rate: 0.202236169 }),
+  Object.freeze({ start: 90, offset: 65.34685107, scale: 12.59517529, rate: 0.095727123 }),
+  Object.freeze({ start: 90.77, offset: 66.31051909, scale: 12.33049328, rate: 0.105252953 }),
+  Object.freeze({ start: 91.8, offset: 67.72263725, scale: 12.49493992, rate: 0.115842321 }),
+  Object.freeze({ start: 92.3, offset: 68.46782597, scale: 12.3215921, rate: 0.12435358 }),
+  Object.freeze({ start: 93.1, offset: 69.75759969, scale: 11.67716519, rate: 0.144447421 }),
+  Object.freeze({ start: 94.5, offset: 72.37571168, scale: 12.2105534, rate: 0.169472041 }),
+  Object.freeze({ start: 95.2, offset: 73.91421356, scale: 12.04071678, rate: 0.193349645 }),
+  Object.freeze({ start: 96, offset: 75.92903662, scale: 12.48231765, rate: 0.218181667 }),
   Object.freeze({ start: 96.4, offset: 77.0674811, scale: 12.68519077, rate: 0.23444608 }),
   Object.freeze({ start: 96.6, offset: 77.67683437, scale: 12.04257254, rate: 0.258291201 }),
   Object.freeze({ start: 97.15, offset: 79.51536586, scale: 12.63101481, rate: 0.284277555 }),
