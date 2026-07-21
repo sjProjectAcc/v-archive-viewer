@@ -113,7 +113,7 @@ const DJPOWER_STATIC_RELEASES = Object.freeze([
   ["2025-10-23", ["Gate of Elysium", "AURORA"]],
   ["2026-01-29", ["DATAMOSH++"]],
   ["2026-04-08", ["River Flow"]],
-  ["2026-05-07", ["MAGATONiX PHANTOM"]],
+  ["2026-05-07", ["MEGATØNiX PHANTØM"]],
   ["2022-01-25", ["너로피어오라 ~Original Ver.~"]],
   ["2023-06-01", ["염라 ~Original Ver.~"]],
   ["2024-12-19", ["Diomedes ~Extended Mix~"]],
@@ -3514,15 +3514,18 @@ function hashDjPowerHistoryCacheKey(value) {
 
 function getDjPowerHistorySeriesCacheKey(entries) {
   const history = entries.map((entry) => `${entry.id}|${entry.sourceUpdatedAt || ""}|${(entry.history || []).map((event) => `${event.ymdt}:${event.score}`).join(",")}`).sort().join(";");
+  const currentRecords = (state.payload?.records || []).map((record) => `${recordKey(record)}:${record.score}:${record.djpower ?? ""}:${record.updatedAt || ""}`).sort().join(";");
   const releases = Object.entries(state.djPowerHistoryReleaseAtByTitle).sort(([a], [b]) => compare(a, b)).map(([title, time]) => `${title}:${time}`).join(",");
   return hashDjPowerHistoryCacheKey([
     "v1",
     buttonFilter.value,
     patternFilter.value,
     state.djPowerHistoryCatalogUpdatedAt,
+    latestDjPowerUpdateAt(Date.now()),
     state.djPowerHistoryUpdateTimes.join(","),
     releases,
     history,
+    currentRecords,
   ].join("|"));
 }
 
@@ -3548,6 +3551,14 @@ function serializeHistorySeries(series) {
 
 function deserializeHistorySeries(serialized, buttons) {
   return new Map(buttons.map((button) => [button, Array.isArray(serialized?.[button]) ? serialized[button] : []]));
+}
+
+function getDjPowerHistorySnapshotTime() {
+  const latestUpdate = latestDjPowerUpdateAt(Date.now());
+  const latestRecord = Math.max(...(state.payload?.records || [])
+    .map((record) => new Date(record.updatedAt || "").getTime())
+    .filter(Number.isFinite));
+  return Math.max(Number.isFinite(latestUpdate) ? latestUpdate : 0, Number.isFinite(latestRecord) ? latestRecord : 0);
 }
 
 function buildDjPowerHistorySeries(entries) {
@@ -3584,11 +3595,33 @@ function buildDjPowerHistorySeries(entries) {
       }
     }
   }
-  events.sort((a, b) => a.time - b.time || (a.type === "update" ? -1 : 1));
+  const historyIdByRecordKey = new Map(entries.map((entry) => [recordKey(entry), entry.id]));
+  const snapshotTime = getDjPowerHistorySnapshotTime();
+  const snapshotRecords = (state.payload?.records || []).flatMap((record) => {
+    const button = Number(record.button);
+    if (!series.has(button) || (selectedPattern && record.pattern !== selectedPattern)) return [];
+    const fallbackMax = maxDjPowerForPattern(record.pattern, record.level);
+    const hasRawDjPower = record.djpower !== null && record.djpower !== undefined && record.djpower !== "" && Number.isFinite(Number(record.djpower));
+    const rawValue = hasRawDjPower
+      ? Number(record.djpower)
+      : djPowerScoreRatio(Number(record.score)) * fallbackMax;
+    if (!Number.isFinite(rawValue)) return [];
+    return [{ button, key: historyIdByRecordKey.get(recordKey(record)) || `current|${recordKey(record)}`, value: rawValue, entry: record }];
+  });
+  if (snapshotRecords.length) events.push({ type: "snapshot", time: snapshotTime, records: snapshotRecords });
+  const eventPriority = { update: 0, score: 1, snapshot: 2 };
+  events.sort((a, b) => a.time - b.time || eventPriority[a.type] - eventPriority[b.type]);
 
   for (const event of events) {
     if (event.type === "score") valuesByButton.get(event.button).set(event.key, event);
-    const affectedButtons = event.type === "update" ? buttons : [event.button];
+    if (event.type === "snapshot") {
+      for (const record of event.records) valuesByButton.get(record.button).set(record.key, record);
+    }
+    const affectedButtons = event.type === "update"
+      ? buttons
+      : event.type === "snapshot"
+        ? [...new Set(event.records.map((record) => record.button))]
+        : [event.button];
     for (const button of affectedButtons) {
       const values = valuesByButton.get(button);
       if (!values.size) continue;
