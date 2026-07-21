@@ -57,6 +57,7 @@
       <button class="viewTab desktopOnly" type="button" role="tab" data-view="hangyTags">태그*행이봇</button>
       <button class="viewTab viewTabUtility" type="button" role="tab" data-view="logPowerCalculator">계산기</button>
       <button class="viewTab viewTabUtility testOnly" type="button" role="tab" data-view="debug" hidden>실험실</button>
+      <button class="viewTab viewTabUtility testOnly" type="button" role="tab" data-view="testNotes" hidden>TEST</button>
       <button class="viewTab viewTabUtility" type="button" role="tab" data-view="readme">도움말</button>
       <button class="viewTab viewTabUtility errorOnly" type="button" role="tab" data-view="errors" hidden>오류 기록</button>
     </nav>
@@ -79,6 +80,7 @@
           <option value="floorMinScore">Floor 분석</option>
           <option value="summaryInfo">종합</option>
           <option value="debug" class="testOnly" hidden>실험실</option>
+          <option value="testNotes" class="testOnly" hidden>TEST</option>
           <option value="readme">도움말</option>
           <option value="errors" class="errorOnly" hidden>오류 기록</option>
         </select>
@@ -542,6 +544,16 @@
         <section><h3>12. 이미지 출력</h3><p>LogPower Top30, Floor_View, 일반 산포도, 계정 비교, History 그래프와 최근 성과를 PNG로 다운로드합니다. 지원되는 환경에서는 같은 이미지를 클립보드에도 복사합니다.</p><ul><li>자켓 이미지는 DJMAX.GG에서 사용자 기기가 직접 요청합니다.</li><li>외부 이미지 서버가 응답하지 않으면 이미지 생성에서 해당 자켓이 비어 보일 수 있습니다.</li><li>이미지에는 닉네임, 그래프 조건, 앱 버전과 생성 시점이 포함됩니다.</li></ul></section>
         <section><h3>13. 데스크톱 앱과 업데이트</h3><p>웹 버전은 일반 기록 조회와 분석에 사용할 수 있고, 데스크톱 앱은 CORS 제한 없이 History API와 계정 로그인을 사용할 수 있습니다.</p><ul><li>업데이트 확인은 GitHub Pages의 버전 정보만 읽습니다.</li><li>새 버전이 있으면 GitHub Release의 Windows ZIP을 내려받아 앱을 교체합니다.</li><li>업데이트가 보이지 않으면 수동 업데이트 확인을 누른 뒤 앱을 다시 시작해 보세요.</li></ul></section>
         <section><h3>14. 개인정보와 문제 해결</h3><p>회원 번호와 로그인 토큰은 V-ARCHIVE 로그인 및 History 요청에만 사용하며, 이 프로젝트의 별도 운영 서버로 전송하지 않습니다. 토큰이 들어 있는 파일은 공유하지 마세요.</p><ul><li>기록이 이상하면 먼저 일반 새로고침, 이후 전체 새로고침 순서로 확인합니다.</li><li>History가 비어 있으면 조회 닉네임과 연결 계정이 같은지 확인하고 전체 재수집을 실행합니다.</li><li>필터가 예상과 다르면 버튼·패턴·검색·floor 범위를 전체로 되돌려 확인합니다.</li></ul></section>
+      </div>
+    </section>
+
+    <section class="readmePanel testOnly" id="testNotesPanel" hidden>
+      <header><h2>TEST 변경사항</h2><p>개발자 확인 버전에만 먼저 들어가는 기능입니다.</p></header>
+      <div class="readmeGrid">
+        <section><h3>행이봇 태그</h3><p><code>태그*행이봇</code>은 선택한 버튼과 패턴의 전체 곡을 수집합니다. 내 기록이 없는 패턴도 포함하며, 8개 trait와 합계를 열별로 정렬할 수 있습니다.</p></section>
+        <section><h3>종합</h3><p>종합 탭은 버튼·검색 필터와 무관하게 전체 버튼의 Tier와 DJClass를 보여줍니다. 새로고침 오류가 있으면 같은 탭의 오류 기록 영역에서 바로 확인할 수 있습니다.</p></section>
+        <section><h3>비교 그래프</h3><p>스케일 방식을 동일, 평행사변형, 개별 scale 중에서 고를 수 있습니다. floor 중점선도 켜고 끌 수 있습니다.</p></section>
+        <section><h3>점 제외</h3><p>비교 그래프의 점을 클릭하면 해당 곡을 현재 계정쌍·지표 그래프에서 제외할 수 있습니다. 제외 초기화 버튼으로 되돌릴 수 있습니다.</p></section>
       </div>
     </section>
 

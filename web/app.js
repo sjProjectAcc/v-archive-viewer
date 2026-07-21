@@ -403,6 +403,7 @@ const debugDjPowerErrorMin = document.querySelector("#debugDjPowerErrorMin");
 const debugDjPowerErrorMax = document.querySelector("#debugDjPowerErrorMax");
 const debugDjPowerRangeResetButton = document.querySelector("#debugDjPowerRangeResetButton");
 const readmePanel = document.querySelector("#readmePanel");
+const testNotesPanel = document.querySelector("#testNotesPanel");
 const overviewPanel = document.querySelector("#overviewPanel");
 const overviewTierTable = document.querySelector("#overviewTierTable");
 const overviewDjClassTable = document.querySelector("#overviewDjClassTable");
@@ -496,6 +497,7 @@ const REQUIRED_UI_IDS = [
   "logPowerCalculatorScoreTable",
   "debugPanel",
   "readmePanel",
+  "testNotesPanel",
   "overviewPanel",
   "tableSection",
 ];
@@ -2495,6 +2497,7 @@ function renderActiveView() {
   const isLogPowerCalculator = viewSelect.value === "logPowerCalculator";
   const isDebug = viewSelect.value === "debug";
   const isReadme = viewSelect.value === "readme";
+  const isTestNotes = viewSelect.value === "testNotes";
   const isOverview = viewSelect.value === "summaryInfo";
   [
     [chartPanel, !isChart],
@@ -2507,8 +2510,9 @@ function renderActiveView() {
     [logPowerCalculatorPanel, !isLogPowerCalculator],
     [debugPanel, !isDebug],
     [readmePanel, !isReadme],
+    [testNotesPanel, !isTestNotes],
     [overviewPanel, !isOverview],
-    [tableSection, isChart || isOverview || isDebug || isReadme || isTags || isHangyTags || isAchievements || isLogPowerCalculator],
+    [tableSection, isChart || isOverview || isDebug || isReadme || isTestNotes || isTags || isHangyTags || isAchievements || isLogPowerCalculator],
   ].forEach(([element, hidden]) => {
     if (element) element.hidden = hidden;
   });
@@ -2536,6 +2540,7 @@ function renderActiveView() {
   else if (isDebug) renderDebugView();
   else if (isOverview) renderOverview();
   else if (isReadme) return;
+  else if (isTestNotes) return;
   else {
     if (isCompare) renderCompareChart();
     renderTable();
@@ -4286,7 +4291,7 @@ function updateConditionalTabs() {
     element.disabled = errorCount <= 0;
   });
 
-  const unavailable = (viewSelect.value === "debug" && !state.isTestMode)
+  const unavailable = ((viewSelect.value === "debug" || viewSelect.value === "testNotes") && !state.isTestMode)
     || (viewSelect.value === "errors" && errorCount <= 0);
   if (unavailable) {
     viewSelect.value = "chart";
