@@ -375,6 +375,11 @@ const debugDjPowerSummary = document.querySelector("#debugDjPowerSummary");
 const debugDjPowerChart = document.querySelector("#debugDjPowerChart");
 const debugDjPowerErrorChart = document.querySelector("#debugDjPowerErrorChart");
 const debugDjPowerTable = document.querySelector("#debugDjPowerTable");
+const debugDjPowerScoreMin = document.querySelector("#debugDjPowerScoreMin");
+const debugDjPowerScoreMax = document.querySelector("#debugDjPowerScoreMax");
+const debugDjPowerErrorMin = document.querySelector("#debugDjPowerErrorMin");
+const debugDjPowerErrorMax = document.querySelector("#debugDjPowerErrorMax");
+const debugDjPowerRangeResetButton = document.querySelector("#debugDjPowerRangeResetButton");
 const readmePanel = document.querySelector("#readmePanel");
 const overviewPanel = document.querySelector("#overviewPanel");
 const overviewTierTable = document.querySelector("#overviewTierTable");
@@ -930,6 +935,20 @@ function wireEvents() {
     saveSettings();
     renderDebugView();
   });
+  [debugDjPowerScoreMin, debugDjPowerScoreMax, debugDjPowerErrorMin, debugDjPowerErrorMax].forEach((control) => {
+    control.addEventListener("input", () => {
+      saveSettings();
+      renderDebugView();
+    });
+  });
+  debugDjPowerRangeResetButton.addEventListener("click", () => {
+    debugDjPowerScoreMin.value = "";
+    debugDjPowerScoreMax.value = "";
+    debugDjPowerErrorMin.value = "";
+    debugDjPowerErrorMax.value = "";
+    saveSettings();
+    renderDebugView();
+  });
   [calculatorMode, logPowerCalculatorButton, logPowerCalculatorFloor, djPowerCalculatorPattern, djPowerCalculatorLevel, logPowerCalculatorScore, logPowerCalculatorTarget].forEach((control) => {
     control.addEventListener("input", () => {
       saveSettings();
@@ -1017,6 +1036,10 @@ function applySavedSettings() {
   const savedDebugRatio = Number(settings.debugRatio);
   const migratedDebugRatio = Math.abs(savedDebugRatio - 0.905) < 1e-9 ? currentFloorRelation() : settings.debugRatio;
   setDebugRatio(migratedDebugRatio || currentFloorRelation());
+  debugDjPowerScoreMin.value = settings.debugDjPowerScoreMin || "";
+  debugDjPowerScoreMax.value = settings.debugDjPowerScoreMax || "";
+  debugDjPowerErrorMin.value = settings.debugDjPowerErrorMin || "";
+  debugDjPowerErrorMax.value = settings.debugDjPowerErrorMax || "";
   applyTheme(settings.theme || "light");
   restoreCompareChartRange(state.compareChartMetric);
   state.view = viewSelect.value;
@@ -1084,6 +1107,10 @@ function saveSettings() {
     tagsFacetSearch: tagsFacetSearchInput.value,
     tagsSelected: [...state.tagsSelected],
     debugRatio: debugRatioInput.value,
+    debugDjPowerScoreMin: debugDjPowerScoreMin.value,
+    debugDjPowerScoreMax: debugDjPowerScoreMax.value,
+    debugDjPowerErrorMin: debugDjPowerErrorMin.value,
+    debugDjPowerErrorMax: debugDjPowerErrorMax.value,
     theme: document.documentElement.dataset.theme || "light",
   };
   appStorageSetItem(SETTINGS_KEY, JSON.stringify(settings));
@@ -6120,14 +6147,38 @@ function debugDjPowerErrorColor(difference, maxAbsoluteDifference) {
   return `rgb(${Math.round(214 + ratio * 31)}, ${Math.round(118 - ratio * 65)}, ${Math.round(112 - ratio * 51)})`;
 }
 
+function debugDjPowerScoreRange(rows) {
+  const autoMin = Math.max(0, Math.floor((Math.min(...rows.map((row) => Number(row.score))) - 0.1) * 10) / 10);
+  const autoMax = Math.min(100, Math.ceil((Math.max(...rows.map((row) => Number(row.score))) + 0.1) * 10) / 10);
+  const manualMin = Number(debugDjPowerScoreMin.value);
+  const manualMax = Number(debugDjPowerScoreMax.value);
+  const min = debugDjPowerScoreMin.value !== "" && Number.isFinite(manualMin) ? Math.max(0, Math.min(100, manualMin)) : autoMin;
+  const max = debugDjPowerScoreMax.value !== "" && Number.isFinite(manualMax) ? Math.max(0, Math.min(100, manualMax)) : autoMax;
+  return max > min ? { min, max } : { min: autoMin, max: autoMax };
+}
+
+function debugDjPowerErrorRange(rows, scoreRange, maxAbsoluteDifference) {
+  const scoped = rows.filter((row) => Number(row.score) >= scoreRange.min && Number(row.score) <= scoreRange.max);
+  const source = scoped.length ? scoped : rows;
+  const observedMin = Math.min(...source.map((row) => row.difference), 0);
+  const observedMax = Math.max(...source.map((row) => row.difference), 0);
+  const padding = Math.max((observedMax - observedMin) * 0.12, maxAbsoluteDifference * 0.08, 0.002);
+  const autoMin = observedMin - padding;
+  const autoMax = observedMax + padding;
+  const manualMin = Number(debugDjPowerErrorMin.value);
+  const manualMax = Number(debugDjPowerErrorMax.value);
+  const min = debugDjPowerErrorMin.value !== "" && Number.isFinite(manualMin) ? manualMin : autoMin;
+  const max = debugDjPowerErrorMax.value !== "" && Number.isFinite(manualMax) ? manualMax : autoMax;
+  return max > min ? { min, max } : { min: autoMin, max: autoMax };
+}
+
 function renderDebugDjPowerChart(rows, maxAbsoluteDifference) {
   const width = Math.max(760, debugDjPowerChart.clientWidth || 1000);
   const height = 430;
   const pad = { left: 54, right: 24, top: 24, bottom: 52 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
-  const scoreMin = Math.max(0, Math.floor((Math.min(...rows.map((row) => Number(row.score))) - 0.1) * 10) / 10);
-  const scoreMax = Math.min(100, Math.ceil((Math.max(...rows.map((row) => Number(row.score))) + 0.1) * 10) / 10);
+  const { min: scoreMin, max: scoreMax } = debugDjPowerScoreRange(rows);
   const xSpan = Math.max(scoreMax - scoreMin, 0.2);
   const levelMax = Math.max(15, ...rows.map((row) => Number(row.level)));
   const xFor = (score) => pad.left + ((score - scoreMin) / xSpan) * plotW;
@@ -6169,14 +6220,10 @@ function renderDebugDjPowerErrorChart(rows, maxAbsoluteDifference) {
   const pad = { left: 58, right: 24, top: 34, bottom: 52 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
-  const scoreMin = Math.max(0, Math.floor((Math.min(...rows.map((row) => Number(row.score))) - 0.1) * 10) / 10);
-  const scoreMax = Math.min(100, Math.ceil((Math.max(...rows.map((row) => Number(row.score))) + 0.1) * 10) / 10);
+  const scoreRange = debugDjPowerScoreRange(rows);
+  const { min: scoreMin, max: scoreMax } = scoreRange;
   const xSpan = Math.max(scoreMax - scoreMin, 0.2);
-  const observedMin = Math.min(...rows.map((row) => row.difference), 0);
-  const observedMax = Math.max(...rows.map((row) => row.difference), 0);
-  const yPadding = Math.max((observedMax - observedMin) * 0.12, maxAbsoluteDifference * 0.08, 0.002);
-  const yMin = observedMin - yPadding;
-  const yMax = observedMax + yPadding;
+  const { min: yMin, max: yMax } = debugDjPowerErrorRange(rows, scoreRange, maxAbsoluteDifference);
   const ySpan = Math.max(yMax - yMin, 0.01);
   const xFor = (score) => pad.left + ((score - scoreMin) / xSpan) * plotW;
   const yFor = (difference) => pad.top + (1 - ((difference - yMin) / ySpan)) * plotH;
