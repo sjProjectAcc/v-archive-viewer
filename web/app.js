@@ -60,6 +60,7 @@ const NICKNAME_HISTORY_KEY = "vArchiveNicknameHistory";
 const HISTORY_ACCOUNT_NICKNAME_KEY = "vArchiveHistoryAccountNickname";
 const DEFAULT_NICKNAME = "lemoncube7";
 const API_BASE_URL = "https://v-archive.net";
+const PUBLIC_APP_URL = "https://sjprojectacc.github.io/v-archive-viewer/";
 const SONG_DB_URL = `${API_BASE_URL}/db/v2/songs.json`;
 const DLC_DB_URL = `${API_BASE_URL}/db/dlcs.json`;
 const BUTTONS = [4, 5, 6, 8];
@@ -2858,9 +2859,9 @@ function applyPendingSharedCompareExclusions() {
   state.pendingSharedCompareExclusions = null;
 }
 
-function syncCompareShareUrl() {
-  if (viewSelect.value !== "compare" || !state.payload?.nickname || !state.comparePayload?.nickname) return;
-  const url = new URL(location.href);
+function buildCompareShareUrl() {
+  if (viewSelect.value !== "compare" || !state.payload?.nickname || !state.comparePayload?.nickname) return "";
+  const url = new URL(PUBLIC_APP_URL);
   SHARED_COMPARE_PARAMS.forEach((key) => url.searchParams.delete(key));
   const set = (key, value, fallback = "") => {
     if (value !== undefined && value !== null && String(value) !== String(fallback)) url.searchParams.set(key, String(value));
@@ -2884,8 +2885,14 @@ function syncCompareShareUrl() {
   set("trend", compareFloorTrendInput.checked ? "1" : "0", "1");
   const excluded = [...getCompareChartExcludedKeys(getCompareChartMetric().key)];
   if (excluded.length && excluded.length <= 120) url.searchParams.set("exclude", excluded.join(","));
+  return url.toString();
+}
+
+function syncCompareShareUrl() {
+  const shareUrl = buildCompareShareUrl();
+  if (!shareUrl) return;
   try {
-    history.replaceState(null, "", url.toString());
+    if (/^https?:$/.test(location.protocol)) history.replaceState(null, "", shareUrl);
   } catch {
     // Tauri's custom protocol can reject history changes in older webviews.
   }
@@ -2893,8 +2900,10 @@ function syncCompareShareUrl() {
 
 async function copyCompareShareLink() {
   syncCompareShareUrl();
+  const shareUrl = buildCompareShareUrl();
+  if (!shareUrl) return;
   try {
-    await navigator.clipboard.writeText(location.href);
+    await navigator.clipboard.writeText(shareUrl);
     statusText.textContent = "비교 링크를 클립보드에 복사했습니다.";
   } catch {
     statusText.textContent = "비교 링크를 복사하지 못했습니다.";
@@ -4613,11 +4622,14 @@ function bindChartTooltips() {
 function showTooltip(event, encodedInfo) {
   if (!encodedInfo) return;
   const info = JSON.parse(decodeURIComponent(encodedInfo));
+  const scoreDetails = info.metricKey === "score"
+    ? `<span>logPower ${escapeHtml(formatChartMetric(info.logPower, "logPower"))}</span>`
+    : `<span>score ${escapeHtml(formatChartMetric(info.score, "score"))} · logPower ${escapeHtml(formatChartMetric(info.logPower, "logPower"))}</span>`;
   chartTooltip.innerHTML = `
     <strong>${escapeHtml(info.name)}</strong>
     <span>${escapeHtml(info.pattern)} · Lv.${escapeHtml(info.level)} · floor ${escapeHtml(info.floor)}</span>
     <span>${escapeHtml(info.metricLabel)} ${escapeHtml(formatChartMetric(info.metricValue, info.metricKey))}${info.top50 ? " · TOP50" : ""}${info.djPowerGroup ? ` · ${escapeHtml(info.djPowerGroup)}` : ""}${info.maxCombo ? " · MAX COMBO" : ""}${info.belowNextFloorMin ? " · 상위 floor 최저 미만" : ""}</span>
-    <span>score ${escapeHtml(formatChartMetric(info.score, "score"))} · logPower ${escapeHtml(formatChartMetric(info.logPower, "logPower"))}</span>
+    ${scoreDetails}
     <span>point ${escapeHtml(formatValue(info.rating, "rating"))} · djpower ${escapeHtml(formatValue(info.djpower, "djpower"))} · maxDJPower ${escapeHtml(formatValue(info.maxDjpower, "djpower"))}</span>
     <span>${escapeHtml(formatDate(info.updatedAt))}</span>`;
   chartTooltip.hidden = false;
