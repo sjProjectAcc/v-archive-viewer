@@ -3514,10 +3514,9 @@ function hashDjPowerHistoryCacheKey(value) {
 
 function getDjPowerHistorySeriesCacheKey(entries) {
   const history = entries.map((entry) => `${entry.id}|${entry.sourceUpdatedAt || ""}|${(entry.history || []).map((event) => `${event.ymdt}:${event.score}`).join(",")}`).sort().join(";");
-  const currentRecords = (state.payload?.records || []).map((record) => `${recordKey(record)}:${record.score}:${record.djpower ?? ""}:${record.updatedAt || ""}`).sort().join(";");
   const releases = Object.entries(state.djPowerHistoryReleaseAtByTitle).sort(([a], [b]) => compare(a, b)).map(([title, time]) => `${title}:${time}`).join(",");
   return hashDjPowerHistoryCacheKey([
-    "v1",
+    "v4",
     buttonFilter.value,
     patternFilter.value,
     state.djPowerHistoryCatalogUpdatedAt,
@@ -3525,7 +3524,7 @@ function getDjPowerHistorySeriesCacheKey(entries) {
     state.djPowerHistoryUpdateTimes.join(","),
     releases,
     history,
-    currentRecords,
+    (state.payload?.records || []).map((record) => `${recordKey(record)}:${record.score}:${record.djpower ?? ""}:${record.updatedAt || ""}`).sort().join(";"),
   ].join("|"));
 }
 
@@ -3561,6 +3560,25 @@ function getDjPowerHistorySnapshotTime() {
   return Math.max(Number.isFinite(latestUpdate) ? latestUpdate : 0, Number.isFinite(latestRecord) ? latestRecord : 0);
 }
 
+function getCurrentDjPowerByRecordKey() {
+  const values = new Map();
+  for (const record of state.payload?.records || []) {
+    const value = Number(record.djpower);
+    const score = Number(record.score);
+    if (Number.isFinite(value) && Number.isFinite(score)) {
+      values.set(recordKey(record), { score, value });
+    }
+  }
+  return values;
+}
+
+function historicalDjPowerValue(entry, score, rawMax, currentDjPowerByRecordKey) {
+  const current = currentDjPowerByRecordKey.get(recordKey(entry));
+  // A matching current score has an API-provided raw value, which is more exact than the public score formula.
+  if (current && Math.abs(current.score - score) < 0.000001) return current.value;
+  return djPowerScoreRatio(score) * rawMax;
+}
+
 function buildDjPowerHistorySeries(entries) {
   const selectedButton = buttonFilter.value;
   const selectedPattern = patternFilter.value;
@@ -3577,6 +3595,7 @@ function buildDjPowerHistorySeries(entries) {
   const series = new Map(buttons.map((button) => [button, []]));
   const valuesByButton = new Map(buttons.map((button) => [button, new Map()]));
   const events = [];
+  const currentDjPowerByRecordKey = getCurrentDjPowerByRecordKey();
 
   for (const updateAt of state.djPowerHistoryUpdateTimes) {
     if (Number.isFinite(updateAt)) events.push({ type: "update", time: updateAt });
@@ -3589,7 +3608,8 @@ function buildDjPowerHistorySeries(entries) {
     if (!Number.isFinite(rawMax)) continue;
     for (const event of entry.history || []) {
       const time = new Date(event.ymdt).getTime();
-      const value = djPowerScoreRatio(Number(event.score)) * rawMax;
+      const score = Number(event.score);
+      const value = historicalDjPowerValue(entry, score, rawMax, currentDjPowerByRecordKey);
       if (Number.isFinite(time) && Number.isFinite(value)) {
         events.push({ type: "score", button, key: entry.id, time, value, entry });
       }
