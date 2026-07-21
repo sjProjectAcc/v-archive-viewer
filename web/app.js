@@ -151,14 +151,28 @@ const TOP_IMAGE_COUNT = TOP_IMAGE_COLUMNS * TOP_IMAGE_ROWS;
 const DJPOWER_TARGET_TOP100_MAX = 10000;
 // Piecewise exponential fit of the Tier manual curve. Each score is a segment start.
 const TIER_POINT_CURVE_SEGMENTS = Object.freeze([
-  Object.freeze({ start: 90, offset: 65.47836917, scale: 7.10672003, rate: 0.150921113 }),
-  Object.freeze({ start: 96.6, offset: 77.67745665, scale: 11.68845869, rate: 0.26556245 }),
-  Object.freeze({ start: 97.35, offset: 80.25698148, scale: 11.14500267, rate: 0.338194598 }),
-  Object.freeze({ start: 98.22, offset: 84.07711157, scale: 10.74440895, rate: 0.468633503 }),
-  Object.freeze({ start: 99, offset: 88.82865645, scale: 10.91357237, rate: 0.666423035 }),
-  Object.freeze({ start: 99.49, offset: 93.05034666, scale: 10.95234705, rate: 0.919919871 }),
-  Object.freeze({ start: 99.85, offset: 97.35499095, scale: 12.0649348, rate: 1.173770886 }),
-  Object.freeze({ start: 99.98, offset: 99.3423453, scale: 0.10288963, rate: 100 }),
+  Object.freeze({ start: 90, offset: 65.34907956, scale: 11.38176075, rate: 0.105252953 }),
+  Object.freeze({ start: 92.3, offset: 68.47535404, scale: 10.3863068, rate: 0.145025543 }),
+  Object.freeze({ start: 95.2, offset: 73.91530899, scale: 11.47051612, rate: 0.202236169 }),
+  Object.freeze({ start: 96.4, offset: 77.0674811, scale: 12.68519077, rate: 0.23444608 }),
+  Object.freeze({ start: 96.6, offset: 77.67683437, scale: 12.04257254, rate: 0.258291201 }),
+  Object.freeze({ start: 97.15, offset: 79.51536586, scale: 12.63101481, rate: 0.284277555 }),
+  Object.freeze({ start: 97.35, offset: 80.25436984, scale: 12.51520758, rate: 0.303644369 }),
+  Object.freeze({ start: 97.6, offset: 81.24152927, scale: 12.38860822, rate: 0.330873073 }),
+  Object.freeze({ start: 97.9, offset: 82.53463895, scale: 12.26912795, rate: 0.368919984 }),
+  Object.freeze({ start: 98.2, offset: 83.97068773, scale: 5050.8881151, rate: 0.001004002 }),
+  Object.freeze({ start: 98.22, offset: 84.07241198, scale: 12.34121347, rate: 0.412988201 }),
+  Object.freeze({ start: 98.47, offset: 85.41520829, scale: 12.0160001, rate: 0.469766382 }),
+  Object.freeze({ start: 98.8, offset: 87.43064896, scale: 12.32850742, rate: 0.535418752 }),
+  Object.freeze({ start: 99, offset: 88.82437129, scale: 12.42444115, rate: 0.591645062 }),
+  Object.freeze({ start: 99.15, offset: 89.97771604, scale: 12.16752404, rate: 0.659678 }),
+  Object.freeze({ start: 99.35, offset: 91.69417687, scale: 12.36484929, rate: 0.741433441 }),
+  Object.freeze({ start: 99.49, offset: 93.04689364, scale: 12.44605454, rate: 0.817659494 }),
+  Object.freeze({ start: 99.6, offset: 94.21847502, scale: 12.23315246, rate: 0.909862753 }),
+  Object.freeze({ start: 99.74, offset: 95.88078558, scale: 12.32533115, rate: 1.026717024 }),
+  Object.freeze({ start: 99.85, offset: 97.35481578, scale: 12.30846425, rate: 1.151658135 }),
+  Object.freeze({ start: 99.95, offset: 98.85746299, scale: 12.79589923, rate: 1.244945557 }),
+  Object.freeze({ start: 99.98, offset: 99.3444212, scale: 0.08596084, rate: 107.741749483 }),
 ]);
 const TIER_NON_MAX_COMBO_PENALTY = 2;
 const DJPOWER_SC_DIFFICULTY_CONSTANTS = Object.freeze({
