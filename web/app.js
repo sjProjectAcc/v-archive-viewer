@@ -405,6 +405,10 @@ const logPowerCalculatorResults = document.querySelector("#logPowerCalculatorRes
 const logPowerCalculatorBreakdown = document.querySelector("#logPowerCalculatorBreakdown");
 const logPowerCalculatorScoreTable = document.querySelector("#logPowerCalculatorScoreTable");
 const debugPanel = document.querySelector("#debugPanel");
+const debugMetricSelect = document.querySelector("#debugMetricSelect");
+const debugLogPowerSection = document.querySelector("#debugLogPowerSection");
+const debugDjPowerSection = document.querySelector("#debugDjPowerSection");
+const debugPointSection = document.querySelector("#debugPointSection");
 const debugRatioInput = document.querySelector("#debugRatioInput");
 const debugRatioRange = document.querySelector("#debugRatioRange");
 const debugRatioResetButton = document.querySelector("#debugRatioResetButton");
@@ -423,6 +427,9 @@ const debugDjPowerScoreMax = document.querySelector("#debugDjPowerScoreMax");
 const debugDjPowerErrorMin = document.querySelector("#debugDjPowerErrorMin");
 const debugDjPowerErrorMax = document.querySelector("#debugDjPowerErrorMax");
 const debugDjPowerRangeResetButton = document.querySelector("#debugDjPowerRangeResetButton");
+const debugPointSummary = document.querySelector("#debugPointSummary");
+const debugPointChart = document.querySelector("#debugPointChart");
+const debugPointTable = document.querySelector("#debugPointTable");
 const readmePanel = document.querySelector("#readmePanel");
 const testNotesPanel = document.querySelector("#testNotesPanel");
 const overviewPanel = document.querySelector("#overviewPanel");
@@ -1029,6 +1036,10 @@ function wireEvents() {
       renderHangyTagsView();
     });
   });
+  debugMetricSelect.addEventListener("change", () => {
+    saveSettings();
+    renderDebugView();
+  });
   debugRatioInput.addEventListener("input", () => {
     setDebugRatio(debugRatioInput.value);
     saveSettings();
@@ -1146,6 +1157,7 @@ function applySavedSettings() {
   state.tagsSelected = new Set(Array.isArray(settings.tagsSelected) ? settings.tagsSelected.filter(Boolean) : []);
   setIfOptionExists(hangyTagsButtonSelect, settings.hangyTagsButton || "4");
   setIfOptionExists(hangyTagsPatternSelect, settings.hangyTagsPattern || "SC");
+  setIfOptionExists(debugMetricSelect, settings.debugMetric || "logPower");
   const savedDebugRatio = Number(settings.debugRatio);
   const migratedDebugRatio = Math.abs(savedDebugRatio - 0.905) < 1e-9 ? currentFloorRelation() : settings.debugRatio;
   setDebugRatio(migratedDebugRatio || currentFloorRelation());
@@ -1224,6 +1236,7 @@ function saveSettings() {
     tagsSelected: [...state.tagsSelected],
     hangyTagsButton: hangyTagsButtonSelect.value,
     hangyTagsPattern: hangyTagsPatternSelect.value,
+    debugMetric: debugMetricSelect.value,
     debugRatio: debugRatioInput.value,
     debugDjPowerScoreMin: debugDjPowerScoreMin.value,
     debugDjPowerScoreMax: debugDjPowerScoreMax.value,
@@ -6600,11 +6613,23 @@ function simulatedTop50BaseMaxByButton(relation) {
 
 function renderDebugView() {
   if (!state.payload || viewSelect.value !== "debug") return;
+  const metric = debugMetricSelect.value;
+  debugLogPowerSection.hidden = metric !== "logPower";
+  debugDjPowerSection.hidden = metric !== "djpower";
+  debugPointSection.hidden = metric !== "point";
+  const records = filterRows(state.payload.records || []);
+  if (metric === "point") {
+    renderDebugPointDiagnostics(records);
+    return;
+  }
+  if (metric === "djpower") {
+    renderDebugDjPowerDiagnostics(records);
+    return;
+  }
   const relation = clampDebugRatio(debugRatioInput.value);
   setDebugRatio(relation);
   debugRatioEquation.textContent = `현재 floor 10점 = 다음 floor ${(relation * 10).toFixed(2)}점`;
   const baseMaxByButton = simulatedTop50BaseMaxByButton(relation);
-  const records = filterRows(state.payload.records || []);
   const selectedButtons = buttonFilter.value ? [Number(buttonFilter.value)] : BUTTONS;
   debugSummary.innerHTML = selectedButtons.map((button) => {
     const simulatedBaseMax = Number(baseMaxByButton?.[String(button)]);
@@ -6638,6 +6663,88 @@ function renderDebugView() {
   }).join("");
   debugFloorTable.innerHTML = `<thead><tr><th>floor</th><th>현재 base floorMax</th><th>시뮬레이션 base floorMax</th><th>변화율</th></tr></thead><tbody>${rows}</tbody>`;
   renderDebugDjPowerDiagnostics(records);
+}
+
+function renderDebugPointDiagnostics(records) {
+  const rows = records.map((record) => {
+    const rating = Number(record.rating);
+    const maxRating = Number(record.maxRating);
+    const estimatedRating = estimateTierRating(record.score, maxRating, record.maxCombo);
+    const actualPoint = Number.isFinite(rating) && Number.isFinite(maxRating) && maxRating > 0
+      ? (rating + (record.maxCombo === true ? 0 : TIER_NON_MAX_COMBO_PENALTY)) / maxRating * 100
+      : NaN;
+    const estimatedPoint = tierPointPercentForScore(record.score);
+    return { ...record, rating, maxRating, estimatedRating, actualPoint, estimatedPoint, error: estimatedPoint - actualPoint };
+  }).filter((row) => Number.isFinite(row.actualPoint) && Number.isFinite(row.estimatedPoint) && Number.isFinite(Number(row.score)));
+
+  if (!rows.length) {
+    debugPointSummary.innerHTML = `<div class="metric"><span>POINT 진단</span><strong>Rating 기록이 없습니다.</strong></div>`;
+    debugPointChart.innerHTML = `<div class="empty">표시할 POINT 기록이 없습니다.</div>`;
+    debugPointTable.innerHTML = "";
+    return;
+  }
+
+  const actualTop50 = [...rows].sort((a, b) => b.rating - a.rating).slice(0, 50).reduce((sum, row) => sum + row.rating, 0);
+  const estimatedTop50 = [...rows].sort((a, b) => b.estimatedRating - a.estimatedRating).slice(0, 50).reduce((sum, row) => sum + row.estimatedRating, 0);
+  const meanAbsError = rows.reduce((sum, row) => sum + Math.abs(row.error), 0) / rows.length;
+  debugPointSummary.innerHTML = [
+    ["비교 기록", rows.length.toLocaleString()],
+    ["평균 Point 오차", meanAbsError.toFixed(3)],
+    ["Rating TOP50", actualTop50.toFixed(2)],
+    ["추정 TOP50", `${estimatedTop50.toFixed(2)} (${formatSigned(estimatedTop50 - actualTop50)})`],
+  ].map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`).join("");
+
+  renderDebugPointChart(rows);
+  debugPointTable.innerHTML = `<thead><tr><th>button</th><th>name</th><th>pattern</th><th>score</th><th>actual point</th><th>estimated point</th><th>error</th><th>rating</th><th>estimated rating</th></tr></thead><tbody>${[...rows].sort((a, b) => Math.abs(b.error) - Math.abs(a.error)).map((row) => `<tr><td>${row.button}B</td><td class="nameCell">${escapeHtml(row.name || "-")}</td><td>${escapeHtml(row.pattern || "-")}</td><td class="num">${Number(row.score).toFixed(2)}</td><td class="num">${row.actualPoint.toFixed(3)}</td><td class="num">${row.estimatedPoint.toFixed(3)}</td><td class="num ${row.error >= 0 ? "positiveDiff" : "negativeDiff"}">${formatSigned(row.error, 3)}</td><td class="num">${row.rating.toFixed(2)}</td><td class="num">${row.estimatedRating.toFixed(2)}</td></tr>`).join("")}</tbody>`;
+}
+
+function renderDebugPointChart(rows) {
+  const width = Math.max(760, debugPointChart.clientWidth || 1000);
+  const height = 430;
+  const pad = { left: 58, right: 24, top: 26, bottom: 54 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const scoreMin = Math.max(0, Math.floor((Math.min(...rows.map((row) => Number(row.score))) - 0.1) * 10) / 10);
+  const scoreMax = Math.min(100, Math.ceil((Math.max(...rows.map((row) => Number(row.score))) + 0.1) * 10) / 10);
+  const pointValues = rows.flatMap((row) => [row.actualPoint, row.estimatedPoint]);
+  const dataMin = Math.min(...pointValues);
+  const dataMax = Math.max(...pointValues);
+  const padding = Math.max((dataMax - dataMin) * 0.08, 0.3);
+  const yMin = Math.max(0, dataMin - padding);
+  const yMax = Math.min(100, dataMax + padding);
+  const xSpan = Math.max(0.2, scoreMax - scoreMin);
+  const ySpan = Math.max(0.2, yMax - yMin);
+  const xFor = (value) => pad.left + ((value - scoreMin) / xSpan) * plotW;
+  const yFor = (value) => pad.top + (1 - (value - yMin) / ySpan) * plotH;
+  const xTicks = Array.from({ length: 6 }, (_, index) => scoreMin + xSpan * index / 5);
+  const yTicks = Array.from({ length: 5 }, (_, index) => yMin + ySpan * index / 4);
+  const grid = [...xTicks.map((value) => `<line class="chartGridLine" x1="${xFor(value)}" x2="${xFor(value)}" y1="${pad.top}" y2="${pad.top + plotH}"></line><text class="axisLabel" x="${xFor(value)}" y="${height - 30}" text-anchor="middle">${value.toFixed(2)}</text>`), ...yTicks.map((value) => `<line class="chartGridLine" x1="${pad.left}" x2="${pad.left + plotW}" y1="${yFor(value)}" y2="${yFor(value)}"></line><text class="axisLabel" x="${pad.left - 10}" y="${yFor(value) + 4}" text-anchor="end">${value.toFixed(1)}</text>`)].join("");
+  const curve = Array.from({ length: 121 }, (_, index) => scoreMin + xSpan * index / 120).map((score) => `${xFor(score).toFixed(2)},${yFor(tierPointPercentForScore(score)).toFixed(2)}`).join(" ");
+  const maxError = Math.max(...rows.map((row) => Math.abs(row.error)), 0.001);
+  const dots = rows.map((row) => {
+    const color = debugDjPowerErrorColor(row.error, maxError);
+    const info = encodeURIComponent(JSON.stringify({ name: row.name || "", button: row.button, pattern: row.pattern || "", level: row.level, score: row.score, actualPoint: row.actualPoint, estimatedPoint: row.estimatedPoint, error: row.error, rating: row.rating, estimatedRating: row.estimatedRating, maxCombo: row.maxCombo === true }));
+    return `<circle class="chartDot debugPointDot" cx="${xFor(Number(row.score)).toFixed(2)}" cy="${yFor(row.actualPoint).toFixed(2)}" r="4.2" style="fill:${color};stroke:${color}" data-info="${info}" tabindex="0"></circle>`;
+  }).join("");
+  debugPointChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="score by point curve"><defs><clipPath id="debugPointPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" x="0" y="0" width="${width}" height="${height}"></rect>${grid}<g clip-path="url(#debugPointPlotClip)"><polyline class="floorMaxLine" points="${curve}"></polyline>${dots}</g><text class="axisTitle" x="16" y="18">base point</text><text class="axisTitle" x="${width - 60}" y="${height - 14}">score</text></svg>`;
+  debugPointChart.querySelectorAll(".debugPointDot").forEach((point) => {
+    point.addEventListener("pointermove", (event) => showDebugPointTooltip(event, point.dataset.info));
+    point.addEventListener("pointerenter", (event) => showDebugPointTooltip(event, point.dataset.info));
+    point.addEventListener("focus", (event) => showDebugPointTooltip(event, point.dataset.info));
+    point.addEventListener("pointerleave", hideDebugChartTooltip);
+    point.addEventListener("blur", hideDebugChartTooltip);
+  });
+}
+
+function showDebugPointTooltip(event, encodedInfo) {
+  if (!encodedInfo) return;
+  const info = JSON.parse(decodeURIComponent(encodedInfo));
+  debugChartTooltip.innerHTML = `<strong>${escapeHtml(info.name)}</strong><span>${info.button}B · ${escapeHtml(info.pattern)} · Lv.${escapeHtml(info.level)} · score ${Number(info.score).toFixed(2)}</span><span>actual ${Number(info.actualPoint).toFixed(3)} · estimate ${Number(info.estimatedPoint).toFixed(3)} · error ${formatSigned(info.error, 3)}</span><span>rating ${Number(info.rating).toFixed(2)} · estimate ${Number(info.estimatedRating).toFixed(2)}${info.maxCombo ? " · MAX COMBO" : ""}</span>`;
+  debugChartTooltip.hidden = false;
+  const x = (event.clientX || window.innerWidth / 2) + 14;
+  const y = (event.clientY || window.innerHeight / 2) + 14;
+  debugChartTooltip.style.left = `${Math.max(12, Math.min(x, window.innerWidth - debugChartTooltip.offsetWidth - 12))}px`;
+  debugChartTooltip.style.top = `${Math.max(12, Math.min(y, window.innerHeight - debugChartTooltip.offsetHeight - 12))}px`;
 }
 
 function renderDebugDjPowerDiagnostics(records) {
