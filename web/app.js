@@ -42,6 +42,7 @@ const state = {
   tagsLoading: false,
   tagsLoadError: "",
   hangyTagsRows: [],
+  hangyTagsTargets: [],
   hangyTagsLoading: false,
   hangyTagsStatus: "",
   isTestMode: false,
@@ -69,6 +70,8 @@ const DB_VERSION = 2;
 const PROFILE_STORE = "profiles";
 const HISTORY_STORE = "recordHistories";
 const HANGY_TAG_CACHE_KEY = "vArchiveHangyPatternTagsV1";
+const HANGY_SONG_CATALOG_CACHE_KEY = "vArchiveHangySongCatalogV1";
+const HANGY_SONG_CATALOG_CACHE_TTL = 12 * 60 * 60 * 1000;
 const HANGY_TAG_CODES = ["brain", "chord", "doubleTap", "jack", "longNote", "roll", "stream", "trill"];
 const SCORE_BASE = Math.pow(30, 1 / 10);
 const ANCHOR_FLOOR_LABEL = "15.2";
@@ -938,6 +941,7 @@ function wireEvents() {
   [hangyTagsButtonSelect, hangyTagsPatternSelect].forEach((control) => {
     control.addEventListener("change", () => {
       saveSettings();
+      refreshHangyTargetsFromCachedCatalog();
       loadHangyTagsFromCache();
       renderHangyTagsView();
     });
@@ -1615,11 +1619,50 @@ function hangyRecordSignature(record) {
   return `${record.updatedAt || ""}|${record.score ?? ""}|${record.level ?? ""}`;
 }
 
-function hangyTargets() {
-  if (!state.payload?.records) return [];
+function loadHangySongCatalog() {
+  try {
+    const cached = JSON.parse(appStorageGetItem(HANGY_SONG_CATALOG_CACHE_KEY) || "null");
+    return Array.isArray(cached?.songs) ? cached : null;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureHangySongCatalog(force = false) {
+  const cached = loadHangySongCatalog();
+  if (!force && cached && Date.now() - Number(cached.updatedAt || 0) < HANGY_SONG_CATALOG_CACHE_TTL) return cached.songs;
+  const response = await fetchWithTimeout(SONG_DB_URL, { credentials: "omit" });
+  if (!response.ok) throw new Error(`곡 목록 HTTP ${response.status}`);
+  const songs = await response.json();
+  if (!Array.isArray(songs)) throw new Error("곡 목록 응답이 올바르지 않습니다.");
+  appStorageSetItem(HANGY_SONG_CATALOG_CACHE_KEY, JSON.stringify({ updatedAt: Date.now(), songs }));
+  return songs;
+}
+
+function buildHangyTargets(songs) {
   const button = Number(hangyTagsButtonSelect.value);
   const pattern = hangyTagsPatternSelect.value;
-  return state.payload.records.filter((record) => Number(record.button) === button && record.pattern === pattern);
+  const recordsByKey = new Map((state.payload?.records || []).map((record) => [recordKey(record), record]));
+  return songs.flatMap((song) => {
+    const patternData = song?.patterns?.[`${button}B`]?.[pattern];
+    if (!patternData) return [];
+    const base = {
+      title: Number(song.title), button, pattern,
+      name: String(song.name || `#${song.title}`),
+      level: patternData.level ?? null, floor: patternData.floor ?? null, floorName: patternData.floorName ?? null,
+      score: null, updatedAt: "",
+    };
+    return [{ ...base, ...(recordsByKey.get(recordKey(base)) || {}) }];
+  });
+}
+
+function hangyTargets() {
+  return state.hangyTagsTargets || [];
+}
+
+function refreshHangyTargetsFromCachedCatalog() {
+  const cached = loadHangySongCatalog();
+  state.hangyTagsTargets = cached ? buildHangyTargets(cached.songs) : [];
 }
 
 function loadHangyTagsFromCache() {
@@ -1655,7 +1698,15 @@ async function collectHangyTags(force) {
   const nickname = state.payload?.nickname || getCurrentNickname();
   const button = hangyTagsButtonSelect.value;
   const pattern = hangyTagsPatternSelect.value;
-  const targets = hangyTargets();
+  let targets;
+  try {
+    targets = buildHangyTargets(await ensureHangySongCatalog(force));
+    state.hangyTagsTargets = targets;
+  } catch (error) {
+    state.hangyTagsStatus = `곡 목록을 불러오지 못했습니다. ${error.message || error}`;
+    renderHangyTagsView();
+    return;
+  }
   const cache = loadHangyTagsCache();
   const scopeKey = hangyTagsScopeKey(nickname, button, pattern);
   const scope = cache.scopes[scopeKey] || { entries: {} };
@@ -1708,10 +1759,10 @@ function renderHangyTagsView() {
   hangyTagsStatus.textContent = state.hangyTagsStatus || `${targets.length}개 패턴의 태그 수집이 필요합니다.`;
   hangyTagsSummary.textContent = `${hangyTagsButtonSelect.value}B · ${hangyTagsPatternSelect.value} · 현재 기록 ${targets.length}개 · 태그 수집 ${rows.length}개`;
   if (!rows.length) {
-    hangyTagsTable.innerHTML = `<tbody><tr><td class="empty">태그 수집을 누르면 현재 기록의 패턴 태그를 가져옵니다.</td></tr></tbody>`;
+    hangyTagsTable.innerHTML = `<tbody><tr><td class="empty">태그 수집을 누르면 기록 유무와 관계없이 선택한 모든 패턴의 태그를 가져옵니다.</td></tr></tbody>`;
     return;
   }
-  hangyTagsTable.innerHTML = `<thead><tr><th>title</th><th>name</th><th>level</th><th>score</th>${HANGY_TAG_CODES.map((code) => `<th>${escapeHtml(code)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr><td class="num">${escapeHtml(row.title)}</td><td class="nameCell">${escapeHtml(row.name)}</td><td class="num">${escapeHtml(row.level ?? "-")}</td><td class="num">${Number(row.score).toFixed(2)}</td>${HANGY_TAG_CODES.map((code) => `<td class="num">${Number(row.traits?.[code]) || 0}</td>`).join("")}</tr>`).join("")}</tbody>`;
+  hangyTagsTable.innerHTML = `<thead><tr><th>title</th><th>name</th><th>level</th><th>score</th>${HANGY_TAG_CODES.map((code) => `<th>${escapeHtml(code)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr><td class="num">${escapeHtml(row.title)}</td><td class="nameCell">${escapeHtml(row.name)}</td><td class="num">${escapeHtml(row.level ?? "-")}</td><td class="num">${Number.isFinite(Number(row.score)) ? Number(row.score).toFixed(2) : "-"}</td>${HANGY_TAG_CODES.map((code) => `<td class="num">${Number(row.traits?.[code]) || 0}</td>`).join("")}</tr>`).join("")}</tbody>`;
 }
 
 function renderTagsView() {
@@ -2436,6 +2487,7 @@ function renderActiveView() {
   else if (isSelfCompare) renderSelfCompareView();
   else if (isTags) renderTagsView();
   else if (isHangyTags) {
+    refreshHangyTargetsFromCachedCatalog();
     loadHangyTagsFromCache();
     renderHangyTagsView();
   }
