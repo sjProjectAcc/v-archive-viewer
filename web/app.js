@@ -574,10 +574,7 @@ window.addEventListener("load", async () => {
   wireEvents();
   loadTop50ScaleCache();
   await refresh(false);
-  if (state.pendingSharedComparison) {
-    state.pendingSharedComparison = false;
-    await loadComparison(false);
-  }
+  await loadPendingSharedComparison();
 });
 
 const SHARED_COMPARE_PARAMS = ["view", "user", "against", "metric", "button", "pattern", "filter", "sort", "floorMin", "floorMax", "scale", "auto", "mineMin", "mineMax", "otherMin", "otherMax", "trend", "exclude"];
@@ -610,6 +607,12 @@ function applySharedCompareLinkState() {
     keys: (params.get("exclude") || "").split(",").filter(Boolean),
   };
   updateCompareChartRangeControls();
+}
+
+async function loadPendingSharedComparison() {
+  if (!state.pendingSharedComparison || !compareNicknameInput.value.trim()) return;
+  state.pendingSharedComparison = false;
+  await loadComparison(false);
 }
 
 function checkWebVersion() {
@@ -3778,6 +3781,47 @@ function buildLogPowerHistorySeries(entries) {
   return constrainHistorySeries(series, getHistoryTimeRange());
 }
 
+function buildPointHistorySeries(entries) {
+  const selectedButton = buttonFilter.value;
+  const selectedPattern = patternFilter.value;
+  const buttons = selectedButton ? [Number(selectedButton)] : BUTTONS;
+  const series = new Map(buttons.map((button) => [button, []]));
+  const valuesByButton = new Map(buttons.map((button) => [button, new Map()]));
+  const currentByKey = new Map((state.payload?.records || []).map((record) => [recordKey(record), record]));
+  const events = [];
+
+  for (const entry of entries) {
+    const button = Number(entry.button);
+    const current = currentByKey.get(recordKey(entry));
+    const maxRating = Number(current?.maxRating);
+    if (!series.has(button) || (selectedPattern && entry.pattern !== selectedPattern) || !Number.isFinite(maxRating)) continue;
+    for (const event of entry.history || []) {
+      const time = new Date(event.ymdt).getTime();
+      const value = estimateTierRating(event.score, maxRating, event.maxCombo === true);
+      if (Number.isFinite(time) && Number.isFinite(value)) events.push({ button, key: recordKey(entry), time, value, type: "history" });
+    }
+  }
+
+  const snapshotTime = Date.now();
+  for (const record of currentByKey.values()) {
+    const button = Number(record.button);
+    if (!series.has(button) || (selectedPattern && record.pattern !== selectedPattern)) continue;
+    const value = estimateTierRating(record.score, record.maxRating, record.maxCombo === true);
+    if (Number.isFinite(value)) events.push({ button, key: recordKey(record), time: snapshotTime, value, type: "snapshot" });
+  }
+  events.sort((a, b) => a.time - b.time || (a.type === "history" ? -1 : 1));
+
+  for (const event of events) {
+    const values = valuesByButton.get(event.button);
+    values.set(event.key, event.value);
+    const sum = [...values.values()].sort((a, b) => b - a).slice(0, 50).reduce((total, value) => total + value, 0);
+    const points = series.get(event.button);
+    const previous = points[points.length - 1];
+    if (!previous || Math.abs(previous.value - sum) > 0.0001) points.push({ time: event.time, value: sum });
+  }
+  return constrainHistorySeries(series, getHistoryTimeRange());
+}
+
 function normalizeDjPowerSongName(name) {
   return String(name || "").normalize("NFC").trim().toLowerCase();
 }
@@ -4163,6 +4207,9 @@ function buildDjPowerHistorySeries(entries) {
 function getHistoryMetric() {
   if (state.historyMetric === "djPower") {
     return { label: "DJPower TOP100", fileName: "djpower-top100", buildSeries: buildDjPowerHistorySeries };
+  }
+  if (state.historyMetric === "point") {
+    return { label: "Rating TOP50", fileName: "point-top50", buildSeries: buildPointHistorySeries };
   }
   return { label: "Top50 LogPower", fileName: "logpower", buildSeries: buildLogPowerHistorySeries };
 }
