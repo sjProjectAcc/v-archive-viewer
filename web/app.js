@@ -475,7 +475,6 @@ const nativeOnlyEls = document.querySelectorAll(".nativeOnly");
 const webOnlyEls = document.querySelectorAll(".webOnly");
 const desktopOnlyEls = document.querySelectorAll(".desktopOnly");
 const testOnlyEls = document.querySelectorAll(".testOnly");
-const errorOnlyEls = document.querySelectorAll(".errorOnly");
 const appVersionEl = document.querySelector("#appVersion");
 const desktopUpdateCheckButton = document.querySelector("#desktopUpdateCheckButton");
 const desktopUpdateButton = document.querySelector("#desktopUpdateButton");
@@ -4611,21 +4610,12 @@ function updateViewNavigation() {
 }
 
 function updateConditionalTabs() {
-  const errorCount = Math.max(
-    Array.isArray(state.payload?.errors) ? state.payload.errors.length : 0,
-    Number(state.payload?.summary?.errors) || 0,
-  );
   testOnlyEls.forEach((element) => {
     element.hidden = !state.isTestMode;
     element.disabled = !state.isTestMode;
   });
-  errorOnlyEls.forEach((element) => {
-    element.hidden = errorCount <= 0;
-    element.disabled = errorCount <= 0;
-  });
 
-  const unavailable = ((viewSelect.value === "debug" || viewSelect.value === "testNotes") && !state.isTestMode)
-    || (viewSelect.value === "errors" && errorCount <= 0);
+  const unavailable = (viewSelect.value === "debug" || viewSelect.value === "testNotes") && !state.isTestMode;
   if (unavailable) {
     viewSelect.value = "chart";
     state.view = "chart";
@@ -4649,9 +4639,9 @@ function handleViewTabKeydown(event) {
 
 function updateContextualControls() {
   const view = viewSelect.value;
-  const filterViews = new Set(["chart", "compare", "rate", "records", "tags", "history", "achievements", "selfCompare", "floorMinScore", "debug", "errors"]);
-  const limitViews = new Set(["compare", "rate", "records", "history", "selfCompare", "floorMinScore", "errors"]);
-  const nameWidthViews = new Set(["compare", "rate", "records", "history", "selfCompare", "floorMinScore", "errors"]);
+  const filterViews = new Set(["chart", "compare", "rate", "records", "tags", "history", "achievements", "selfCompare", "floorMinScore", "debug"]);
+  const limitViews = new Set(["compare", "rate", "records", "history", "selfCompare", "floorMinScore"]);
+  const nameWidthViews = new Set(["compare", "rate", "records", "history", "selfCompare", "floorMinScore"]);
   const showCommonFilters = filterViews.has(view);
   rateMetricControl.hidden = view !== "rate";
   buttonFilterControl.hidden = !showCommonFilters;
