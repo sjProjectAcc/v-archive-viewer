@@ -1140,6 +1140,23 @@ main {
   pointer-events: none;
 }
 
+.historyCompareLine {
+  stroke-dasharray: 8 6;
+  opacity: 0.9;
+}
+
+.historyComparePoint {
+  stroke-width: 2.5;
+}
+
+.historyLegend i.compare {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--history-color) 0 7px,
+    transparent 7px 11px
+  ) !important;
+}
+
 .historyLineHit {
   stroke: transparent;
   stroke-width: 14;

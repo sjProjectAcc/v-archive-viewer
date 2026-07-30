@@ -28,6 +28,8 @@ const state = {
   historyEntries: [],
   historyRows: [],
   historyMetric: "logPower",
+  historyCompareEntries: [],
+  historyComparePayload: null,
   achievementRows: [],
   achievementSelected: new Set(),
   achievementRenderToken: 0,
@@ -368,6 +370,7 @@ const historyAccountLoginButton = document.querySelector("#historyAccountLoginBu
 const historyAccountFileButton = document.querySelector("#historyAccountFileButton");
 const historyAccountStatus = document.querySelector("#historyAccountStatus");
 const historyMetricSelect = document.querySelector("#historyMetricSelect");
+const historyCompareNicknameSelect = document.querySelector("#historyCompareNicknameSelect");
 const historyStartDate = document.querySelector("#historyStartDate");
 const historyEndDate = document.querySelector("#historyEndDate");
 const historyRangeResetButton = document.querySelector("#historyRangeResetButton");
@@ -969,6 +972,10 @@ function wireEvents() {
     saveSettings();
     renderHistoryView();
   });
+  historyCompareNicknameSelect.addEventListener("change", () => {
+    saveSettings();
+    renderHistoryView();
+  });
   [historyStartDate, historyEndDate].forEach((input) => {
     input.addEventListener("input", () => {
       saveSettings();
@@ -1163,6 +1170,7 @@ function applySavedSettings() {
   historyEndDate.value = settings.historyEndDate || "";
   setIfOptionExists(historyMetricSelect, settings.historyMetric || "logPower");
   state.historyMetric = historyMetricSelect.value;
+  historyCompareNicknameSelect.dataset.savedValue = settings.historyCompareNickname || "";
   achievementColumnsInput.value = String(Math.min(MAX_ACHIEVEMENT_COLUMNS, Math.max(1, Number(settings.achievementColumns) || 1)));
   achievementAutoLogPowerInput.value = String(Math.max(0, Number(settings.achievementAutoLogPower) || 1));
   achievementAutoHoursInput.value = String(Math.max(1, Number(settings.achievementAutoHours) || 72));
@@ -1241,6 +1249,7 @@ function saveSettings() {
     historyStartDate: historyStartDate.value,
     historyEndDate: historyEndDate.value,
     historyMetric: historyMetricSelect.value,
+    historyCompareNickname: historyCompareNicknameSelect.value,
     achievementColumns: achievementColumnsInput.value,
     achievementAutoLogPower: achievementAutoLogPowerInput.value,
     achievementAutoHours: achievementAutoHoursInput.value,
@@ -2487,6 +2496,27 @@ async function loadRecordHistories(nickname) {
   });
 }
 
+async function listLocalHistoryProfiles() {
+  const db = await openCacheDb();
+  const [profiles, histories] = await Promise.all([
+    new Promise((resolve, reject) => {
+      const request = db.transaction(PROFILE_STORE, "readonly").objectStore(PROFILE_STORE).getAll();
+      request.onsuccess = () => resolve(Array.isArray(request.result) ? request.result : []);
+      request.onerror = () => reject(request.error);
+    }),
+    new Promise((resolve, reject) => {
+      const request = db.transaction(HISTORY_STORE, "readonly").objectStore(HISTORY_STORE).getAll();
+      request.onsuccess = () => resolve(Array.isArray(request.result) ? request.result : []);
+      request.onerror = () => reject(request.error);
+    }),
+  ]);
+  const historyNames = new Set(histories.filter((entry) => entry.history?.length).map((entry) => cacheKey(entry.nickname)));
+  return profiles
+    .filter((profile) => historyNames.has(cacheKey(profile.nickname || profile.id)))
+    .map((profile) => ({ nickname: profile.nickname || profile.id, records: profile.records || [] }))
+    .sort((a, b) => String(a.nickname).localeCompare(String(b.nickname), "ko"));
+}
+
 async function saveRecordHistory(entry) {
   const db = await openCacheDb();
   return new Promise((resolve, reject) => {
@@ -3367,16 +3397,39 @@ async function resetRecordHistories() {
   }
 }
 
+async function refreshHistoryCompareState(currentNickname) {
+  const profiles = await listLocalHistoryProfiles();
+  const currentKey = cacheKey(currentNickname);
+  const candidates = profiles.filter((profile) => cacheKey(profile.nickname) !== currentKey);
+  const requested = historyCompareNicknameSelect.value || historyCompareNicknameSelect.dataset.savedValue || "";
+  historyCompareNicknameSelect.innerHTML = `<option value="">비교 안 함</option>${candidates
+    .map((profile) => `<option value="${escapeHtml(profile.nickname)}">${escapeHtml(profile.nickname)}</option>`)
+    .join("")}`;
+  setIfOptionExists(historyCompareNicknameSelect, requested);
+  historyCompareNicknameSelect.dataset.savedValue = "";
+
+  const selected = historyCompareNicknameSelect.value;
+  const profile = candidates.find((candidate) => cacheKey(candidate.nickname) === cacheKey(selected));
+  if (!profile) {
+    state.historyCompareEntries = [];
+    state.historyComparePayload = null;
+    return;
+  }
+  state.historyCompareEntries = await loadRecordHistories(profile.nickname);
+  state.historyComparePayload = profile;
+}
+
 async function renderHistoryView(options = {}) {
   if (!state.payload) return;
   const renderToken = ++state.historyRenderToken;
   const nickname = state.payload.nickname || getCurrentNickname();
   try {
     const entries = await loadRecordHistories(nickname);
+    await refreshHistoryCompareState(nickname);
     if (renderToken !== state.historyRenderToken || viewSelect.value !== "history") return;
     const targetKeys = new Set(getHistoryTargets().map(recordKey));
     state.historyEntries = entries.filter((entry) => targetKeys.has(recordKey(entry)));
-    updateHistoryRangeBounds(state.historyEntries);
+    updateHistoryRangeBounds([...state.historyEntries, ...state.historyCompareEntries]);
     state.historyRows = buildHistoryRows(state.historyEntries, getHistoryTimeRange());
     if (state.historyMetric === "djPower") {
       await ensureDjPowerHistoryMetadata();
@@ -3384,7 +3437,8 @@ async function renderHistoryView(options = {}) {
     }
     if (!options.preserveStatus && !state.historyCollecting) {
       const eventCount = state.historyRows.length;
-      historyStatus.textContent = `${state.historyEntries.length}/${targetKeys.size}개 패턴 · ${eventCount}개 기록`;
+      const compareLabel = state.historyComparePayload ? ` · ${state.historyComparePayload.nickname}과 비교` : "";
+      historyStatus.textContent = `${state.historyEntries.length}/${targetKeys.size}개 패턴 · ${eventCount}개 기록${compareLabel}`;
       setHistoryProgress(0, 0);
     }
     renderHistoryChart(state.historyEntries);
@@ -3781,13 +3835,13 @@ function buildLogPowerHistorySeries(entries) {
   return constrainHistorySeries(series, getHistoryTimeRange());
 }
 
-function buildPointHistorySeries(entries) {
+function buildPointHistorySeries(entries, payload = state.payload) {
   const selectedButton = buttonFilter.value;
   const selectedPattern = patternFilter.value;
   const buttons = selectedButton ? [Number(selectedButton)] : BUTTONS;
   const series = new Map(buttons.map((button) => [button, []]));
   const valuesByButton = new Map(buttons.map((button) => [button, new Map()]));
-  const currentByKey = new Map((state.payload?.records || []).map((record) => [recordKey(record), record]));
+  const currentByKey = new Map((payload?.records || []).map((record) => [recordKey(record), record]));
   const events = [];
 
   for (const entry of entries) {
@@ -4038,7 +4092,7 @@ function hashDjPowerHistoryCacheKey(value) {
   return (hash >>> 0).toString(36);
 }
 
-function getDjPowerHistorySeriesCacheKey(entries) {
+function getDjPowerHistorySeriesCacheKey(entries, payload = state.payload) {
   const history = entries.map((entry) => `${entry.id}|${entry.sourceUpdatedAt || ""}|${(entry.history || []).map((event) => `${event.ymdt}:${event.score}`).join(",")}`).sort().join(";");
   const releases = Object.entries(state.djPowerHistoryReleaseAtByTitle).sort(([a], [b]) => compare(a, b)).map(([title, time]) => `${title}:${time}`).join(",");
   return hashDjPowerHistoryCacheKey([
@@ -4050,7 +4104,7 @@ function getDjPowerHistorySeriesCacheKey(entries) {
     state.djPowerHistoryUpdateTimes.join(","),
     releases,
     history,
-    (state.payload?.records || []).map((record) => `${recordKey(record)}:${record.score}:${record.djpower ?? ""}:${record.updatedAt || ""}`).sort().join(";"),
+    (payload?.records || []).map((record) => `${recordKey(record)}:${record.score}:${record.djpower ?? ""}:${record.updatedAt || ""}`).sort().join(";"),
   ].join("|"));
 }
 
@@ -4083,9 +4137,9 @@ function getDjPowerHistorySnapshotTime() {
   return Date.now();
 }
 
-function getCurrentDjPowerByRecordKey() {
+function getCurrentDjPowerByRecordKey(payload = state.payload) {
   const values = new Map();
-  for (const record of state.payload?.records || []) {
+  for (const record of payload?.records || []) {
     const value = Number(record.djpower);
     const score = Number(record.score);
     if (Number.isFinite(value) && Number.isFinite(score)) {
@@ -4102,11 +4156,11 @@ function historicalDjPowerValue(entry, score, rawMax, currentDjPowerByRecordKey)
   return djPowerScoreRatio(score) * rawMax;
 }
 
-function buildDjPowerHistorySeries(entries) {
+function buildDjPowerHistorySeries(entries, payload = state.payload) {
   const selectedButton = buttonFilter.value;
   const selectedPattern = patternFilter.value;
   const buttons = selectedButton ? [Number(selectedButton)] : BUTTONS;
-  const cacheKey = getDjPowerHistorySeriesCacheKey(entries);
+  const cacheKey = getDjPowerHistorySeriesCacheKey(entries, payload);
   const memoryCached = state.djPowerHistorySeriesCache.get(cacheKey);
   if (memoryCached) return constrainHistorySeries(deserializeHistorySeries(memoryCached, buttons), getHistoryTimeRange());
   const storedCache = loadDjPowerHistorySeriesCache();
@@ -4118,7 +4172,7 @@ function buildDjPowerHistorySeries(entries) {
   const series = new Map(buttons.map((button) => [button, []]));
   const valuesByButton = new Map(buttons.map((button) => [button, new Map()]));
   const events = [];
-  const currentDjPowerByRecordKey = getCurrentDjPowerByRecordKey();
+  const currentDjPowerByRecordKey = getCurrentDjPowerByRecordKey(payload);
 
   for (const updateAt of state.djPowerHistoryUpdateTimes) {
     if (Number.isFinite(updateAt)) events.push({ type: "update", time: updateAt });
@@ -4140,7 +4194,7 @@ function buildDjPowerHistorySeries(entries) {
   }
   const historyIdByRecordKey = new Map(entries.map((entry) => [recordKey(entry), entry.id]));
   const snapshotTime = getDjPowerHistorySnapshotTime();
-  const snapshotRecords = (state.payload?.records || []).flatMap((record) => {
+  const snapshotRecords = (payload?.records || []).flatMap((record) => {
     const button = Number(record.button);
     if (!series.has(button) || (selectedPattern && record.pattern !== selectedPattern)) return [];
     const fallbackMax = maxDjPowerForPattern(record.pattern, record.level);
@@ -4231,8 +4285,20 @@ function constrainHistorySeries(series, range) {
 function renderHistoryChart(entries) {
   hideHistoryTooltip();
   const metric = getHistoryMetric();
-  const series = metric.buildSeries(entries);
-  const allPoints = [...series.values()].flat();
+  const primaryNickname = state.payload?.nickname || getCurrentNickname();
+  const datasets = [{
+    nickname: primaryNickname,
+    series: metric.buildSeries(entries, state.payload),
+    compare: false,
+  }];
+  if (state.historyComparePayload && state.historyCompareEntries.length) {
+    datasets.push({
+      nickname: state.historyComparePayload.nickname,
+      series: metric.buildSeries(state.historyCompareEntries, state.historyComparePayload),
+      compare: true,
+    });
+  }
+  const allPoints = datasets.flatMap((dataset) => [...dataset.series.values()].flat());
   const colors = { 4: "#1268b3", 5: "#23845f", 6: "#7b61c9", 8: "#c03535" };
   const width = 1200;
   const height = 360;
@@ -4267,26 +4333,27 @@ function renderHistoryChart(entries) {
     const label = `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}`;
     return `<line class="gridLine" x1="${x}" y1="${pad.top}" x2="${x}" y2="${pad.top + plotH}"></line><text class="axisLabel" x="${x}" y="${height - 20}" text-anchor="middle">${label}</text>`;
   }).join("");
-  const lines = [...series.entries()].map(([button, points]) => {
+  const lines = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => {
     if (!points.length) return "";
     const coordinates = points.map((point) => `${xFor(point.time).toFixed(2)},${yFor(point.value).toFixed(2)}`).join(" ");
-    return `<polyline class="historyLine" points="${coordinates}" fill="none" stroke="${colors[button]}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></polyline>`;
-  }).join("");
-  const lineHits = [...series.entries()].map(([button, points]) => points.slice(1).map((point, index) => {
+    return `<polyline class="historyLine${dataset.compare ? " historyCompareLine" : ""}" points="${coordinates}" fill="none" stroke="${colors[button]}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></polyline>`;
+  }).join("")).join("");
+  const lineHits = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => points.slice(1).map((point, index) => {
     const previous = points[index];
-    const info = encodeURIComponent(JSON.stringify({ button, from: previous, to: point, metric: metric.label }));
+    const info = encodeURIComponent(JSON.stringify({ nickname: dataset.nickname, button, from: previous, to: point, metric: metric.label }));
     return `<line class="historyLineHit" x1="${xFor(previous.time).toFixed(2)}" y1="${yFor(previous.value).toFixed(2)}" x2="${xFor(point.time).toFixed(2)}" y2="${yFor(point.value).toFixed(2)}" data-info="${info}" tabindex="0"></line>`;
-  }).join("")).join("");
-  const pointDots = [...series.entries()].map(([button, points]) => points.map((point) => {
-    const info = encodeURIComponent(JSON.stringify({ button, time: point.time, value: point.value, metric: metric.label }));
-    return `<circle class="historyPoint" cx="${xFor(point.time).toFixed(2)}" cy="${yFor(point.value).toFixed(2)}" r="4" fill="${colors[button]}" tabindex="0" data-button="${button}" data-info="${info}"></circle>`;
-  }).join("")).join("");
+  }).join("")).join("")).join("");
+  const pointDots = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => points.map((point) => {
+    const info = encodeURIComponent(JSON.stringify({ nickname: dataset.nickname, button, time: point.time, value: point.value, metric: metric.label }));
+    const compareStyle = dataset.compare ? ` style="fill:var(--panel);stroke:${colors[button]}"` : "";
+    return `<circle class="historyPoint${dataset.compare ? " historyComparePoint" : ""}" cx="${xFor(point.time).toFixed(2)}" cy="${yFor(point.value).toFixed(2)}" r="4" fill="${colors[button]}"${compareStyle} tabindex="0" data-button="${button}" data-info="${info}"></circle>`;
+  }).join("")).join("")).join("");
 
   historyLogPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${metric.label} history"><defs><clipPath id="historyPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" width="${width}" height="${height}"></rect>${yGrid}${xGrid}<g clip-path="url(#historyPlotClip)">${lines}${lineHits}${pointDots}</g><text class="axisTitle" x="16" y="18">${metric.label}</text></svg>`;
-  historyLegend.innerHTML = [...series.entries()]
+  historyLegend.innerHTML = datasets.map((dataset) => [...dataset.series.entries()]
     .filter(([, points]) => points.length)
-    .map(([button, points]) => `<span><i style="background:${colors[button]}"></i>${button}B ${points[points.length - 1].value.toFixed(2)}</span>`)
-    .join("");
+    .map(([button, points]) => `<span><i class="${dataset.compare ? "compare" : ""}" style="--history-color:${colors[button]};background:${colors[button]}"></i>${escapeHtml(dataset.nickname)} ${button}B ${points[points.length - 1].value.toFixed(2)}</span>`)
+    .join("")).join("");
   bindHistoryTooltips();
 }
 
@@ -4346,14 +4413,14 @@ function showHistoryLineTooltip(event, line) {
   }
   const time = info.from.time + (info.to.time - info.from.time) * ratio;
   const value = info.from.value + (info.to.value - info.from.value) * ratio;
-  showHistoryTooltip(event, encodeURIComponent(JSON.stringify({ button: info.button, time, value, metric: info.metric })));
+  showHistoryTooltip(event, encodeURIComponent(JSON.stringify({ nickname: info.nickname, button: info.button, time, value, metric: info.metric })));
 }
 
 function showHistoryTooltip(event, encodedInfo) {
   if (!encodedInfo) return;
   const info = JSON.parse(decodeURIComponent(encodedInfo));
   historyTooltip.innerHTML = `
-    <strong>${escapeHtml(info.button)}B ${escapeHtml(info.metric || getHistoryMetric().label)}</strong>
+    <strong>${escapeHtml(info.nickname || state.payload?.nickname || "")} · ${escapeHtml(info.button)}B ${escapeHtml(info.metric || getHistoryMetric().label)}</strong>
     <span>${escapeHtml(Number(info.value).toFixed(2))}</span>
     <span>${escapeHtml(formatDate(new Date(info.time).toISOString()))}</span>`;
   historyTooltip.hidden = false;
@@ -4407,8 +4474,19 @@ async function drawHistoryImage(svg) {
   const buttonLabel = buttonFilter.value ? `${buttonFilter.value}B` : "전체 버튼";
   const patternLabel = patternFilter.value || "전체 패턴";
   const metric = getHistoryMetric();
-  const series = metric.buildSeries(state.historyEntries);
-  const times = [...series.values()].flat().map((point) => point.time).filter(Number.isFinite);
+  const datasets = [{
+    nickname,
+    series: metric.buildSeries(state.historyEntries, state.payload),
+    compare: false,
+  }];
+  if (state.historyComparePayload && state.historyCompareEntries.length) {
+    datasets.push({
+      nickname: state.historyComparePayload.nickname,
+      series: metric.buildSeries(state.historyCompareEntries, state.historyComparePayload),
+      compare: true,
+    });
+  }
+  const times = datasets.flatMap((dataset) => [...dataset.series.values()].flat().map((point) => point.time)).filter(Number.isFinite);
   const rangeLabel = times.length
     ? `${formatDate(new Date(Math.min(...times)).toISOString())} - ${formatDate(new Date(Math.max(...times)).toISOString())}`
     : "기간 없음";
@@ -4430,18 +4508,22 @@ async function drawHistoryImage(svg) {
   let legendX = margin;
   const legendY = margin + headerHeight + chartHeight + 42;
   ctx.font = "16px Segoe UI, Malgun Gothic, Arial";
-  for (const [button, points] of series) {
-    if (!points.length) continue;
-    const label = `${button}B ${points[points.length - 1].value.toFixed(2)}`;
-    ctx.strokeStyle = colors[button];
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(legendX, legendY - 6);
-    ctx.lineTo(legendX + 24, legendY - 6);
-    ctx.stroke();
-    ctx.fillStyle = "#687282";
-    ctx.fillText(label, legendX + 32, legendY);
-    legendX += 62 + ctx.measureText(label).width;
+  for (const dataset of datasets) {
+    for (const [button, points] of dataset.series) {
+      if (!points.length) continue;
+      const label = `${dataset.nickname} ${button}B ${points[points.length - 1].value.toFixed(2)}`;
+      ctx.strokeStyle = colors[button];
+      ctx.lineWidth = 4;
+      ctx.setLineDash(dataset.compare ? [8, 6] : []);
+      ctx.beginPath();
+      ctx.moveTo(legendX, legendY - 6);
+      ctx.lineTo(legendX + 24, legendY - 6);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#687282";
+      ctx.fillText(label, legendX + 32, legendY);
+      legendX += 62 + ctx.measureText(label).width;
+    }
   }
   return canvas;
 }
