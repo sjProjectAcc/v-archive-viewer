@@ -1756,14 +1756,38 @@ function tagRowHasAvailablePattern(row) {
   return BUTTONS.some((item) => (row.availablePatterns?.[String(item)] || []).includes(pattern));
 }
 
-function hangyTagsScopeKey(nickname, button, pattern) {
-  return `${cacheKey(nickname)}|${button}|${pattern}`;
+function hangyTagsScopeKey(button, pattern) {
+  return `${button}|${pattern}`;
 }
 
 function loadHangyTagsCache() {
   try {
     const cached = JSON.parse(appStorageGetItem(HANGY_TAG_CACHE_KEY) || "null");
-    return cached?.scopes && typeof cached.scopes === "object" ? cached : { scopes: {} };
+    if (!cached?.scopes || typeof cached.scopes !== "object") return { scopes: {} };
+    const scopes = {};
+    let migrated = false;
+    for (const [legacyKey, scope] of Object.entries(cached.scopes)) {
+      const parts = legacyKey.split("|");
+      const scopeKey = hangyTagsScopeKey(parts.at(-2), parts.at(-1));
+      migrated ||= legacyKey !== scopeKey;
+      const target = scopes[scopeKey] || { entries: {} };
+      for (const [recordKeyValue, entry] of Object.entries(scope?.entries || {})) {
+        target.entries[recordKeyValue] = {
+          ...entry,
+          signature: hangyRecordSignature(entry?.row || {}),
+        };
+      }
+      scopes[scopeKey] = target;
+    }
+    const normalized = { ...cached, scopes };
+    if (migrated) {
+      try {
+        saveHangyTagsCache(normalized);
+      } catch {
+        // The merged cache remains usable for this session when storage is unavailable.
+      }
+    }
+    return normalized;
   } catch {
     return { scopes: {} };
   }
@@ -1774,7 +1798,14 @@ function saveHangyTagsCache(cache) {
 }
 
 function hangyRecordSignature(record) {
-  return `${record.updatedAt || ""}|${record.score ?? ""}|${record.level ?? ""}`;
+  return [
+    record.title ?? "",
+    record.button ?? "",
+    record.pattern ?? "",
+    record.level ?? "",
+    record.floor ?? "",
+    record.floorName ?? "",
+  ].join("|");
 }
 
 function loadHangySongCatalog() {
@@ -1824,11 +1855,12 @@ function refreshHangyTargetsFromCachedCatalog() {
 }
 
 function loadHangyTagsFromCache() {
-  const nickname = state.payload?.nickname || getCurrentNickname();
-  const scope = loadHangyTagsCache().scopes[hangyTagsScopeKey(nickname, hangyTagsButtonSelect.value, hangyTagsPatternSelect.value)];
+  const scope = loadHangyTagsCache().scopes[hangyTagsScopeKey(hangyTagsButtonSelect.value, hangyTagsPatternSelect.value)];
   const targets = hangyTargets();
   const entries = scope?.entries || {};
-  state.hangyTagsRows = targets.map((record) => entries[recordKey(record)]?.row).filter(Boolean);
+  state.hangyTagsRows = targets
+    .map((record) => entries[recordKey(record)]?.row ? { ...entries[recordKey(record)].row, ...record } : null)
+    .filter(Boolean);
   state.hangyTagsStatus = state.hangyTagsRows.length
     ? `${state.hangyTagsRows.length}/${targets.length}개 패턴을 캐시에서 불러왔습니다.`
     : `${targets.length}개 패턴의 태그 수집이 필요합니다.`;
@@ -1863,7 +1895,6 @@ async function collectHangyTags(force) {
     renderHangyTagsView();
     return;
   }
-  const nickname = state.payload?.nickname || getCurrentNickname();
   const button = hangyTagsButtonSelect.value;
   const pattern = hangyTagsPatternSelect.value;
   let targets;
@@ -1876,7 +1907,7 @@ async function collectHangyTags(force) {
     return;
   }
   const cache = loadHangyTagsCache();
-  const scopeKey = hangyTagsScopeKey(nickname, button, pattern);
+  const scopeKey = hangyTagsScopeKey(button, pattern);
   const scope = cache.scopes[scopeKey] || { entries: {} };
   const queue = force ? targets : targets.filter((record) => scope.entries[recordKey(record)]?.signature !== hangyRecordSignature(record));
   if (!queue.length) {
