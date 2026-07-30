@@ -333,6 +333,8 @@ const summaryEl = document.querySelector("#summary");
 const tableSection = document.querySelector("#tableSection");
 const tableSummary = document.querySelector("#tableSummary");
 const tableEl = document.querySelector("#dataTable");
+const rateMetricControl = document.querySelector("#rateMetricControl");
+const rateMetricSelect = document.querySelector("#rateMetricSelect");
 const chartPanel = document.querySelector("#chartPanel");
 const chartTooltip = document.querySelector("#chartTooltip");
 const compareChartPanel = document.querySelector("#compareChartPanel");
@@ -534,7 +536,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-calculator-v6";
+const UI_SCHEMA_VERSION = "v-log-rate-v7";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -545,7 +547,8 @@ const REQUIRED_UI_IDS = [
   "compareChartScaleModeSelect",
   "compareFloorTrendInput",
   "compareChartShareButton",
-  "pointsTab",
+  "rateMetricControl",
+  "rateMetricSelect",
   "historyPanel",
   "achievementPanel",
   "achievementAutoLogPowerInput",
@@ -882,6 +885,11 @@ function wireEvents() {
     button.addEventListener("click", () => selectView(button.dataset.view));
   });
   viewTabs.addEventListener("keydown", handleViewTabKeydown);
+  rateMetricSelect.addEventListener("change", () => {
+    state.sortKey = null;
+    saveSettings();
+    render();
+  });
   compareLoadButton.addEventListener("click", () => loadComparison(false));
   compareNicknameInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") loadComparison(false);
@@ -1138,7 +1146,10 @@ function applySavedSettings() {
   const settings = loadSettings();
   nicknameInput.value = settings.nickname || getNicknameHistory()[0] || DEFAULT_NICKNAME;
   renderRecentNicknames();
-  setIfOptionExists(viewSelect, settings.view || "chart");
+  const legacyRateViews = new Set(["top100", "points", "djPowerTop100"]);
+  const savedView = settings.view || "chart";
+  setIfOptionExists(rateMetricSelect, legacyRateViews.has(savedView) ? savedView : settings.rateMetric || "top100");
+  setIfOptionExists(viewSelect, legacyRateViews.has(savedView) ? "rate" : savedView);
   setIfOptionExists(buttonFilter, settings.buttonFilter || "");
   setIfOptionExists(patternFilter, settings.patternFilter || "");
   setIfOptionExists(limitSelect, settings.limitSelect || "100");
@@ -1224,6 +1235,7 @@ function saveSettings() {
   storeCompareChartRange();
   const settings = {
     view: viewSelect.value,
+    rateMetric: rateMetricSelect.value,
     buttonFilter: buttonFilter.value,
     patternFilter: patternFilter.value,
     search: searchInput.value,
@@ -4637,10 +4649,11 @@ function handleViewTabKeydown(event) {
 
 function updateContextualControls() {
   const view = viewSelect.value;
-  const filterViews = new Set(["chart", "compare", "top100", "points", "djPowerTop100", "records", "tags", "history", "achievements", "selfCompare", "floorMinScore", "debug", "errors"]);
-  const limitViews = new Set(["compare", "top100", "points", "djPowerTop100", "records", "history", "selfCompare", "floorMinScore", "errors"]);
-  const nameWidthViews = new Set(["compare", "top100", "points", "djPowerTop100", "records", "history", "selfCompare", "floorMinScore", "errors"]);
+  const filterViews = new Set(["chart", "compare", "rate", "records", "tags", "history", "achievements", "selfCompare", "floorMinScore", "debug", "errors"]);
+  const limitViews = new Set(["compare", "rate", "records", "history", "selfCompare", "floorMinScore", "errors"]);
+  const nameWidthViews = new Set(["compare", "rate", "records", "history", "selfCompare", "floorMinScore", "errors"]);
   const showCommonFilters = filterViews.has(view);
+  rateMetricControl.hidden = view !== "rate";
   buttonFilterControl.hidden = !showCommonFilters;
   patternFilterControl.hidden = !showCommonFilters;
   searchFilterControl.hidden = !showCommonFilters;
@@ -5355,7 +5368,7 @@ function clampChartDotX(x, plotLeft, plotWidth) {
 }
 
 function renderTable() {
-  const view = viewSelect.value;
+  const view = getEffectiveTableView();
   const baseRows = getRowsForView(view);
   const rows = filterRows(baseRows);
   sortRows(rows);
@@ -6723,6 +6736,10 @@ function scoreToPoint(score) {
   if (capped <= 97) return 0;
   const point = -Math.log((100 - capped) / 3) / Math.log(SCORE_BASE);
   return Math.max(0, Math.min(10, point));
+}
+
+function getEffectiveTableView() {
+  return viewSelect.value === "rate" ? rateMetricSelect.value : viewSelect.value;
 }
 
 function tierPointPercentForScore(score) {
