@@ -3266,8 +3266,13 @@ async function fetchHistoryWithRetry(invoke, record) {
   throw lastError;
 }
 
-function adjustHistoryRequestDelay(currentDelay, responseMs) {
-  const nextDelay = Math.round((currentDelay + Math.max(0, responseMs)) * 0.9);
+function adjustHistoryRequestDelay(currentDelay, responseMs, { succeeded, rateLimited }) {
+  let nextDelay = Math.round((currentDelay + Math.max(0, responseMs)) * 0.9);
+  if (rateLimited) {
+    nextDelay = Math.max(10000, nextDelay * 4);
+  } else if (!succeeded) {
+    nextDelay *= 2;
+  }
   return Math.min(HISTORY_REQUEST_DELAY_MAX, Math.max(HISTORY_REQUEST_DELAY_MIN, nextDelay));
 }
 
@@ -3321,6 +3326,8 @@ async function collectRecordHistories(options = {}) {
     for (const record of queue) {
       if (state.historyStopRequested) break;
       historyStatus.textContent = `수집 ${completed + 1}/${queue.length} · 캐시 ${cachedCount} · 실패 ${failed} · 간격 ${requestDelay}ms · ${record.button}B ${record.name || record.title} ${record.pattern}`;
+      let succeeded = false;
+      let rateLimited = false;
       const requestStartedAt = performance.now();
       try {
         const result = await fetchHistoryWithRetry(invoke, record);
@@ -3341,12 +3348,14 @@ async function collectRecordHistories(options = {}) {
           history,
         };
         await saveRecordHistory(entry);
+        succeeded = true;
       } catch (error) {
         failed += 1;
+        rateLimited = /(?:HTTP\s*)?429|too many requests/i.test(String(error));
         console.error("History collection failed", recordKey(record), error);
       }
       const responseMs = Math.max(0, performance.now() - requestStartedAt);
-      requestDelay = adjustHistoryRequestDelay(requestDelay, responseMs);
+      requestDelay = adjustHistoryRequestDelay(requestDelay, responseMs, { succeeded, rateLimited });
       completed += 1;
       setHistoryProgress(completed, queue.length);
       if (completed % 10 === 0 && viewSelect.value === "history") await renderHistoryView();
