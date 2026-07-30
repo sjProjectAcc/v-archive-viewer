@@ -1130,7 +1130,7 @@ main {
 }
 
 .historyPoint {
-  stroke: #fff;
+  stroke: #303844;
   stroke-width: 2;
   cursor: pointer;
   transition: r 100ms ease, stroke-width 100ms ease;
