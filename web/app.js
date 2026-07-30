@@ -4357,13 +4357,22 @@ function renderHistoryChart(entries) {
   const lines = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => {
     if (!points.length) return "";
     const color = (dataset.compare ? compareColors : colors)[button];
-    const coordinates = points.map((point) => `${xFor(point.time).toFixed(2)},${yFor(point.value).toFixed(2)}`).join(" ");
+    const coordinates = points.flatMap((point, index) => {
+      const current = `${xFor(point.time).toFixed(2)},${yFor(point.value).toFixed(2)}`;
+      if (index === 0) return [current];
+      const previous = points[index - 1];
+      return [
+        `${xFor(point.time).toFixed(2)},${yFor(previous.value).toFixed(2)}`,
+        current,
+      ];
+    }).join(" ");
     return `<polyline class="historyLine${dataset.compare ? " historyCompareLine" : ""}" points="${coordinates}" fill="none" stroke="${color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></polyline>`;
   }).join("")).join("");
   const lineHits = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => points.slice(1).map((point, index) => {
     const previous = points[index];
-    const info = encodeURIComponent(JSON.stringify({ nickname: dataset.nickname, button, from: previous, to: point, metric: metric.label }));
-    return `<line class="historyLineHit" x1="${xFor(previous.time).toFixed(2)}" y1="${yFor(previous.value).toFixed(2)}" x2="${xFor(point.time).toFixed(2)}" y2="${yFor(point.value).toFixed(2)}" data-info="${info}" tabindex="0"></line>`;
+    const intervalEnd = { time: point.time, value: previous.value };
+    const info = encodeURIComponent(JSON.stringify({ nickname: dataset.nickname, button, from: previous, to: intervalEnd, metric: metric.label }));
+    return `<line class="historyLineHit" x1="${xFor(previous.time).toFixed(2)}" y1="${yFor(previous.value).toFixed(2)}" x2="${xFor(point.time).toFixed(2)}" y2="${yFor(previous.value).toFixed(2)}" data-info="${info}" tabindex="0"></line>`;
   }).join("")).join("")).join("");
   const pointDots = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => points.map((point) => {
     const color = (dataset.compare ? compareColors : colors)[button];
