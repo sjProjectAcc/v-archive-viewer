@@ -371,6 +371,7 @@ const historyAccountFileButton = document.querySelector("#historyAccountFileButt
 const historyAccountStatus = document.querySelector("#historyAccountStatus");
 const historyMetricSelect = document.querySelector("#historyMetricSelect");
 const historyCompareNicknameSelect = document.querySelector("#historyCompareNicknameSelect");
+const historyMergeIntervalSelect = document.querySelector("#historyMergeIntervalSelect");
 const historyStartDate = document.querySelector("#historyStartDate");
 const historyEndDate = document.querySelector("#historyEndDate");
 const historyRangeResetButton = document.querySelector("#historyRangeResetButton");
@@ -976,6 +977,10 @@ function wireEvents() {
     saveSettings();
     renderHistoryView();
   });
+  historyMergeIntervalSelect.addEventListener("change", () => {
+    saveSettings();
+    renderHistoryView();
+  });
   [historyStartDate, historyEndDate].forEach((input) => {
     input.addEventListener("input", () => {
       saveSettings();
@@ -1171,6 +1176,7 @@ function applySavedSettings() {
   setIfOptionExists(historyMetricSelect, settings.historyMetric || "logPower");
   state.historyMetric = historyMetricSelect.value;
   historyCompareNicknameSelect.dataset.savedValue = settings.historyCompareNickname || "";
+  setIfOptionExists(historyMergeIntervalSelect, settings.historyMergeInterval || "0");
   achievementColumnsInput.value = String(Math.min(MAX_ACHIEVEMENT_COLUMNS, Math.max(1, Number(settings.achievementColumns) || 1)));
   achievementAutoLogPowerInput.value = String(Math.max(0, Number(settings.achievementAutoLogPower) || 1));
   achievementAutoHoursInput.value = String(Math.max(1, Number(settings.achievementAutoHours) || 72));
@@ -1250,6 +1256,7 @@ function saveSettings() {
     historyEndDate: historyEndDate.value,
     historyMetric: historyMetricSelect.value,
     historyCompareNickname: historyCompareNicknameSelect.value,
+    historyMergeInterval: historyMergeIntervalSelect.value,
     achievementColumns: achievementColumnsInput.value,
     achievementAutoLogPower: achievementAutoLogPowerInput.value,
     achievementAutoHours: achievementAutoHoursInput.value,
@@ -3259,7 +3266,12 @@ async function fetchHistoryWithRetry(invoke, record) {
   throw lastError;
 }
 
-function adjustHistoryRequestDelay(currentDelay, { succeeded, retryCount = 0, rateLimited = false }) {
+function adjustHistoryRequestDelay(currentDelay, {
+  succeeded,
+  retryCount = 0,
+  rateLimited = false,
+  responseMs = 0,
+}) {
   if (rateLimited) {
     return Math.min(HISTORY_REQUEST_DELAY_MAX, Math.max(10000, Math.round(currentDelay * 4)));
   }
@@ -3269,6 +3281,9 @@ function adjustHistoryRequestDelay(currentDelay, { succeeded, retryCount = 0, ra
   if (retryCount > 0) {
     return Math.min(HISTORY_REQUEST_DELAY_MAX, Math.max(HISTORY_REQUEST_DELAY_MIN, Math.round(currentDelay * (2 ** retryCount))));
   }
+  if (responseMs >= 4000) return Math.min(HISTORY_REQUEST_DELAY_MAX, Math.round(currentDelay * 1.5));
+  if (responseMs >= 2000) return Math.min(HISTORY_REQUEST_DELAY_MAX, Math.round(currentDelay * 1.25));
+  if (responseMs >= 1000) return Math.min(HISTORY_REQUEST_DELAY_MAX, Math.round(currentDelay * 1.1));
   return Math.max(HISTORY_REQUEST_DELAY_MIN, Math.round(currentDelay * 0.9));
 }
 
@@ -3325,6 +3340,7 @@ async function collectRecordHistories(options = {}) {
       let succeeded = false;
       let retryCount = 0;
       let rateLimited = false;
+      const requestStartedAt = performance.now();
       try {
         const result = await fetchHistoryWithRetry(invoke, record);
         const response = result.response;
@@ -3351,7 +3367,13 @@ async function collectRecordHistories(options = {}) {
         rateLimited = /(?:HTTP\s*)?429|too many requests/i.test(String(error));
         console.error("History collection failed", recordKey(record), error);
       }
-      requestDelay = adjustHistoryRequestDelay(requestDelay, { succeeded, retryCount, rateLimited });
+      const responseMs = Math.max(0, performance.now() - requestStartedAt);
+      requestDelay = adjustHistoryRequestDelay(requestDelay, {
+        succeeded,
+        retryCount,
+        rateLimited,
+        responseMs,
+      });
       completed += 1;
       setHistoryProgress(completed, queue.length);
       if (completed % 10 === 0 && viewSelect.value === "history") await renderHistoryView();
@@ -4268,16 +4290,32 @@ function getHistoryMetric() {
   return { label: "Top50 LogPower", fileName: "logpower", buildSeries: buildLogPowerHistorySeries };
 }
 
+function mergeAdjacentHistoryPoints(points) {
+  const interval = Number(historyMergeIntervalSelect.value) || 0;
+  if (interval <= 0 || points.length < 2) return points;
+  const merged = [];
+  for (const point of points) {
+    const previous = merged[merged.length - 1];
+    if (previous && point.time - previous.time <= interval) {
+      merged[merged.length - 1] = point;
+    } else {
+      merged.push(point);
+    }
+  }
+  return merged;
+}
+
 function constrainHistorySeries(series, range) {
-  if (range.start === -Infinity && range.end === Infinity) return series;
   const constrained = new Map();
   for (const [button, points] of series) {
-    const visible = points.filter((point) => point.time >= range.start && point.time <= range.end);
+    const visible = range.start === -Infinity && range.end === Infinity
+      ? [...points]
+      : points.filter((point) => point.time >= range.start && point.time <= range.end);
     if (range.start !== -Infinity) {
       const baseline = points.filter((point) => point.time <= range.start).at(-1);
       if (baseline && !visible.some((point) => point.time === range.start)) visible.unshift({ time: range.start, value: baseline.value });
     }
-    constrained.set(button, visible);
+    constrained.set(button, mergeAdjacentHistoryPoints(visible));
   }
   return constrained;
 }
