@@ -200,6 +200,21 @@ input:disabled {
   color: var(--muted);
 }
 
+.checkLabel {
+  min-height: 34px;
+  align-content: end;
+}
+
+.checkLabel input[type="checkbox"],
+.tagsCheckControl input[type="checkbox"] {
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
 .checkLabel input {
   min-width: auto;
 }
