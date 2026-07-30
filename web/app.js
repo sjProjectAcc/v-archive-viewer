@@ -21,6 +21,7 @@ const state = {
   chartYMaxAutoByMetric: {},
   chartXRangeByMode: {},
   chartXMode: "floor",
+  chartExcludedByScope: {},
   compareChartMetric: "score",
   compareChartRanges: {},
   compareChartExcludedByScope: {},
@@ -337,6 +338,7 @@ const rateMetricControl = document.querySelector("#rateMetricControl");
 const rateMetricSelect = document.querySelector("#rateMetricSelect");
 const chartPanel = document.querySelector("#chartPanel");
 const chartTooltip = document.querySelector("#chartTooltip");
+const chartExclusionResetButton = document.querySelector("#chartExclusionResetButton");
 const compareChartPanel = document.querySelector("#compareChartPanel");
 const compareProfileSummary = document.querySelector("#compareProfileSummary");
 const compareChartTitle = document.querySelector("#compareChartTitle");
@@ -962,6 +964,11 @@ function wireEvents() {
     });
   });
   chartImageButton.addEventListener("click", exportChartImage);
+  chartExclusionResetButton.addEventListener("click", () => {
+    delete state.chartExcludedByScope[chartExclusionScope(getChartMetric().key)];
+    saveSettings();
+    renderChart();
+  });
   desktopUpdateCheckButton.addEventListener("click", () => checkForDesktopUpdate(true));
   desktopUpdateButton.addEventListener("click", installDesktopUpdate);
   historyAccountLoginButton.addEventListener("click", loginHistoryAccount);
@@ -1164,6 +1171,7 @@ function applySavedSettings() {
     floor: { min: settings.xMin || "1.1", max: settings.xMax || "17.3" },
     ...(settings.chartXRangeByMode || {}),
   };
+  state.chartExcludedByScope = settings.chartExcludedByScope || {};
   restoreChartRange(state.chartMetric);
   searchInput.value = settings.search || "";
   nameWidthInput.value = settings.nameWidth || "320";
@@ -1263,6 +1271,7 @@ function saveSettings() {
     chartYMaxByMetric: state.chartYMaxByMetric,
     chartYMaxAutoByMetric: state.chartYMaxAutoByMetric,
     chartXRangeByMode: state.chartXRangeByMode,
+    chartExcludedByScope: state.chartExcludedByScope,
     historyStartDate: historyStartDate.value,
     historyEndDate: historyEndDate.value,
     historyMetric: historyMetricSelect.value,
@@ -4734,6 +4743,9 @@ function renderChart() {
   const button = buttonFilter.value;
   const metric = getChartMetric();
   const buttonRecords = filterRows(state.payload.records || []);
+  const excludedKeys = getChartExcludedKeys(metric.key);
+  chartExclusionResetButton.hidden = excludedKeys.size === 0;
+  chartExclusionResetButton.textContent = `제외 초기화 (${excludedKeys.size})`;
   const xRange = configureChartXAxis(metric, buttonRecords);
   if (!xRange) {
     chartEl.innerHTML = `<div class="empty">축 범위를 확인해주세요.</div>`;
@@ -4757,6 +4769,7 @@ function renderChart() {
     ? "버튼별 floor 최대치"
     : metric.xMode === "maxDjpower" ? "maxDJPower" : "floor 최대치";
   const scopedRecords = buttonRecords
+    .filter((row) => !excludedKeys.has(recordKey(row)))
     .map((row) => {
       const floorLabel = getFloorLabel(row);
       const xLabel = metric.xMode === "maxDjpower" ? djpowerGroupKey(row.maxDjpower) : floorLabel;
@@ -4846,6 +4859,7 @@ function renderChart() {
       djPowerGroup: isDjBasic ? "베이직 TOP70" : isDjNew ? "뉴탭 TOP30" : "",
       belowNextFloorMin: isBelowNextFloorMin,
       updatedAt: row.updatedAt || "",
+      key: recordKey(row),
     }));
     return `<circle class="${className}" cx="${cx}" cy="${cy}" r="${row.maxCombo === true ? 4.8 : 3.9}" data-info="${info}" tabindex="0"></circle>`;
   }).join("");
@@ -4876,7 +4890,35 @@ function bindChartTooltips() {
     dot.addEventListener("focus", (event) => showTooltip(event, dot.dataset.info));
     dot.addEventListener("mouseleave", hideTooltip);
     dot.addEventListener("blur", hideTooltip);
+    dot.addEventListener("click", () => {
+      const info = JSON.parse(decodeURIComponent(dot.dataset.info || "{}"));
+      if (info.key && info.metricKey) excludeChartPoint(info.metricKey, info.key);
+    });
   });
+}
+
+function chartExclusionScope(metricKey) {
+  const nickname = state.payload?.nickname || getCurrentNickname();
+  return [
+    cacheKey(nickname),
+    metricKey,
+    buttonFilter.value || "all",
+    patternFilter.value || "all",
+  ].join("|");
+}
+
+function getChartExcludedKeys(metricKey) {
+  return new Set(state.chartExcludedByScope[chartExclusionScope(metricKey)] || []);
+}
+
+function excludeChartPoint(metricKey, key) {
+  const scope = chartExclusionScope(metricKey);
+  const keys = getChartExcludedKeys(metricKey);
+  keys.add(key);
+  state.chartExcludedByScope[scope] = [...keys];
+  hideTooltip();
+  saveSettings();
+  renderChart();
 }
 
 function showTooltip(event, encodedInfo) {
