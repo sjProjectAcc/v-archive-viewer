@@ -4320,6 +4320,7 @@ function renderHistoryChart(entries) {
   }
   const allPoints = datasets.flatMap((dataset) => [...dataset.series.values()].flat());
   const colors = { 4: "#1268b3", 5: "#23845f", 6: "#7b61c9", 8: "#c03535" };
+  const compareColors = { 4: "#f07a24", 5: "#d9368b", 6: "#d6a000", 8: "#9b4dca" };
   const width = 1200;
   const height = 360;
   const pad = { left: 72, right: 24, top: 24, bottom: 48 };
@@ -4355,8 +4356,9 @@ function renderHistoryChart(entries) {
   }).join("");
   const lines = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => {
     if (!points.length) return "";
+    const color = (dataset.compare ? compareColors : colors)[button];
     const coordinates = points.map((point) => `${xFor(point.time).toFixed(2)},${yFor(point.value).toFixed(2)}`).join(" ");
-    return `<polyline class="historyLine${dataset.compare ? " historyCompareLine" : ""}" points="${coordinates}" fill="none" stroke="${colors[button]}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></polyline>`;
+    return `<polyline class="historyLine${dataset.compare ? " historyCompareLine" : ""}" points="${coordinates}" fill="none" stroke="${color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></polyline>`;
   }).join("")).join("");
   const lineHits = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => points.slice(1).map((point, index) => {
     const previous = points[index];
@@ -4364,15 +4366,19 @@ function renderHistoryChart(entries) {
     return `<line class="historyLineHit" x1="${xFor(previous.time).toFixed(2)}" y1="${yFor(previous.value).toFixed(2)}" x2="${xFor(point.time).toFixed(2)}" y2="${yFor(point.value).toFixed(2)}" data-info="${info}" tabindex="0"></line>`;
   }).join("")).join("")).join("");
   const pointDots = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => points.map((point) => {
+    const color = (dataset.compare ? compareColors : colors)[button];
     const info = encodeURIComponent(JSON.stringify({ nickname: dataset.nickname, button, time: point.time, value: point.value, metric: metric.label }));
-    const compareStyle = dataset.compare ? ` style="fill:var(--panel);stroke:${colors[button]}"` : "";
-    return `<circle class="historyPoint${dataset.compare ? " historyComparePoint" : ""}" cx="${xFor(point.time).toFixed(2)}" cy="${yFor(point.value).toFixed(2)}" r="4" fill="${colors[button]}"${compareStyle} tabindex="0" data-button="${button}" data-info="${info}"></circle>`;
+    const compareStyle = dataset.compare ? ` style="fill:var(--panel);stroke:${color}"` : "";
+    return `<circle class="historyPoint${dataset.compare ? " historyComparePoint" : ""}" cx="${xFor(point.time).toFixed(2)}" cy="${yFor(point.value).toFixed(2)}" r="4" fill="${color}"${compareStyle} tabindex="0" data-button="${button}" data-info="${info}"></circle>`;
   }).join("")).join("")).join("");
 
   historyLogPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${metric.label} history"><defs><clipPath id="historyPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" width="${width}" height="${height}"></rect>${yGrid}${xGrid}<g clip-path="url(#historyPlotClip)">${lines}${lineHits}${pointDots}</g><text class="axisTitle" x="16" y="18">${metric.label}</text></svg>`;
   historyLegend.innerHTML = datasets.map((dataset) => [...dataset.series.entries()]
     .filter(([, points]) => points.length)
-    .map(([button, points]) => `<span><i class="${dataset.compare ? "compare" : ""}" style="--history-color:${colors[button]};background:${colors[button]}"></i>${escapeHtml(dataset.nickname)} ${button}B ${points[points.length - 1].value.toFixed(2)}</span>`)
+    .map(([button, points]) => {
+      const color = (dataset.compare ? compareColors : colors)[button];
+      return `<span><i class="${dataset.compare ? "compare" : ""}" style="--history-color:${color};background:${color}"></i>${escapeHtml(dataset.nickname)} ${button}B ${points[points.length - 1].value.toFixed(2)}</span>`;
+    })
     .join("")).join("");
   bindHistoryTooltips();
 }
@@ -4525,6 +4531,7 @@ async function drawHistoryImage(svg) {
   ctx.drawImage(sourceImage, margin, margin + headerHeight, chartWidth, chartHeight);
 
   const colors = { 4: "#1268b3", 5: "#23845f", 6: "#7b61c9", 8: "#c03535" };
+  const compareColors = { 4: "#f07a24", 5: "#d9368b", 6: "#d6a000", 8: "#9b4dca" };
   let legendX = margin;
   const legendY = margin + headerHeight + chartHeight + 42;
   ctx.font = "16px Segoe UI, Malgun Gothic, Arial";
@@ -4532,7 +4539,7 @@ async function drawHistoryImage(svg) {
     for (const [button, points] of dataset.series) {
       if (!points.length) continue;
       const label = `${dataset.nickname} ${button}B ${points[points.length - 1].value.toFixed(2)}`;
-      ctx.strokeStyle = colors[button];
+      ctx.strokeStyle = (dataset.compare ? compareColors : colors)[button];
       ctx.lineWidth = 4;
       ctx.setLineDash(dataset.compare ? [8, 6] : []);
       ctx.beginPath();
