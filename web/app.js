@@ -52,6 +52,9 @@ const state = {
   hangyTagsStatus: "",
   hangyTagsSortKey: "name",
   hangyTagsSortDir: "asc",
+  publishedTagManifest: null,
+  publishedTagManifestLoading: null,
+  publishedHangyScopesLoading: new Set(),
   isTestMode: false,
   sortKey: null,
   sortDir: "asc",
@@ -81,6 +84,8 @@ const HANGY_TAG_CACHE_KEY = "vArchiveHangyPatternTagsV1";
 const HANGY_SONG_CATALOG_CACHE_KEY = "vArchiveHangySongCatalogV1";
 const HANGY_SONG_CATALOG_CACHE_TTL = 12 * 60 * 60 * 1000;
 const HANGY_TAG_CODES = ["brain", "chord", "doubleTap", "jack", "longNote", "roll", "stream", "trill"];
+const PUBLISHED_TAG_MANIFEST_PATH = "data/tag-manifest.json";
+const PUBLISHED_TAG_SCHEMA_VERSION = 1;
 const SCORE_BASE = Math.pow(30, 1 / 10);
 const ANCHOR_FLOOR_LABEL = "15.2";
 const ANCHOR_DIFFICULTY_CONSTANT = 10;
@@ -1091,6 +1096,7 @@ function wireEvents() {
       refreshHangyTargetsFromCachedCatalog();
       loadHangyTagsFromCache();
       renderHangyTagsView();
+      refreshPublishedHangyTags(false);
     });
   });
   debugMetricSelect.addEventListener("change", () => {
@@ -1493,6 +1499,54 @@ function maxDjPowerForPattern(pattern, level) {
   return Number.isFinite(difficultyConstant) ? difficultyConstant * 2.22 + 2.31 : NaN;
 }
 
+function publishedTagUrl(path) {
+  const baseUrl = window.__TAURI__ ? PUBLIC_APP_URL : window.location.href;
+  return new URL(String(path || ""), baseUrl).toString();
+}
+
+async function loadPublishedTagManifest(force = false) {
+  if (!force && state.publishedTagManifest) return state.publishedTagManifest;
+  if (!force && state.publishedTagManifestLoading) return state.publishedTagManifestLoading;
+  state.publishedTagManifestLoading = (async () => {
+    const response = await fetchWithTimeout(publishedTagUrl(PUBLISHED_TAG_MANIFEST_PATH), {
+      credentials: "omit",
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(`공용 태그 manifest HTTP ${response.status}`);
+    const manifest = await response.json();
+    if (manifest?.schemaVersion !== PUBLISHED_TAG_SCHEMA_VERSION) throw new Error("공용 태그 manifest 형식이 올바르지 않습니다.");
+    state.publishedTagManifest = manifest;
+    return manifest;
+  })();
+  try {
+    return await state.publishedTagManifestLoading;
+  } finally {
+    state.publishedTagManifestLoading = null;
+  }
+}
+
+async function loadPublishedRopebotTags(cached, force = false) {
+  const manifest = await loadPublishedTagManifest(force);
+  const source = manifest?.ropebot;
+  if (!source?.version || !source?.url) return false;
+  if (!force && cached?.publishedVersion === source.version) return true;
+  const response = await fetchWithTimeout(publishedTagUrl(source.url), { credentials: "omit" });
+  if (!response.ok) throw new Error(`공용 로페봇 태그 HTTP ${response.status}`);
+  const snapshot = await response.json();
+  const rows = normalizeTagsRows(snapshot?.tagRows, snapshot?.songs, snapshot?.abilityRows);
+  if (rows.length < 100) throw new Error(`공용 로페봇 태그 데이터가 너무 적습니다. (${rows.length}곡)`);
+  state.tagsRows = rows;
+  state.tagsUpdatedAt = Date.now();
+  populateTagsGenreOptions();
+  appStorageSetItem(TAGS_CACHE_KEY, JSON.stringify({
+    schemaVersion: TAGS_CACHE_SCHEMA_VERSION,
+    publishedVersion: source.version,
+    updatedAt: state.tagsUpdatedAt,
+    rows,
+  }));
+  return true;
+}
+
 function loadTagsCache() {
   try {
     const cached = JSON.parse(appStorageGetItem(TAGS_CACHE_KEY) || "null");
@@ -1510,6 +1564,15 @@ function loadTagsCache() {
 async function loadTagsData(force = false) {
   if (state.tagsLoading) return;
   const cached = loadTagsCache();
+  try {
+    if (await loadPublishedRopebotTags(cached, force)) {
+      tagsStatus.textContent = `공용 로페봇 태그 ${state.tagsRows.length}곡을 불러왔습니다.`;
+      if (viewSelect.value === "tags") renderTagsView();
+      return;
+    }
+  } catch (error) {
+    state.tagsLoadError = error.message || String(error);
+  }
   if (!force && cached && Date.now() - state.tagsUpdatedAt < TAGS_CACHE_TTL) {
     if (viewSelect.value === "tags") renderTagsView();
     return;
@@ -1806,6 +1869,50 @@ function saveHangyTagsCache(cache) {
   appStorageSetItem(HANGY_TAG_CACHE_KEY, JSON.stringify(cache));
 }
 
+async function loadPublishedHangyScope(force = false) {
+  const button = hangyTagsButtonSelect.value;
+  const pattern = hangyTagsPatternSelect.value;
+  const scopeKey = hangyTagsScopeKey(button, pattern);
+  if (state.publishedHangyScopesLoading.has(scopeKey)) return false;
+  state.publishedHangyScopesLoading.add(scopeKey);
+  try {
+    const manifest = await loadPublishedTagManifest(force);
+    const source = manifest?.hangybot?.scopes?.[scopeKey];
+    if (!source?.version || !source?.url) return false;
+    const cache = loadHangyTagsCache();
+    if (!force && cache.scopes[scopeKey]?.publishedVersion === source.version) return true;
+    const response = await fetchWithTimeout(publishedTagUrl(source.url), { credentials: "omit" });
+    if (!response.ok) throw new Error(`공용 행이봇 태그 HTTP ${response.status}`);
+    const snapshot = await response.json();
+    if (!Array.isArray(snapshot?.rows)) throw new Error("공용 행이봇 태그 형식이 올바르지 않습니다.");
+    const entries = Object.fromEntries(snapshot.rows.map((row) => [recordKey(row), {
+      signature: hangyRecordSignature(row),
+      row,
+    }]));
+    cache.scopes[scopeKey] = { publishedVersion: source.version, entries };
+    saveHangyTagsCache(cache);
+    return true;
+  } finally {
+    state.publishedHangyScopesLoading.delete(scopeKey);
+  }
+}
+
+async function refreshPublishedHangyTags(force = false) {
+  try {
+    state.hangyTagsTargets = buildHangyTargets(await ensureHangySongCatalog(false));
+    const loaded = await loadPublishedHangyScope(force);
+    if (!loaded) return false;
+    loadHangyTagsFromCache();
+    state.hangyTagsStatus = `${hangyTagsButtonSelect.value}B ${hangyTagsPatternSelect.value} 공용 태그를 불러왔습니다.`;
+    renderHangyTagsView();
+    return true;
+  } catch (error) {
+    state.hangyTagsStatus = `공용 행이봇 태그 확인 실패 · 저장된 캐시를 사용합니다. · ${error.message || error}`;
+    renderHangyTagsView();
+    return false;
+  }
+}
+
 function hangyRecordSignature(record) {
   return [
     record.title ?? "",
@@ -1906,6 +2013,7 @@ async function collectHangyTags(force) {
   }
   const button = hangyTagsButtonSelect.value;
   const pattern = hangyTagsPatternSelect.value;
+  if (await refreshPublishedHangyTags(force)) return;
   let targets;
   try {
     targets = buildHangyTargets(await ensureHangySongCatalog(force));
@@ -2732,6 +2840,7 @@ function renderActiveView() {
     refreshHangyTargetsFromCachedCatalog();
     loadHangyTagsFromCache();
     renderHangyTagsView();
+    refreshPublishedHangyTags(false);
   }
   else if (isLogPowerCalculator) renderLogPowerCalculator();
   else if (isDebug) renderDebugView();

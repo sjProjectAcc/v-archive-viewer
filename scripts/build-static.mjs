@@ -88,6 +88,9 @@ await writeFile(resolve(output, "sw.js"), serviceWorkerBody, "utf8");
 await mkdir(resolve(output, "icons"), { recursive: true });
 await writeFile(resolve(output, "icons", "icon-192.png"), icon192Body);
 await writeFile(resolve(output, "icons", "icon-512.png"), icon512Body);
+await cp(resolve(source, "data"), resolve(output, "data"), { recursive: true }).catch((error) => {
+  if (error.code !== "ENOENT") throw error;
+});
 await writeFile(resolve(output, "version"), version, "utf8");
 if (downloadBody) {
   await writeFile(resolve(output, "desktop-version.json"), desktopManifest, "utf8");

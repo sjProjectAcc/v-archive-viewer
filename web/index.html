@@ -444,11 +444,11 @@
       <div class="toolHeader tagsHeader">
         <div>
           <h2>태그*행이봇</h2>
-          <p id="hangyTagsStatus">4B SC 기록 태그를 아직 수집하지 않았습니다.</p>
+          <p id="hangyTagsStatus">공용 행이봇 태그 데이터를 확인하고 있습니다.</p>
         </div>
         <div class="tagsHeaderActions">
-          <button id="hangyTagsCollectButton" type="button">태그 수집</button>
-          <button id="hangyTagsFullCollectButton" class="secondaryButton" type="button">전체 재수집</button>
+          <button id="hangyTagsCollectButton" type="button">태그 새로고침</button>
+          <button id="hangyTagsFullCollectButton" class="secondaryButton" type="button">강제 새로고침</button>
         </div>
       </div>
       <div class="tagsControls">
@@ -457,7 +457,7 @@
       </div>
       <div class="tagsResultSummary" id="hangyTagsSummary"></div>
       <div class="tagsTableWrap"><table id="hangyTagsTable"></table></div>
-      <p class="tagsSource">태그 데이터: V-ARCHIVE pattern-tag (행이봇) · 현재 기록의 변경된 패턴만 다시 수집해 기기에 캐시합니다.</p>
+      <p class="tagsSource">태그 데이터: V-ARCHIVE pattern-tag (행이봇) · SC 데이터는 V-LOG 공용 스냅샷에서 받고 기기에 캐시합니다.</p>
     </section>
 
     <section class="toolPanel" id="logPowerCalculatorPanel" hidden>
@@ -571,7 +571,7 @@
         <section><h3>4. 기록과 종합</h3><p>기록 화면은 API의 원본 필드를 최대한 유지한 전체 기록표입니다. 숨겨진 열도 데이터에서 삭제된 것은 아닙니다.</p><ul><li>열 제목을 눌러 정렬하고 버튼·패턴·검색과 기록 전용 floor 범위를 함께 사용할 수 있습니다.</li><li>종합 화면에는 수집 시점, 버튼별 기록 수, Tier, DJClass와 버튼별 LogPower Top50 합계가 표시됩니다.</li><li>새로고침 오류가 있으면 종합 화면 아래쪽에 오류 기록이 추가로 나타납니다.</li><li>최근 3일 이내 갱신된 곡명은 노란색으로 강조됩니다.</li></ul></section>
         <section><h3>5. RATE</h3><p>RATE 화면에서 LogPower, POINT, DJPower를 선택해 같은 필터와 표 구조로 확인할 수 있습니다. LogPower는 Score 97 초과 구간을 로그 함수로 0~10점으로 바꾼 뒤 floor 난이도 상수와 버튼별 정규화 상수를 곱합니다. 99.9 이상은 동일한 만점으로 처리합니다.</p><p class="readmeFormula">scorePoint = -log<sub>a</sub>((100 - min(score, 99.9)) / 3)<br>LogPower = scorePoint × floor 상수 × 버튼 정규화</p><ul><li>각 버튼의 이론상 LogPower 상위 50개 합계는 5000입니다.</li><li>RATE의 DJPower는 버튼별 베이직 상위 70개와 뉴탭 상위 30개를 따로 선발합니다.</li><li>DJPower는 V-ARCHIVE API 값을 우선 사용하며, 이론상 TOP100 합계가 10000이 되도록 버튼별 상수를 곱합니다.</li><li>계산기에서 LogPower와 DJPower 모드를 바꾸어 정방향 계산과 목표 Score 역산을 할 수 있습니다.</li></ul></section>
         <section><h3>6. Floor 분석과 산포도</h3><p>Floor 분석은 선택한 floor 범위에서 내 최고·최저 기록과 기록 수, 전체 패턴 수, 달성률, 평균, 표준편차, floorMax를 한 줄씩 정리합니다.</p><ul><li>시작 floor가 끝 floor보다 크면 내림차순으로 출력합니다.</li><li>산포도는 Score·scorePoint·LogPower·Point·DJPower 중 지표를 선택할 수 있습니다.</li><li>Point와 LogPower에서는 버튼별 TOP50 패턴을 별도 색으로 강조합니다.</li><li>점에 마우스를 올리면 곡명, 패턴, 레벨, 점수와 지표값이 표시됩니다.</li></ul></section>
-        <section><h3>7. 곡 태그</h3><p>곡 태그는 816곡의 BPM, 장르, 별칭과 채보 특성 태그를 곡 번호로 결합해 탐색합니다. 태그 데이터는 Supabase에서 사용자 기기가 직접 요청하고 24시간 캐시됩니다.</p><ul><li>패턴 태그만은 기본 선택되며, 버튼이 전체이면 모든 버튼의 패턴 태그를 함께 표시합니다.</li><li>버튼을 고르면 해당 버튼의 패턴 태그로 범위가 좁아지고, 체크를 해제하면 공통 태그도 볼 수 있습니다.</li><li>SC 패턴만을 선택하면 <code>_NM</code>·<code>_HD</code>·<code>_MX</code> 태그를 숨깁니다.</li><li>여러 태그를 선택해 모두 포함(AND) 또는 하나 이상(OR)으로 조합할 수 있습니다.</li><li>태그 단계를 선택하면 선택 태그 자체가 해당 단계인 곡을 찾고, 태그를 선택하지 않았을 때는 해당 단계 태그가 하나라도 있는 곡을 찾습니다.</li><li>장르, BPM 범위, 내 기록 유무와 서열표 기준 난이도 정렬을 함께 사용할 수 있습니다.</li><li>태그 새로고침은 캐시를 무시하고 태그·버튼별 능력표·전체 곡 목록을 다시 결합합니다.</li></ul></section>
+        <section><h3>7. 곡 태그</h3><p>곡 태그는 816곡의 BPM, 장르, 별칭과 채보 특성 태그를 곡 번호로 결합해 탐색합니다. 로페봇 전체 데이터와 행이봇 SC 데이터는 V-LOG가 제공하는 버전형 공용 파일을 받아 기기에 캐시합니다.</p><ul><li>공용 manifest의 데이터 버전이 바뀐 경우에만 새 태그 파일을 내려받습니다.</li><li>패턴 태그만은 기본 선택되며, 버튼이 전체이면 모든 버튼의 패턴 태그를 함께 표시합니다.</li><li>버튼을 고르면 해당 버튼의 패턴 태그로 범위가 좁아지고, 체크를 해제하면 공통 태그도 볼 수 있습니다.</li><li>SC 패턴만을 선택하면 <code>_NM</code>·<code>_HD</code>·<code>_MX</code> 태그를 숨깁니다.</li><li>여러 태그를 선택해 모두 포함(AND) 또는 하나 이상(OR)으로 조합할 수 있습니다.</li><li>장르, BPM 범위, 내 기록 유무와 서열표 기준 난이도 정렬을 함께 사용할 수 있습니다.</li><li>공용 파일을 받을 수 없으면 저장된 캐시를 유지하고 기존 API 방식을 예비 경로로 사용합니다.</li></ul></section>
         <section><h3>8. 성장 기록과 시점 비교</h3><p>성장 기록은 V-ARCHIVE의 패턴별 변경 이력을 로컬 캐시에 수집해 시간에 따른 LogPower, POINT, DJPower 변화를 복원합니다.</p><ul><li>데스크톱 앱에서 V-ARCHIVE 앱 폴더의 <code>account.txt</code>를 지정하거나 회원 번호와 토큰을 입력해야 합니다.</li><li>수집 간격은 응답 시간에 맞춰 자동 조정되며 실패와 429 응답에는 추가 대기 시간이 적용됩니다.</li><li>그래프는 다음 기록까지 이전 값을 유지하는 계단형이며, 1분·1시간·1일 안의 인접 변화를 하나로 결합해 볼 수 있습니다. 원본 캐시는 바뀌지 않습니다.</li><li>로컬에 프로필과 히스토리가 저장된 다른 닉네임을 선택하면 두 성장 그래프를 함께 비교할 수 있습니다.</li><li>다른 닉네임을 조회하면 계정 연결은 해제되어 잘못된 계정 이력 수집을 막습니다.</li><li>시점 비교는 두 시점 이전의 마지막 기록이 모두 있는 패턴만 비교합니다. 비교 시점을 비우면 현재 API 기록을 사용합니다.</li></ul></section>
         <section><h3>9. 최근 성과 카드</h3><p>수집한 성장 기록의 연속된 두 기록을 비교해 최근 갱신 순으로 성과를 선택하고 PNG 이미지로 출력합니다.</p><ul><li>점수 상승 또는 새 MAX COMBO 달성을 하나의 성과로 표시합니다.</li><li>목록을 드래그해 여러 성과를 연속 선택하거나, 최근 시간과 LogPower 상승량으로 자동 선택할 수 있습니다.</li><li>이미지 카드는 위쪽 곡 정보와 아래쪽 이전·현재 기록으로 구성되며 Score, scorePoint, LogPower를 비교합니다.</li><li>가로 열 수를 지정하고, 이미지 머리말에서 닉네임과 선택 버튼의 Tier·DJClass·LogPower Top50을 확인할 수 있습니다.</li></ul></section>
         <section><h3>10. 사용자 비교</h3><p>사용자 비교는 두 계정에 모두 존재하는 title·button·pattern 조합만 표시합니다. floor 범위를 바꾸면 공통 기록 수와 우위 통계도 함께 다시 계산됩니다.</p><ul><li>그래프 위에서 버튼별 LogPower TOP50, DJClass와 Tier를 먼저 비교할 수 있습니다.</li><li>공통 기록은 Score·LogPower·Point 차이를 정렬하거나 우위 계정으로 필터링할 수 있습니다.</li><li>차이-합 벡터 그래프의 스케일은 동일·평행사변형·개별 방식 중 선택할 수 있고, floor 중점선을 켜거나 끌 수 있습니다.</li><li>점에 마우스를 올리면 정보를 확인하고, 우클릭하면 현재 계정쌍과 지표의 그래프에서 제외할 수 있습니다.</li></ul></section>

@@ -38,6 +38,7 @@ jobs:
       - name: Validate frontend
         run: |
           node --check web/app.js
+          npm run tags:validate
           npm audit --audit-level=high
 
       - name: Test desktop backend

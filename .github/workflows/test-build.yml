@@ -42,6 +42,7 @@ jobs:
       - name: Validate source
         run: |
           node --check web/app.js
+          npm run tags:validate
           npm audit --audit-level=high
           cargo test --manifest-path src-tauri/Cargo.toml
 

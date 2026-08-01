@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "ropebot": {
+    "version": "87e11ff93cad",
+    "url": "data/ropebot-87e11ff93cad.json",
+    "count": 816
+  },
+  "hangybot": {
+    "scopes": {
+      "4|SC": {
+        "version": "e01ce6b2c7fd",
+        "url": "data/hangybot-4-SC-e01ce6b2c7fd.json",
+        "count": 776
+      },
+      "5|SC": {
+        "version": "a360edc737d9",
+        "url": "data/hangybot-5-SC-a360edc737d9.json",
+        "count": 782
+      },
+      "6|SC": {
+        "version": "8438b9011fde",
+        "url": "data/hangybot-6-SC-8438b9011fde.json",
+        "count": 772
+      },
+      "8|SC": {
+        "version": "0b27528c4b58",
+        "url": "data/hangybot-8-SC-0b27528c4b58.json",
+        "count": 781
+      }
+    }
+  },
+  "updatedAt": "2026-08-01T14:33:34.746Z"
+}
