@@ -19,7 +19,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' https://djmax.gg data: blob:; connect-src 'self' https://v-archive.net https://djmax.gg https://fjwuuodmtttqohxsycvp.supabase.co; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+      "csp": "default-src 'self'; img-src 'self' https://djmax.gg data: blob:; connect-src 'self' https://sjprojectacc.github.io https://v-archive.net https://djmax.gg https://fjwuuodmtttqohxsycvp.supabase.co; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
     }
   },
   "bundle": {

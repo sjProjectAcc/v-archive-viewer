@@ -53,6 +53,7 @@ const state = {
   hangyTagsSortKey: "name",
   hangyTagsSortDir: "asc",
   publishedTagManifest: null,
+  publishedTagBaseUrl: "",
   publishedTagManifestLoading: null,
   publishedHangyScopesLoading: new Set(),
   isTestMode: false,
@@ -1499,24 +1500,42 @@ function maxDjPowerForPattern(pattern, level) {
   return Number.isFinite(difficultyConstant) ? difficultyConstant * 2.22 + 2.31 : NaN;
 }
 
+function localTagBaseUrl() {
+  return new URL("./", window.location.href).toString();
+}
+
+function publishedTagBaseUrls() {
+  if (!window.__TAURI__) return [localTagBaseUrl()];
+  if (state.isTestMode) return [localTagBaseUrl()];
+  return [...new Set([PUBLIC_APP_URL, localTagBaseUrl()])];
+}
+
 function publishedTagUrl(path) {
-  const baseUrl = window.__TAURI__ ? PUBLIC_APP_URL : window.location.href;
-  return new URL(String(path || ""), baseUrl).toString();
+  return new URL(String(path || ""), state.publishedTagBaseUrl || publishedTagBaseUrls()[0]).toString();
 }
 
 async function loadPublishedTagManifest(force = false) {
   if (!force && state.publishedTagManifest) return state.publishedTagManifest;
   if (!force && state.publishedTagManifestLoading) return state.publishedTagManifestLoading;
   state.publishedTagManifestLoading = (async () => {
-    const response = await fetchWithTimeout(publishedTagUrl(PUBLISHED_TAG_MANIFEST_PATH), {
-      credentials: "omit",
-      cache: "no-store",
-    });
-    if (!response.ok) throw new Error(`공용 태그 manifest HTTP ${response.status}`);
-    const manifest = await response.json();
-    if (manifest?.schemaVersion !== PUBLISHED_TAG_SCHEMA_VERSION) throw new Error("공용 태그 manifest 형식이 올바르지 않습니다.");
-    state.publishedTagManifest = manifest;
-    return manifest;
+    let lastError = null;
+    for (const baseUrl of publishedTagBaseUrls()) {
+      try {
+        const response = await fetchWithTimeout(new URL(PUBLISHED_TAG_MANIFEST_PATH, baseUrl).toString(), {
+          credentials: "omit",
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error(`공용 태그 manifest HTTP ${response.status}`);
+        const manifest = await response.json();
+        if (manifest?.schemaVersion !== PUBLISHED_TAG_SCHEMA_VERSION) throw new Error("공용 태그 manifest 형식이 올바르지 않습니다.");
+        state.publishedTagBaseUrl = baseUrl;
+        state.publishedTagManifest = manifest;
+        return manifest;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError || new Error("공용 태그 manifest를 불러오지 못했습니다.");
   })();
   try {
     return await state.publishedTagManifestLoading;
