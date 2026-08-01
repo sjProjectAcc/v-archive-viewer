@@ -10,7 +10,6 @@ const songsUrl = "https://v-archive.net/db/v2/songs.json";
 const ropebotTagsUrl = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/song_tags_2?select=song_title%2Ctags%2Caka&limit=1000";
 const ropebotAbilityUrl = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/ability?select=id%2Cability_set&order=id";
 const ropebotAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqd3V1b2RtdHR0cW9oeHN5Y3ZwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUxNDkwNjYsImV4cCI6MjA3MDcyNTA2Nn0.FItZtjt2v2otOUnmDtqhKG4IrPD4FjaRc_tVy-nxpsI";
-const tagCodes = ["brain", "chord", "doubleTap", "jack", "longNote", "roll", "stream", "trill"];
 const validButtons = new Set(["4", "5", "6", "8"]);
 const validPatterns = new Set(["NM", "HD", "MX", "SC"]);
 const args = new Set(process.argv.slice(2));
@@ -95,15 +94,16 @@ async function collectHangyScope(button, pattern) {
       try {
         const response = await fetchJson(`https://v-archive.net/api/v3/pattern-tag?title=${target.title}&button=${button}&pattern=${pattern}`);
         if (response?.success !== true) throw new Error("API success=false");
-        const traits = Object.fromEntries((response?.data?.traits || []).map((trait) => [String(trait.tagCode || ""), Number(trait.value) || 0]));
-        const values = Object.fromEntries(tagCodes.map((code) => [code, Number(traits[code]) || 0]));
+        const traits = Object.fromEntries((response?.data?.traits || [])
+          .map((trait) => [String(trait.tagCode || ""), Number(trait.value) || 0])
+          .filter(([code]) => code));
         checkpoint.rows[key] = {
           ...target,
           name: response?.data?.song?.name || target.name,
           hangySong: response?.data?.song || {},
           hangyTags: Array.isArray(response?.data?.tags) ? response.data.tags : [],
-          traits: values,
-          traitTotal: tagCodes.reduce((sum, code) => sum + values[code], 0),
+          traits,
+          traitTotal: Object.values(traits).reduce((sum, value) => sum + value, 0),
         };
         completed += 1;
         const elapsed = Date.now() - startedAt;

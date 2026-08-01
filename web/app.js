@@ -84,7 +84,6 @@ const HISTORY_STORE = "recordHistories";
 const HANGY_TAG_CACHE_KEY = "vArchiveHangyPatternTagsV1";
 const HANGY_SONG_CATALOG_CACHE_KEY = "vArchiveHangySongCatalogV1";
 const HANGY_SONG_CATALOG_CACHE_TTL = 12 * 60 * 60 * 1000;
-const HANGY_TAG_CODES = ["brain", "chord", "doubleTap", "jack", "longNote", "roll", "stream", "trill"];
 const PUBLISHED_TAG_MANIFEST_PATH = "data/tag-manifest.json";
 const PUBLISHED_TAG_SCHEMA_VERSION = 1;
 const SCORE_BASE = Math.pow(30, 1 / 10);
@@ -2002,15 +2001,16 @@ function loadHangyTagsFromCache() {
 }
 
 function normalizeHangyTagRow(record, response) {
-  const traits = Object.fromEntries((response?.data?.traits || []).map((trait) => [String(trait.tagCode || ""), Number(trait.value) || 0]));
-  const values = Object.fromEntries(HANGY_TAG_CODES.map((code) => [code, Number(traits[code]) || 0]));
+  const traits = Object.fromEntries((response?.data?.traits || [])
+    .map((trait) => [String(trait.tagCode || ""), Number(trait.value) || 0])
+    .filter(([code]) => code));
   return {
     ...record,
     name: response?.data?.song?.name || record.name || "-",
     hangySong: response?.data?.song || {},
     hangyTags: Array.isArray(response?.data?.tags) ? response.data.tags : [],
-    traits: values,
-    traitTotal: HANGY_TAG_CODES.reduce((sum, code) => sum + (Number(values[code]) || 0), 0),
+    traits,
+    traitTotal: Object.values(traits).reduce((sum, value) => sum + (Number(value) || 0), 0),
   };
 }
 
@@ -2092,8 +2092,9 @@ function renderHangyTagsView() {
   const targets = hangyTargets();
   const sortKey = state.hangyTagsSortKey;
   const sortDir = state.hangyTagsSortDir === "asc" ? 1 : -1;
-  const traitTotal = (row) => HANGY_TAG_CODES.reduce((sum, code) => sum + (Number(row.traits?.[code]) || 0), 0);
-  const valueForSort = (row, key) => key === "traitTotal" ? traitTotal(row) : HANGY_TAG_CODES.includes(key) ? row.traits?.[key] : row[key];
+  const traitCodes = [...new Set(state.hangyTagsRows.flatMap((row) => Object.keys(row.traits || {})))].sort((a, b) => a.localeCompare(b, "en"));
+  const traitTotal = (row) => Object.values(row.traits || {}).reduce((sum, value) => sum + (Number(value) || 0), 0);
+  const valueForSort = (row, key) => key === "traitTotal" ? traitTotal(row) : traitCodes.includes(key) ? row.traits?.[key] : row[key];
   const rows = [...state.hangyTagsRows].sort((a, b) => sortDir * compareForSort(valueForSort(a, sortKey), valueForSort(b, sortKey)) || compare(a.title, b.title));
   hangyTagsStatus.textContent = state.hangyTagsStatus || `${targets.length}개 패턴의 태그 수집이 필요합니다.`;
   hangyTagsSummary.textContent = `${hangyTagsButtonSelect.value}B · ${hangyTagsPatternSelect.value} · 현재 기록 ${targets.length}개 · 태그 수집 ${rows.length}개`;
@@ -2101,9 +2102,9 @@ function renderHangyTagsView() {
     hangyTagsTable.innerHTML = `<tbody><tr><td class="empty">태그 수집을 누르면 기록 유무와 관계없이 선택한 모든 패턴의 태그를 가져옵니다.</td></tr></tbody>`;
     return;
   }
-  const columns = [["title", "title"], ["name", "name"], ["level", "level"], ["score", "score"], ["traitTotal", "sum"], ...HANGY_TAG_CODES.map((code) => [code, code])];
+  const columns = [["title", "title"], ["name", "name"], ["level", "level"], ["score", "score"], ["traitTotal", "sum"], ...traitCodes.map((code) => [code, code])];
   const sortMark = (key) => state.hangyTagsSortKey === key ? (state.hangyTagsSortDir === "asc" ? " ▲" : " ▼") : "";
-  hangyTagsTable.innerHTML = `<thead><tr>${columns.map(([key, label]) => `<th data-hangy-key="${escapeHtml(key)}">${escapeHtml(label)}${sortMark(key)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr><td class="num">${escapeHtml(row.title)}</td><td class="nameCell">${escapeHtml(row.name)}</td><td class="num">${escapeHtml(row.level ?? "-")}</td><td class="num">${Number.isFinite(Number(row.score)) ? Number(row.score).toFixed(2) : "-"}</td><td class="num">${traitTotal(row)}</td>${HANGY_TAG_CODES.map((code) => `<td class="num">${Number(row.traits?.[code]) || 0}</td>`).join("")}</tr>`).join("")}</tbody>`;
+  hangyTagsTable.innerHTML = `<thead><tr>${columns.map(([key, label]) => `<th data-hangy-key="${escapeHtml(key)}">${escapeHtml(label)}${sortMark(key)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr><td class="num">${escapeHtml(row.title)}</td><td class="nameCell">${escapeHtml(row.name)}</td><td class="num">${escapeHtml(row.level ?? "-")}</td><td class="num">${Number.isFinite(Number(row.score)) ? Number(row.score).toFixed(2) : "-"}</td><td class="num">${traitTotal(row)}</td>${traitCodes.map((code) => `<td class="num">${Number(row.traits?.[code]) || 0}</td>`).join("")}</tr>`).join("")}</tbody>`;
   hangyTagsTable.querySelectorAll("th[data-hangy-key]").forEach((header) => {
     header.addEventListener("click", () => toggleHangyTagsSort(header.dataset.hangyKey));
   });
