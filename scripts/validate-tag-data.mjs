@@ -19,5 +19,8 @@ for (const source of sources) {
   const snapshot = JSON.parse(body);
   const count = snapshot.rows?.length ?? snapshot.tagRows?.length ?? 0;
   if (count !== source.count) throw new Error(`${source.url}: count mismatch`);
+  if (snapshot.scope && Object.keys(snapshot.rawResponses || {}).length !== count) {
+    throw new Error(`${source.url}: raw response count mismatch`);
+  }
   console.log(`${source.url}: ${count} rows`);
 }

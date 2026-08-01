@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
@@ -73,7 +73,8 @@ if (updateRopebot) {
 async function collectHangyScope(button, pattern) {
   const scopeKey = `${button}|${pattern}`;
   const checkpointPath = resolve(outputDir, `hangybot-${button}-${pattern}.checkpoint.json`);
-  const checkpoint = await jsonFile(checkpointPath, { rows: {} });
+  const checkpoint = await jsonFile(checkpointPath, { entries: {} });
+  checkpoint.entries ||= {};
   const songRows = await loadSongs();
   const targets = songRows.flatMap((song) => {
     const patternData = song?.patterns?.[`${button}B`]?.[pattern];
@@ -87,7 +88,7 @@ async function collectHangyScope(button, pattern) {
   let completed = 0;
   for (const target of targets) {
     const key = `${target.title}|${button}|${pattern}`;
-    if (checkpoint.rows[key]) continue;
+    if (checkpoint.entries[key]?.raw && checkpoint.entries[key]?.row) continue;
     let attempts = 0;
     while (attempts < 5) {
       const startedAt = Date.now();
@@ -97,7 +98,7 @@ async function collectHangyScope(button, pattern) {
         const traits = Object.fromEntries((response?.data?.traits || [])
           .map((trait) => [String(trait.tagCode || ""), Number(trait.value) || 0])
           .filter(([code]) => code));
-        checkpoint.rows[key] = {
+        const row = {
           ...target,
           name: response?.data?.song?.name || target.name,
           hangySong: response?.data?.song || {},
@@ -105,6 +106,7 @@ async function collectHangyScope(button, pattern) {
           traits,
           traitTotal: Object.values(traits).reduce((sum, value) => sum + value, 0),
         };
+        checkpoint.entries[key] = { raw: response, row };
         completed += 1;
         const elapsed = Date.now() - startedAt;
         delayMs = Math.max(100, Math.round((delayMs + elapsed) * 0.82));
@@ -118,13 +120,20 @@ async function collectHangyScope(button, pattern) {
     }
     if (completed % 20 === 0) {
       await writeFile(checkpointPath, JSON.stringify(checkpoint), "utf8");
-      console.log(`${scopeKey}: ${Object.keys(checkpoint.rows).length}/${targets.length} · delay ${delayMs}ms`);
+      console.log(`${scopeKey}: ${Object.keys(checkpoint.entries).length}/${targets.length} · delay ${delayMs}ms`);
     }
     await sleep(delayMs);
   }
-  const rows = targets.map((target) => checkpoint.rows[`${target.title}|${button}|${pattern}`]).filter(Boolean);
+  const keys = targets.map((target) => `${target.title}|${button}|${pattern}`);
+  const rows = keys.map((key) => checkpoint.entries[key]?.row).filter(Boolean);
   if (rows.length !== targets.length) throw new Error(`${scopeKey}: incomplete ${rows.length}/${targets.length}`);
-  manifest.hangybot.scopes[scopeKey] = await writeSnapshot(`hangybot-${button}-${pattern}`, { schemaVersion: 1, scope: scopeKey, rows });
+  const rawResponses = Object.fromEntries(keys.map((key) => [key, checkpoint.entries[key].raw]));
+  manifest.hangybot.scopes[scopeKey] = await writeSnapshot(`hangybot-${button}-${pattern}`, {
+    schemaVersion: 2,
+    scope: scopeKey,
+    rows,
+    rawResponses,
+  });
   await rm(checkpointPath, { force: true });
   console.log(`Hangybot ${scopeKey}: ${rows.length} rows · ${manifest.hangybot.scopes[scopeKey].version}`);
 }
@@ -147,4 +156,12 @@ if (updateHangybot) {
 
 manifest.updatedAt = new Date().toISOString();
 await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+const referencedSnapshots = new Set([
+  manifest.ropebot?.url?.split("/").at(-1),
+  ...Object.values(manifest.hangybot.scopes).map((source) => source.url?.split("/").at(-1)),
+].filter(Boolean));
+for (const file of await readdir(dataDir)) {
+  if (!/^(ropebot|hangybot)-.+\.json$/.test(file) || referencedSnapshots.has(file)) continue;
+  await rm(resolve(dataDir, file), { force: true });
+}
 console.log(`Manifest: ${manifestPath}`);

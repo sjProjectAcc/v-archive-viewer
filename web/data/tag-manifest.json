@@ -8,26 +8,26 @@
   "hangybot": {
     "scopes": {
       "4|SC": {
-        "version": "1da044c490ec",
-        "url": "data/hangybot-4-SC-1da044c490ec.json",
+        "version": "74c9b3d60772",
+        "url": "data/hangybot-4-SC-74c9b3d60772.json",
         "count": 776
       },
       "5|SC": {
-        "version": "37d21f1f6e4d",
-        "url": "data/hangybot-5-SC-37d21f1f6e4d.json",
+        "version": "7aa97fcba422",
+        "url": "data/hangybot-5-SC-7aa97fcba422.json",
         "count": 782
       },
       "6|SC": {
-        "version": "d15fbff2d4c4",
-        "url": "data/hangybot-6-SC-d15fbff2d4c4.json",
+        "version": "5d7fe15813c5",
+        "url": "data/hangybot-6-SC-5d7fe15813c5.json",
         "count": 772
       },
       "8|SC": {
-        "version": "0ee16e18833b",
-        "url": "data/hangybot-8-SC-0ee16e18833b.json",
+        "version": "06b83b017498",
+        "url": "data/hangybot-8-SC-06b83b017498.json",
         "count": 781
       }
     }
   },
-  "updatedAt": "2026-08-01T15:55:43.012Z"
+  "updatedAt": "2026-08-01T16:56:08.099Z"
 }

@@ -86,6 +86,23 @@ const HANGY_SONG_CATALOG_CACHE_KEY = "vArchiveHangySongCatalogV1";
 const HANGY_SONG_CATALOG_CACHE_TTL = 12 * 60 * 60 * 1000;
 const PUBLISHED_TAG_MANIFEST_PATH = "data/tag-manifest.json";
 const PUBLISHED_TAG_SCHEMA_VERSION = 1;
+const HANGY_TRAIT_LABELS = Object.freeze({
+  brain: "능지",
+  chord: "동치",
+  doubleTap: "따닥",
+  jack: "연타",
+  longNote: "롱잡",
+  roll: "드르륵",
+  stream: "폭타",
+  trill: "트릴",
+  laser: "레이저",
+  speed: "변속",
+  denim: "데님",
+  stair: "계단",
+  flash: "순간발광",
+  keypart: "키파트 지력",
+  trigger: "트리거 복합",
+});
 const SCORE_BASE = Math.pow(30, 1 / 10);
 const ANCHOR_FLOOR_LABEL = "15.2";
 const ANCHOR_DIFFICULTY_CONSTANT = 10;
@@ -2102,7 +2119,7 @@ function renderHangyTagsView() {
     hangyTagsTable.innerHTML = `<tbody><tr><td class="empty">태그 수집을 누르면 기록 유무와 관계없이 선택한 모든 패턴의 태그를 가져옵니다.</td></tr></tbody>`;
     return;
   }
-  const columns = [["title", "title"], ["name", "name"], ["level", "level"], ["score", "score"], ["traitTotal", "sum"], ...traitCodes.map((code) => [code, code])];
+  const columns = [["title", "title"], ["name", "name"], ["level", "level"], ["score", "score"], ["traitTotal", "sum"], ...traitCodes.map((code) => [code, HANGY_TRAIT_LABELS[code] || code])];
   const sortMark = (key) => state.hangyTagsSortKey === key ? (state.hangyTagsSortDir === "asc" ? " ▲" : " ▼") : "";
   hangyTagsTable.innerHTML = `<thead><tr>${columns.map(([key, label]) => `<th data-hangy-key="${escapeHtml(key)}">${escapeHtml(label)}${sortMark(key)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr><td class="num">${escapeHtml(row.title)}</td><td class="nameCell">${escapeHtml(row.name)}</td><td class="num">${escapeHtml(row.level ?? "-")}</td><td class="num">${Number.isFinite(Number(row.score)) ? Number(row.score).toFixed(2) : "-"}</td><td class="num">${traitTotal(row)}</td>${traitCodes.map((code) => `<td class="num">${Number(row.traits?.[code]) || 0}</td>`).join("")}</tr>`).join("")}</tbody>`;
   hangyTagsTable.querySelectorAll("th[data-hangy-key]").forEach((header) => {
