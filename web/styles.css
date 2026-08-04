@@ -1155,6 +1155,24 @@ main {
   pointer-events: none;
 }
 
+.hangyTraitFilterList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  padding: 10px;
+  background: var(--subtle);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.hangyTraitFilterList label {
+  min-width: 0;
+}
+
+.hangyTraitFilterList select {
+  width: 100%;
+}
+
 .historyCompareLine {
   stroke-dasharray: 8 6;
   opacity: 0.9;

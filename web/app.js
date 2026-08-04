@@ -52,6 +52,7 @@ const state = {
   hangyTagsStatus: "",
   hangyTagsSortKey: "name",
   hangyTagsSortDir: "asc",
+  hangyTraitMinimumsByScope: {},
   publishedTagManifest: null,
   publishedTagBaseUrl: "",
   publishedTagManifestLoading: null,
@@ -441,6 +442,15 @@ const hangyTagsCollectButton = document.querySelector("#hangyTagsCollectButton")
 const hangyTagsFullCollectButton = document.querySelector("#hangyTagsFullCollectButton");
 const hangyTagsButtonSelect = document.querySelector("#hangyTagsButtonSelect");
 const hangyTagsPatternSelect = document.querySelector("#hangyTagsPatternSelect");
+const hangyTagsSearchInput = document.querySelector("#hangyTagsSearchInput");
+const hangyTagsLevelMinInput = document.querySelector("#hangyTagsLevelMinInput");
+const hangyTagsLevelMaxInput = document.querySelector("#hangyTagsLevelMaxInput");
+const hangyTagsSumMinInput = document.querySelector("#hangyTagsSumMinInput");
+const hangyTagsSumMaxInput = document.querySelector("#hangyTagsSumMaxInput");
+const hangyTagsSortSelect = document.querySelector("#hangyTagsSortSelect");
+const hangyTagsSortDirectionSelect = document.querySelector("#hangyTagsSortDirectionSelect");
+const hangyTagsFilterResetButton = document.querySelector("#hangyTagsFilterResetButton");
+const hangyTraitFilterList = document.querySelector("#hangyTraitFilterList");
 const hangyTagsSummary = document.querySelector("#hangyTagsSummary");
 const hangyTagsTable = document.querySelector("#hangyTagsTable");
 const logPowerCalculatorPanel = document.querySelector("#logPowerCalculatorPanel");
@@ -1116,6 +1126,44 @@ function wireEvents() {
       refreshPublishedHangyTags(false);
     });
   });
+  [hangyTagsSearchInput, hangyTagsLevelMinInput, hangyTagsLevelMaxInput, hangyTagsSumMinInput, hangyTagsSumMaxInput].forEach((control) => {
+    control.addEventListener("input", () => {
+      saveSettings();
+      renderHangyTagsView();
+    });
+  });
+  hangyTagsSortSelect.addEventListener("change", () => {
+    state.hangyTagsSortKey = hangyTagsSortSelect.value;
+    saveSettings();
+    renderHangyTagsView();
+  });
+  hangyTagsSortDirectionSelect.addEventListener("change", () => {
+    state.hangyTagsSortDir = hangyTagsSortDirectionSelect.value;
+    saveSettings();
+    renderHangyTagsView();
+  });
+  hangyTraitFilterList.addEventListener("change", (event) => {
+    const select = event.target.closest("select[data-hangy-trait]");
+    if (!select) return;
+    const minimums = currentHangyTraitMinimums();
+    const value = Number(select.value) || 0;
+    if (value) minimums[select.dataset.hangyTrait] = value;
+    else delete minimums[select.dataset.hangyTrait];
+    saveSettings();
+    renderHangyTagsView();
+  });
+  hangyTagsFilterResetButton.addEventListener("click", () => {
+    hangyTagsSearchInput.value = "";
+    hangyTagsLevelMinInput.value = "";
+    hangyTagsLevelMaxInput.value = "";
+    hangyTagsSumMinInput.value = "";
+    hangyTagsSumMaxInput.value = "";
+    delete state.hangyTraitMinimumsByScope[hangyTagsScopeKey(hangyTagsButtonSelect.value, hangyTagsPatternSelect.value)];
+    state.hangyTagsSortKey = "name";
+    state.hangyTagsSortDir = "asc";
+    saveSettings();
+    renderHangyTagsView();
+  });
   debugMetricSelect.addEventListener("change", () => {
     saveSettings();
     renderDebugView();
@@ -1243,6 +1291,18 @@ function applySavedSettings() {
   state.tagsSelected = new Set(Array.isArray(settings.tagsSelected) ? settings.tagsSelected.filter(Boolean) : []);
   setIfOptionExists(hangyTagsButtonSelect, settings.hangyTagsButton || "4");
   setIfOptionExists(hangyTagsPatternSelect, settings.hangyTagsPattern || "SC");
+  hangyTagsSearchInput.value = settings.hangyTagsSearch || "";
+  hangyTagsLevelMinInput.value = settings.hangyTagsLevelMin || "";
+  hangyTagsLevelMaxInput.value = settings.hangyTagsLevelMax || "";
+  hangyTagsSumMinInput.value = settings.hangyTagsSumMin || "";
+  hangyTagsSumMaxInput.value = settings.hangyTagsSumMax || "";
+  state.hangyTagsSortKey = settings.hangyTagsSortKey || "name";
+  state.hangyTagsSortDir = settings.hangyTagsSortDir === "desc" ? "desc" : "asc";
+  state.hangyTraitMinimumsByScope = settings.hangyTraitMinimumsByScope
+    && typeof settings.hangyTraitMinimumsByScope === "object"
+    && !Array.isArray(settings.hangyTraitMinimumsByScope)
+    ? settings.hangyTraitMinimumsByScope
+    : {};
   setIfOptionExists(debugMetricSelect, settings.debugMetric || "logPower");
   const savedDebugRatio = Number(settings.debugRatio);
   const migratedDebugRatio = Math.abs(savedDebugRatio - 0.905) < 1e-9 ? currentFloorRelation() : settings.debugRatio;
@@ -1326,6 +1386,14 @@ function saveSettings() {
     tagsSelected: [...state.tagsSelected],
     hangyTagsButton: hangyTagsButtonSelect.value,
     hangyTagsPattern: hangyTagsPatternSelect.value,
+    hangyTagsSearch: hangyTagsSearchInput.value,
+    hangyTagsLevelMin: hangyTagsLevelMinInput.value,
+    hangyTagsLevelMax: hangyTagsLevelMaxInput.value,
+    hangyTagsSumMin: hangyTagsSumMinInput.value,
+    hangyTagsSumMax: hangyTagsSumMaxInput.value,
+    hangyTagsSortKey: state.hangyTagsSortKey,
+    hangyTagsSortDir: state.hangyTagsSortDir,
+    hangyTraitMinimumsByScope: state.hangyTraitMinimumsByScope,
     debugMetric: debugMetricSelect.value,
     debugRatio: debugRatioInput.value,
     debugDjPowerScoreMin: debugDjPowerScoreMin.value,
@@ -2037,7 +2105,58 @@ function toggleHangyTagsSort(key) {
     state.hangyTagsSortKey = key;
     state.hangyTagsSortDir = key === "name" ? "asc" : "desc";
   }
+  saveSettings();
   renderHangyTagsView();
+}
+
+function currentHangyScopeKey() {
+  return hangyTagsScopeKey(hangyTagsButtonSelect.value, hangyTagsPatternSelect.value);
+}
+
+function currentHangyTraitMinimums() {
+  const scopeKey = currentHangyScopeKey();
+  const minimums = state.hangyTraitMinimumsByScope[scopeKey];
+  if (!minimums || typeof minimums !== "object" || Array.isArray(minimums)) {
+    state.hangyTraitMinimumsByScope[scopeKey] = {};
+  }
+  return state.hangyTraitMinimumsByScope[scopeKey];
+}
+
+function syncHangySortControls(traitCodes) {
+  const options = [
+    ["name", "곡명"],
+    ["title", "곡 번호"],
+    ["level", "레벨"],
+    ["score", "내 점수"],
+    ["traitTotal", "태그 합계"],
+    ...traitCodes.map((code) => [code, HANGY_TRAIT_LABELS[code] || code]),
+  ];
+  if (!options.some(([key]) => key === state.hangyTagsSortKey)) {
+    state.hangyTagsSortKey = "name";
+    state.hangyTagsSortDir = "asc";
+  }
+  hangyTagsSortSelect.innerHTML = options
+    .map(([key, label]) => `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`)
+    .join("");
+  hangyTagsSortSelect.value = state.hangyTagsSortKey;
+  hangyTagsSortDirectionSelect.value = state.hangyTagsSortDir;
+}
+
+function renderHangyTraitFilters(traitCodes) {
+  const minimums = currentHangyTraitMinimums();
+  hangyTraitFilterList.innerHTML = traitCodes.map((code) => `
+    <label>${escapeHtml(HANGY_TRAIT_LABELS[code] || code)}
+      <select data-hangy-trait="${escapeHtml(code)}">
+        <option value="">전체</option>
+        <option value="1">1 이상</option>
+        <option value="2">2 이상</option>
+        <option value="3">3</option>
+      </select>
+    </label>`).join("");
+  hangyTraitFilterList.querySelectorAll("select[data-hangy-trait]").forEach((select) => {
+    const minimum = Number(minimums[select.dataset.hangyTrait]);
+    select.value = minimum >= 1 && minimum <= 3 ? String(minimum) : "";
+  });
 }
 
 async function collectHangyTags(force) {
@@ -2107,16 +2226,43 @@ async function collectHangyTags(force) {
 function renderHangyTagsView() {
   if (viewSelect.value !== "hangyTags") return;
   const targets = hangyTargets();
+  const sourceRows = state.hangyTagsRows;
+  const traitCodes = [...new Set(sourceRows.flatMap((row) => Object.keys(row.traits || {})))].sort((a, b) => a.localeCompare(b, "en"));
+  const traitTotal = (row) => Object.values(row.traits || {}).reduce((sum, value) => sum + (Number(value) || 0), 0);
+  syncHangySortControls(traitCodes);
+  renderHangyTraitFilters(traitCodes);
   const sortKey = state.hangyTagsSortKey;
   const sortDir = state.hangyTagsSortDir === "asc" ? 1 : -1;
-  const traitCodes = [...new Set(state.hangyTagsRows.flatMap((row) => Object.keys(row.traits || {})))].sort((a, b) => a.localeCompare(b, "en"));
-  const traitTotal = (row) => Object.values(row.traits || {}).reduce((sum, value) => sum + (Number(value) || 0), 0);
   const valueForSort = (row, key) => key === "traitTotal" ? traitTotal(row) : traitCodes.includes(key) ? row.traits?.[key] : row[key];
-  const rows = [...state.hangyTagsRows].sort((a, b) => sortDir * compareForSort(valueForSort(a, sortKey), valueForSort(b, sortKey)) || compare(a.title, b.title));
+  const query = hangyTagsSearchInput.value.trim().toLocaleLowerCase("ko");
+  const levelMin = hangyTagsLevelMinInput.value === "" ? null : Number(hangyTagsLevelMinInput.value);
+  const levelMax = hangyTagsLevelMaxInput.value === "" ? null : Number(hangyTagsLevelMaxInput.value);
+  const sumMin = hangyTagsSumMinInput.value === "" ? null : Number(hangyTagsSumMinInput.value);
+  const sumMax = hangyTagsSumMaxInput.value === "" ? null : Number(hangyTagsSumMaxInput.value);
+  const activeTraitMinimums = Object.entries(currentHangyTraitMinimums())
+    .filter(([code, minimum]) => traitCodes.includes(code) && Number(minimum) > 0);
+  const rows = sourceRows.filter((row) => {
+    if (query && !`${row.title} ${row.name}`.toLocaleLowerCase("ko").includes(query)) return false;
+    const level = Number(row.level);
+    const total = traitTotal(row);
+    if (Number.isFinite(levelMin) && (!Number.isFinite(level) || level < levelMin)) return false;
+    if (Number.isFinite(levelMax) && (!Number.isFinite(level) || level > levelMax)) return false;
+    if (Number.isFinite(sumMin) && total < sumMin) return false;
+    if (Number.isFinite(sumMax) && total > sumMax) return false;
+    return activeTraitMinimums.every(([code, minimum]) => (Number(row.traits?.[code]) || 0) >= Number(minimum));
+  }).sort((a, b) => {
+    const aValue = valueForSort(a, sortKey);
+    const bValue = valueForSort(b, sortKey);
+    const aMissing = aValue === null || aValue === undefined || aValue === "" || (typeof aValue === "number" && !Number.isFinite(aValue));
+    const bMissing = bValue === null || bValue === undefined || bValue === "" || (typeof bValue === "number" && !Number.isFinite(bValue));
+    if (aMissing !== bMissing) return aMissing ? 1 : -1;
+    return sortDir * compareForSort(aValue, bValue) || compare(a.title, b.title);
+  });
   hangyTagsStatus.textContent = state.hangyTagsStatus || `${targets.length}개 패턴의 태그 수집이 필요합니다.`;
-  hangyTagsSummary.textContent = `${hangyTagsButtonSelect.value}B · ${hangyTagsPatternSelect.value} · 현재 기록 ${targets.length}개 · 태그 수집 ${rows.length}개`;
+  const activeFilterCount = [query, levelMin, levelMax, sumMin, sumMax].filter((value) => value !== null && value !== "").length + activeTraitMinimums.length;
+  hangyTagsSummary.textContent = `${hangyTagsButtonSelect.value}B · ${hangyTagsPatternSelect.value} · 표시 ${rows.length}개 / 태그 ${sourceRows.length}개 / 전체 패턴 ${targets.length}개${activeFilterCount ? ` · 필터 ${activeFilterCount}개` : ""}`;
   if (!rows.length) {
-    hangyTagsTable.innerHTML = `<tbody><tr><td class="empty">태그 수집을 누르면 기록 유무와 관계없이 선택한 모든 패턴의 태그를 가져옵니다.</td></tr></tbody>`;
+    hangyTagsTable.innerHTML = `<tbody><tr><td class="empty">${sourceRows.length ? "현재 조건에 맞는 패턴이 없습니다." : "태그 수집을 누르면 기록 유무와 관계없이 선택한 모든 패턴의 태그를 가져옵니다."}</td></tr></tbody>`;
     return;
   }
   const columns = [["title", "title"], ["name", "name"], ["level", "level"], ["score", "score"], ["traitTotal", "sum"], ...traitCodes.map((code) => [code, HANGY_TRAIT_LABELS[code] || code])];

@@ -454,7 +454,17 @@
       <div class="tagsControls">
         <label>버튼 <select id="hangyTagsButtonSelect"><option value="4" selected>4B</option><option value="5">5B</option><option value="6">6B</option><option value="8">8B</option></select></label>
         <label>패턴 <select id="hangyTagsPatternSelect"><option value="NM">NM</option><option value="HD">HD</option><option value="MX">MX</option><option value="SC" selected>SC</option></select></label>
+        <label>곡 검색 <input id="hangyTagsSearchInput" type="search" autocomplete="off" placeholder="곡명 또는 번호"></label>
+        <label>레벨 최소 <input id="hangyTagsLevelMinInput" type="number" min="1" max="15" step="1" placeholder="전체"></label>
+        <label>레벨 최대 <input id="hangyTagsLevelMaxInput" type="number" min="1" max="15" step="1" placeholder="전체"></label>
+        <label>합계 최소 <input id="hangyTagsSumMinInput" type="number" min="0" step="1" placeholder="전체"></label>
+        <label>합계 최대 <input id="hangyTagsSumMaxInput" type="number" min="0" step="1" placeholder="전체"></label>
+        <label>정렬 <select id="hangyTagsSortSelect"><option value="name">곡명</option><option value="title">곡 번호</option><option value="level">레벨</option><option value="score">내 점수</option><option value="traitTotal">태그 합계</option></select></label>
+        <label>정렬 방향 <select id="hangyTagsSortDirectionSelect"><option value="asc">오름차순</option><option value="desc">내림차순</option></select></label>
+        <button id="hangyTagsFilterResetButton" class="secondaryButton" type="button">필터 초기화</button>
       </div>
+      <div class="tagsFacetHeader"><div><strong>Trait 최소 단계</strong><span>여러 조건을 동시에 만족하는 패턴만 표시합니다.</span></div></div>
+      <div id="hangyTraitFilterList" class="hangyTraitFilterList" aria-label="행이봇 trait 필터"></div>
       <div class="tagsResultSummary" id="hangyTagsSummary"></div>
       <div class="tagsTableWrap"><table id="hangyTagsTable"></table></div>
       <p class="tagsSource">태그 데이터: V-ARCHIVE pattern-tag (행이봇) · SC 데이터는 V-LOG 공용 스냅샷에서 받고 기기에 캐시합니다.</p>
