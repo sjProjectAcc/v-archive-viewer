@@ -1497,20 +1497,24 @@ async function refreshTop50ScaleCache(force = false) {
     const response = await fetchWithTimeout(SONG_DB_URL, { credentials: "omit" });
     if (!response.ok) return false;
     const songs = await response.json();
-    const { baseMaxByButton, djPowerTop100MaxByButton, floorPatternCounts, songNewTabByTitle } = calculateSongCatalogMetrics(songs);
-    if (!isValidButtonTop50BaseMax(baseMaxByButton)
-      || !isValidDjPowerTop100Max(djPowerTop100MaxByButton)
-      || !isValidFloorPatternCounts(floorPatternCounts)
-      || !songNewTabByTitle) return false;
-    state.buttonTop50BaseMax = baseMaxByButton;
-    state.djPowerTop100MaxByButton = djPowerTop100MaxByButton;
-    state.floorPatternCounts = floorPatternCounts;
-    state.songNewTabByTitle = songNewTabByTitle;
-    appStorageSetItem(TOP50_SCALE_CACHE_KEY, JSON.stringify({ updatedAt: Date.now(), baseMaxByButton, djPowerTop100MaxByButton, floorPatternCounts, songNewTabByTitle }));
-    return true;
+    return applySongCatalogMetrics(songs);
   } catch {
     return false;
   }
+}
+
+function applySongCatalogMetrics(songs) {
+  const { baseMaxByButton, djPowerTop100MaxByButton, floorPatternCounts, songNewTabByTitle } = calculateSongCatalogMetrics(songs);
+  if (!isValidButtonTop50BaseMax(baseMaxByButton)
+    || !isValidDjPowerTop100Max(djPowerTop100MaxByButton)
+    || !isValidFloorPatternCounts(floorPatternCounts)
+    || !songNewTabByTitle) return false;
+  state.buttonTop50BaseMax = baseMaxByButton;
+  state.djPowerTop100MaxByButton = djPowerTop100MaxByButton;
+  state.floorPatternCounts = floorPatternCounts;
+  state.songNewTabByTitle = songNewTabByTitle;
+  appStorageSetItem(TOP50_SCALE_CACHE_KEY, JSON.stringify({ updatedAt: Date.now(), baseMaxByButton, djPowerTop100MaxByButton, floorPatternCounts, songNewTabByTitle }));
+  return true;
 }
 
 function calculateSongCatalogMetrics(songs) {
@@ -2599,8 +2603,31 @@ async function fetchArchive(nickname, forceFullRefresh = false) {
   const since = forceFullRefresh ? null : cachedRecords.length ? cachedState.lastRecordSyncAt : null;
   const syncStartedAt = utcNowIso();
 
-  const { records: recordUpdates, errors: recordErrors } = await fetchRecords(nickname, since);
-  const records = forceFullRefresh && !recordErrors.length ? recordUpdates : mergeRecords(cachedRecords, recordUpdates);
+  const previousCatalog = loadHangySongCatalog();
+  const catalogRequest = ensureHangySongCatalog(true)
+    .then((songs) => ({
+      songs,
+      changedPatterns: countChangedCatalogPatterns(previousCatalog?.songs, songs),
+      errors: [],
+    }))
+    .catch((error) => ({
+      songs: previousCatalog?.songs || null,
+      changedPatterns: 0,
+      errors: [{
+        category: "songCatalog",
+        status: "NETWORK",
+        url: SONG_DB_URL,
+        message: String(error?.message || error),
+      }],
+    }));
+  const [catalogResult, recordResult] = await Promise.all([catalogRequest, fetchRecords(nickname, since)]);
+  const catalogSongs = catalogResult.songs;
+  const catalogChangedPatterns = catalogResult.changedPatterns;
+  const catalogErrors = catalogResult.errors;
+  if (!catalogErrors.length) applySongCatalogMetrics(catalogSongs);
+  const { records: recordUpdates, errors: recordErrors } = recordResult;
+  const mergedRecords = forceFullRefresh && !recordErrors.length ? recordUpdates : mergeRecords(cachedRecords, recordUpdates);
+  const { records, changedRecords: catalogAdjustedRecords } = applySongCatalogToRecords(mergedRecords, catalogSongs);
   const statsNeeded = forceFullRefresh || !cachedTiers.length || !cachedDjClasses.length || recordUpdates.length > 0 || !since;
   let tiers = cachedTiers;
   let djClasses = cachedDjClasses;
@@ -2613,18 +2640,22 @@ async function fetchArchive(nickname, forceFullRefresh = false) {
     statsErrors = stats.errors;
   }
 
-  const errors = [...recordErrors, ...statsErrors];
+  const errors = [...recordErrors, ...statsErrors, ...catalogErrors];
   const nextState = {
     ...cachedState,
     nickname,
     lastRunAt: utcNowIso(),
     lastSince: since,
     lastUpdatedRecords: recordUpdates.length,
+    lastCatalogChangedPatterns: catalogChangedPatterns,
+    lastCatalogAdjustedRecords: catalogAdjustedRecords,
     lastForceFullRefresh: forceFullRefresh,
   };
 
   if (!recordErrors.length) {
     nextState.lastRecordSyncAt = syncStartedAt;
+    cache.records = records;
+  } else if (catalogAdjustedRecords > 0) {
     cache.records = records;
   }
   if (!statsErrors.length && statsNeeded) {
@@ -2642,6 +2673,8 @@ async function fetchArchive(nickname, forceFullRefresh = false) {
     usedStatsCache: !statsNeeded,
     forceFullRefresh,
     lastRecordSyncAt: nextState.lastRecordSyncAt || "",
+    catalogChangedPatterns,
+    catalogAdjustedRecords,
   });
 }
 
@@ -2659,6 +2692,8 @@ async function loadCachedPayload(nickname) {
     usedStatsCache: true,
     forceFullRefresh: cachedState.lastForceFullRefresh || false,
     lastRecordSyncAt: cachedState.lastRecordSyncAt || "",
+    catalogChangedPatterns: cachedState.lastCatalogChangedPatterns || 0,
+    catalogAdjustedRecords: cachedState.lastCatalogAdjustedRecords || 0,
   });
 }
 
@@ -2817,6 +2852,52 @@ function mergeRecords(cachedRecords, updates) {
   return [...merged.values()].sort((a, b) => compare(a.button, b.button) || compare(a.title, b.title) || compare(a.pattern, b.pattern));
 }
 
+function songCatalogPatternMap(songs) {
+  const patterns = new Map();
+  for (const song of Array.isArray(songs) ? songs : []) {
+    for (const button of BUTTONS) {
+      for (const pattern of ["NM", "HD", "MX", "SC"]) {
+        const data = song?.patterns?.[`${button}B`]?.[pattern];
+        if (!data) continue;
+        patterns.set(`${button}|${song.title}|${pattern}`, {
+          level: data.level ?? null,
+          floor: data.floor ?? null,
+          floorName: data.floorName ?? null,
+        });
+      }
+    }
+  }
+  return patterns;
+}
+
+function countChangedCatalogPatterns(previousSongs, currentSongs) {
+  if (!Array.isArray(previousSongs) || !previousSongs.length) return 0;
+  const previous = songCatalogPatternMap(previousSongs);
+  const current = songCatalogPatternMap(currentSongs);
+  const keys = new Set([...previous.keys(), ...current.keys()]);
+  let changed = 0;
+  for (const key of keys) {
+    if (JSON.stringify(previous.get(key) || null) !== JSON.stringify(current.get(key) || null)) changed += 1;
+  }
+  return changed;
+}
+
+function applySongCatalogToRecords(records, songs) {
+  if (!Array.isArray(songs) || !songs.length) return { records, changedRecords: 0 };
+  const catalogPatterns = songCatalogPatternMap(songs);
+  let changedRecords = 0;
+  const reconciled = records.map((record) => {
+    const catalog = catalogPatterns.get(recordKey(record));
+    if (!catalog) return record;
+    const changed = ["level", "floor", "floorName"]
+      .some((key) => (record[key] ?? null) !== catalog[key]);
+    if (!changed) return record;
+    changedRecords += 1;
+    return { ...record, ...catalog };
+  });
+  return { records: reconciled, changedRecords };
+}
+
 async function loadProfileCache(nickname) {
   const db = await openCacheDb();
   return new Promise((resolve, reject) => {
@@ -2970,7 +3051,10 @@ function render() {
   renderActiveView();
   const sync = state.payload.sync || {};
   const mode = sync.forceFullRefresh ? "전체" : sync.since === "full" ? "전체" : "증분";
-  statusText.textContent = `${state.payload.nickname} · ${mode} 갱신 · 업데이트 ${sync.updatedRecords ?? 0}건 · ${formatDate(state.payload.generatedAt)}`;
+  const catalogStatus = Number(sync.catalogChangedPatterns) > 0 || Number(sync.catalogAdjustedRecords) > 0
+    ? ` · 난이도 변경 ${sync.catalogChangedPatterns ?? 0}패턴 · 내 기록 반영 ${sync.catalogAdjustedRecords ?? 0}건`
+    : "";
+  statusText.textContent = `${state.payload.nickname} · ${mode} 갱신 · 업데이트 ${sync.updatedRecords ?? 0}건${catalogStatus} · ${formatDate(state.payload.generatedAt)}`;
 }
 
 function renderActiveView() {
