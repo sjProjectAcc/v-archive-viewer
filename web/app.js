@@ -399,6 +399,7 @@ const historyAccountStatus = document.querySelector("#historyAccountStatus");
 const historyMetricSelect = document.querySelector("#historyMetricSelect");
 const historyCompareNicknameSelect = document.querySelector("#historyCompareNicknameSelect");
 const historyMergeIntervalSelect = document.querySelector("#historyMergeIntervalSelect");
+const historyChartHeightInput = document.querySelector("#historyChartHeightInput");
 const historyStartDate = document.querySelector("#historyStartDate");
 const historyEndDate = document.querySelector("#historyEndDate");
 const historyRangeResetButton = document.querySelector("#historyRangeResetButton");
@@ -569,7 +570,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-rate-v7";
+const UI_SCHEMA_VERSION = "v-log-rate-v8";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -583,6 +584,7 @@ const REQUIRED_UI_IDS = [
   "rateMetricControl",
   "rateMetricSelect",
   "historyPanel",
+  "historyChartHeightInput",
   "achievementPanel",
   "achievementAutoLogPowerInput",
   "achievementAutoHoursInput",
@@ -1027,6 +1029,15 @@ function wireEvents() {
     saveSettings();
     renderHistoryView();
   });
+  historyChartHeightInput.addEventListener("input", () => {
+    saveSettings();
+    renderHistoryChart(state.historyEntries);
+  });
+  historyChartHeightInput.addEventListener("change", () => {
+    historyChartHeightInput.value = String(getHistoryChartHeight());
+    saveSettings();
+    renderHistoryChart(state.historyEntries);
+  });
   [historyStartDate, historyEndDate].forEach((input) => {
     input.addEventListener("input", () => {
       saveSettings();
@@ -1266,6 +1277,7 @@ function applySavedSettings() {
   state.historyMetric = historyMetricSelect.value;
   historyCompareNicknameSelect.dataset.savedValue = settings.historyCompareNickname || "";
   setIfOptionExists(historyMergeIntervalSelect, settings.historyMergeInterval || "0");
+  historyChartHeightInput.value = String(Math.min(900, Math.max(240, Number(settings.historyChartHeight) || 360)));
   achievementColumnsInput.value = String(Math.min(MAX_ACHIEVEMENT_COLUMNS, Math.max(1, Number(settings.achievementColumns) || 1)));
   achievementAutoLogPowerInput.value = String(Math.max(0, Number(settings.achievementAutoLogPower) || 1));
   achievementAutoHoursInput.value = String(Math.max(1, Number(settings.achievementAutoHours) || 72));
@@ -1360,6 +1372,7 @@ function saveSettings() {
     historyMetric: historyMetricSelect.value,
     historyCompareNickname: historyCompareNicknameSelect.value,
     historyMergeInterval: historyMergeIntervalSelect.value,
+    historyChartHeight: historyChartHeightInput.value,
     achievementColumns: achievementColumnsInput.value,
     achievementAutoLogPower: achievementAutoLogPowerInput.value,
     achievementAutoHours: achievementAutoHoursInput.value,
@@ -1461,7 +1474,7 @@ function handleWheelControl(event) {
   } else {
     if (!control.value && control.type === "date") return;
     const stepCount = control.type === "number" || control.type === "range"
-      ? ((control === achievementColumnsInput || control === djPowerCalculatorLevel) ? 1 : event.shiftKey ? 10 : 5)
+      ? ((control === achievementColumnsInput || control === djPowerCalculatorLevel || control === historyChartHeightInput) ? 1 : event.shiftKey ? 10 : 5)
       : 1;
     try {
       direction > 0 ? control.stepDown(stepCount) : control.stepUp(stepCount);
@@ -4760,6 +4773,11 @@ function constrainHistorySeries(series, range) {
   return constrained;
 }
 
+function getHistoryChartHeight() {
+  const value = Number(historyChartHeightInput.value);
+  return Math.min(900, Math.max(240, Number.isFinite(value) ? value : 360));
+}
+
 function renderHistoryChart(entries) {
   hideHistoryTooltip();
   const metric = getHistoryMetric();
@@ -4780,7 +4798,7 @@ function renderHistoryChart(entries) {
   const colors = { 4: "#1268b3", 5: "#23845f", 6: "#7b61c9", 8: "#c03535" };
   const compareColors = { 4: "#f07a24", 5: "#d9368b", 6: "#d6a000", 8: "#9b4dca" };
   const width = 1200;
-  const height = 360;
+  const height = getHistoryChartHeight();
   const pad = { left: 72, right: 24, top: 24, bottom: 48 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
