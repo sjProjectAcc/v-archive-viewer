@@ -4229,7 +4229,7 @@ function buildHistoryRows(entries, range = getHistoryTimeRange()) {
   });
 }
 
-function buildLogPowerHistorySeries(entries) {
+function buildLogPowerHistorySeries(entries, payload = state.payload) {
   const selectedButton = buttonFilter.value;
   const selectedPattern = patternFilter.value;
   const buttons = selectedButton ? [Number(selectedButton)] : BUTTONS;
@@ -4262,6 +4262,24 @@ function buildLogPowerHistorySeries(entries) {
     const points = series.get(event.button);
     const previous = points[points.length - 1];
     if (!previous || Math.abs(previous.value - sum) > 0.0001) points.push({ time: event.time, value: sum });
+  }
+  const snapshotTime = Date.now();
+  for (const button of buttons) {
+    const values = (payload?.records || []).filter((record) => Number(record.button) === button
+      && (!selectedPattern || record.pattern === selectedPattern))
+      .map((record) => {
+        const difficultyConstant = difficultyConstantForFloor(getFloorLabel(record), button);
+        return scoreToPoint(Number(record.score)) * difficultyConstant;
+      })
+      .filter(Number.isFinite)
+      .sort((a, b) => b - a)
+      .slice(0, 50);
+    if (!values.length) continue;
+    series.get(button).push({
+      time: snapshotTime,
+      value: values.reduce((sum, value) => sum + value, 0),
+      current: true,
+    });
   }
   return constrainHistorySeries(series, getHistoryTimeRange());
 }
@@ -4303,6 +4321,20 @@ function buildPointHistorySeries(entries, payload = state.payload) {
     const points = series.get(event.button);
     const previous = points[points.length - 1];
     if (!previous || Math.abs(previous.value - sum) > 0.0001) points.push({ time: event.time, value: sum });
+  }
+  for (const button of buttons) {
+    const hasCurrent = [...currentByKey.values()].some((record) => Number(record.button) === button
+      && (!selectedPattern || record.pattern === selectedPattern));
+    if (!hasCurrent) continue;
+    const values = [...valuesByButton.get(button).values()].sort((a, b) => b - a).slice(0, 50);
+    if (!values.length) continue;
+    const points = series.get(button);
+    while (points.at(-1)?.time === snapshotTime) points.pop();
+    points.push({
+      time: snapshotTime,
+      value: values.reduce((sum, value) => sum + value, 0),
+      current: true,
+    });
   }
   return constrainHistorySeries(series, getHistoryTimeRange());
 }
@@ -4661,8 +4693,7 @@ function buildDjPowerHistorySeries(entries, payload = state.payload) {
         const multiplier = Number(getDjPowerTop100Scale(button)?.multiplier);
         const sum = rawSum * (Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1);
         const points = series.get(button);
-        const previous = points[points.length - 1];
-        if (!previous || Math.abs(previous.value - sum) > 0.0001) points.push({ time: event.time, value: sum });
+        points.push({ time: event.time, value: sum, current: true });
         continue;
       }
       const values = valuesByButton.get(button);
@@ -4803,9 +4834,9 @@ function renderHistoryChart(entries) {
   }).join("")).join("")).join("");
   const pointDots = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => points.map((point) => {
     const color = (dataset.compare ? compareColors : colors)[button];
-    const info = encodeURIComponent(JSON.stringify({ nickname: dataset.nickname, button, time: point.time, value: point.value, metric: metric.label }));
+    const info = encodeURIComponent(JSON.stringify({ nickname: dataset.nickname, button, time: point.time, value: point.value, metric: metric.label, current: point.current === true }));
     const compareStyle = dataset.compare ? ` style="fill:var(--panel);stroke:${color}"` : "";
-    return `<circle class="historyPoint${dataset.compare ? " historyComparePoint" : ""}" cx="${xFor(point.time).toFixed(2)}" cy="${yFor(point.value).toFixed(2)}" r="4" fill="${color}"${compareStyle} tabindex="0" data-button="${button}" data-info="${info}"></circle>`;
+    return `<circle class="historyPoint${dataset.compare ? " historyComparePoint" : ""}${point.current ? " historyCurrentPoint" : ""}" cx="${xFor(point.time).toFixed(2)}" cy="${yFor(point.value).toFixed(2)}" r="${point.current ? "6" : "4"}" fill="${color}"${compareStyle} tabindex="0" data-button="${button}" data-info="${info}"></circle>`;
   }).join("")).join("")).join("");
 
   historyLogPowerChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${metric.label} history"><defs><clipPath id="historyPlotClip"><rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}"></rect></clipPath></defs><rect class="chartBg" width="${width}" height="${height}"></rect>${yGrid}${xGrid}<g clip-path="url(#historyPlotClip)">${lines}${lineHits}${pointDots}</g><text class="axisTitle" x="16" y="18">${metric.label}</text></svg>`;
@@ -4882,7 +4913,7 @@ function showHistoryTooltip(event, encodedInfo) {
   if (!encodedInfo) return;
   const info = JSON.parse(decodeURIComponent(encodedInfo));
   historyTooltip.innerHTML = `
-    <strong>${escapeHtml(info.nickname || state.payload?.nickname || "")} · ${escapeHtml(info.button)}B ${escapeHtml(info.metric || getHistoryMetric().label)}</strong>
+    <strong>${escapeHtml(info.nickname || state.payload?.nickname || "")} · ${escapeHtml(info.button)}B ${escapeHtml(info.metric || getHistoryMetric().label)}${info.current ? " · 현재" : ""}</strong>
     <span>${escapeHtml(Number(info.value).toFixed(2))}</span>
     <span>${escapeHtml(formatDate(new Date(info.time).toISOString()))}</span>`;
   historyTooltip.hidden = false;
@@ -5397,7 +5428,7 @@ function loadChartSvgImage(svg) {
     .floorMaxButton4{stroke:#1268b3}.floorMaxButton5{stroke:#23845f}.floorMaxButton6{stroke:#7b61c9}.floorMaxButton8{stroke:#c07b24}
     .chartDot{fill:rgba(18,104,179,.58);stroke:rgba(18,104,179,.88);stroke-width:1}.top50Dot,.djBasicDot{fill:#f0a83a;stroke:#8a5300}.djNewDot{fill:#8d63c7;stroke:#583884}
     .comboDot{fill:#4eeeaf;stroke:#159b72}.belowNextDot{fill:#e03b3b;stroke:#9f1f1f}
-    .top50Dot.comboDot{fill:#4eeeaf;stroke:#d08a18;stroke-width:2.2}.top50Dot.belowNextDot{fill:#e03b3b;stroke:#f0a83a;stroke-width:2.2}.historyPoint{stroke:#fff;stroke-width:2}
+    .top50Dot.comboDot{fill:#4eeeaf;stroke:#d08a18;stroke-width:2.2}.top50Dot.belowNextDot{fill:#e03b3b;stroke:#f0a83a;stroke-width:2.2}.historyPoint{stroke:#303844;stroke-width:2}.historyCurrentPoint{stroke-width:3.5}
     .compareMinePoint{fill:rgba(23,63,103,.72);stroke:#0b2942}.compareOtherPoint{fill:rgba(192,53,53,.58);stroke:#8f2929}
     .compareTiePoint{fill:rgba(104,114,130,.58);stroke:#4d5664}.compareEqual{stroke:#687282;stroke-width:1.6;stroke-dasharray:7 5}
     .compareFloorTrend{fill:none;stroke:#b36c00;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}

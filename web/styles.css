@@ -1155,6 +1155,10 @@ main {
   pointer-events: none;
 }
 
+.historyCurrentPoint {
+  stroke-width: 3.5;
+}
+
 .hangyTraitFilterList {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
