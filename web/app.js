@@ -374,6 +374,7 @@ const compareChartOtherMinInput = document.querySelector("#compareChartOtherMinI
 const compareChartOtherMaxInput = document.querySelector("#compareChartOtherMaxInput");
 const compareChartAutoInput = document.querySelector("#compareChartAutoInput");
 const compareFloorTrendInput = document.querySelector("#compareFloorTrendInput");
+const compareChartHeightInput = document.querySelector("#compareChartHeightInput");
 const compareChartExclusionResetButton = document.querySelector("#compareChartExclusionResetButton");
 const compareChartShareButton = document.querySelector("#compareChartShareButton");
 const compareChartImageButton = document.querySelector("#compareChartImageButton");
@@ -475,6 +476,7 @@ const logPowerCalculatorBreakdown = document.querySelector("#logPowerCalculatorB
 const logPowerCalculatorScoreTable = document.querySelector("#logPowerCalculatorScoreTable");
 const debugPanel = document.querySelector("#debugPanel");
 const debugMetricSelect = document.querySelector("#debugMetricSelect");
+const debugChartHeightInput = document.querySelector("#debugChartHeightInput");
 const debugLogPowerSection = document.querySelector("#debugLogPowerSection");
 const debugDjPowerSection = document.querySelector("#debugDjPowerSection");
 const debugPointSection = document.querySelector("#debugPointSection");
@@ -555,6 +557,7 @@ const yMinInput = document.querySelector("#yMinInput");
 const yMinAutoInput = document.querySelector("#yMinAutoInput");
 const yMaxInput = document.querySelector("#yMaxInput");
 const yMaxAutoInput = document.querySelector("#yMaxAutoInput");
+const chartHeightInput = document.querySelector("#chartHeightInput");
 const chartFloorMaxLegend = document.querySelector("#chartFloorMaxLegend");
 const chartBelowLegend = document.querySelector("#chartBelowLegend");
 const chartTop50Legend = document.querySelector("#chartTop50Legend");
@@ -570,7 +573,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-rate-v8";
+const UI_SCHEMA_VERSION = "v-log-rate-v9";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -580,11 +583,13 @@ const REQUIRED_UI_IDS = [
   "compareProfileSummary",
   "compareChartScaleModeSelect",
   "compareFloorTrendInput",
+  "compareChartHeightInput",
   "compareChartShareButton",
   "rateMetricControl",
   "rateMetricSelect",
   "historyPanel",
   "historyChartHeightInput",
+  "chartHeightInput",
   "achievementPanel",
   "achievementAutoLogPowerInput",
   "achievementAutoHoursInput",
@@ -598,6 +603,7 @@ const REQUIRED_UI_IDS = [
   "logPowerCalculatorTarget",
   "logPowerCalculatorScoreTable",
   "debugPanel",
+  "debugChartHeightInput",
   "readmePanel",
   "testNotesPanel",
   "overviewPanel",
@@ -979,6 +985,7 @@ function wireEvents() {
     saveSettings();
     renderCompareChart();
   });
+  wireChartHeightControl(compareChartHeightInput, 600, renderCompareChart);
   compareChartExclusionResetButton.addEventListener("click", () => {
     const metric = getCompareChartMetric();
     delete state.compareChartExcludedByScope[compareChartExclusionScope(metric.key)];
@@ -998,6 +1005,7 @@ function wireEvents() {
     });
   });
   chartImageButton.addEventListener("click", exportChartImage);
+  wireChartHeightControl(chartHeightInput, 430, renderChart);
   chartExclusionResetButton.addEventListener("click", () => {
     delete state.chartExcludedByScope[chartExclusionScope(getChartMetric().key)];
     saveSettings();
@@ -1038,6 +1046,7 @@ function wireEvents() {
     saveSettings();
     renderHistoryChart(state.historyEntries);
   });
+  wireChartHeightControl(debugChartHeightInput, 430, renderDebugView);
   [historyStartDate, historyEndDate].forEach((input) => {
     input.addEventListener("input", () => {
       saveSettings();
@@ -1269,6 +1278,9 @@ function applySavedSettings() {
   compareFloorTrendInput.checked = settings.compareFloorTrend !== false;
   syncCompareChartRangesForSharedScale();
   state.compareChartMetric = compareChartMetricSelect.value;
+  compareChartHeightInput.value = String(clampChartHeight(settings.compareChartHeight, 600));
+  chartHeightInput.value = String(clampChartHeight(settings.chartHeight, 430));
+  debugChartHeightInput.value = String(clampChartHeight(settings.debugChartHeight, 430));
   state.compareChartRanges = settings.compareChartRanges || {};
   state.compareChartExcludedByScope = settings.compareChartExcludedByScope || {};
   historyStartDate.value = settings.historyStartDate || "";
@@ -1354,6 +1366,9 @@ function saveSettings() {
     compareFloorTrend: compareFloorTrendInput.checked,
     compareChartRanges: state.compareChartRanges,
     compareChartExcludedByScope: state.compareChartExcludedByScope,
+    compareChartHeight: compareChartHeightInput.value,
+    chartHeight: chartHeightInput.value,
+    debugChartHeight: debugChartHeightInput.value,
     limitSelect: limitSelect.value,
     nameWidth: nameWidthInput.value,
     chartMetric: chartMetricSelect.value,
@@ -1474,7 +1489,7 @@ function handleWheelControl(event) {
   } else {
     if (!control.value && control.type === "date") return;
     const stepCount = control.type === "number" || control.type === "range"
-      ? ((control === achievementColumnsInput || control === djPowerCalculatorLevel || control === historyChartHeightInput) ? 1 : event.shiftKey ? 10 : 5)
+      ? ((control === achievementColumnsInput || control === djPowerCalculatorLevel || control === historyChartHeightInput || control === chartHeightInput || control === compareChartHeightInput || control === debugChartHeightInput) ? 1 : event.shiftKey ? 10 : 5)
       : 1;
     try {
       direction > 0 ? control.stepDown(stepCount) : control.stepUp(stepCount);
@@ -3155,7 +3170,7 @@ function renderCompareChart() {
 
   const clientWidth = compareScatterChart.clientWidth || 760;
   const width = Math.max(760, clientWidth);
-  const height = Math.max(480, Math.min(680, Math.round(width * 0.62)));
+  const height = clampChartHeight(compareChartHeightInput.value, 600);
   const pad = { left: 74, right: 74, top: 36, bottom: 62 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
@@ -4773,9 +4788,25 @@ function constrainHistorySeries(series, range) {
   return constrained;
 }
 
+function clampChartHeight(value, fallback) {
+  const numeric = Number(value);
+  return Math.min(900, Math.max(240, Number.isFinite(numeric) && numeric > 0 ? numeric : fallback));
+}
+
+function wireChartHeightControl(control, fallback, renderChartFunction) {
+  control.addEventListener("input", () => {
+    saveSettings();
+    renderChartFunction();
+  });
+  control.addEventListener("change", () => {
+    control.value = String(clampChartHeight(control.value, fallback));
+    saveSettings();
+    renderChartFunction();
+  });
+}
+
 function getHistoryChartHeight() {
-  const value = Number(historyChartHeightInput.value);
-  return Math.min(900, Math.max(240, Number.isFinite(value) ? value : 360));
+  return clampChartHeight(historyChartHeightInput.value, 360);
 }
 
 function renderHistoryChart(entries) {
@@ -5161,7 +5192,7 @@ function renderChart() {
   if (!state.payload || viewSelect.value !== "chart") return;
 
   const width = Math.max(760, chartEl.clientWidth || 1000);
-  const height = 430;
+  const height = clampChartHeight(chartHeightInput.value, 430);
   const pad = { left: 58, right: 24, top: 22, bottom: 62 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
@@ -7398,7 +7429,7 @@ function renderDebugPointDiagnostics(records) {
 
 function renderDebugPointChart(rows) {
   const width = Math.max(760, debugPointChart.clientWidth || 1000);
-  const height = 430;
+  const height = clampChartHeight(debugChartHeightInput.value, 430);
   const pad = { left: 58, right: 24, top: 26, bottom: 54 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
@@ -7522,7 +7553,7 @@ function debugDjPowerErrorRange(rows, scoreRange, maxAbsoluteDifference) {
 
 function renderDebugDjPowerChart(rows, maxAbsoluteDifference) {
   const width = Math.max(760, debugDjPowerChart.clientWidth || 1000);
-  const height = 430;
+  const height = clampChartHeight(debugChartHeightInput.value, 430);
   const pad = { left: 54, right: 24, top: 24, bottom: 52 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
@@ -7566,7 +7597,7 @@ function renderDebugDjPowerChart(rows, maxAbsoluteDifference) {
 
 function renderDebugDjPowerErrorChart(rows, maxAbsoluteDifference) {
   const width = Math.max(760, debugDjPowerErrorChart.clientWidth || 1000);
-  const height = 330;
+  const height = clampChartHeight(debugChartHeightInput.value, 430);
   const pad = { left: 58, right: 24, top: 34, bottom: 52 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
@@ -7612,7 +7643,7 @@ function showDebugDjPowerTooltip(event, encodedInfo) {
 
 function renderDebugScatter(records, relation, baseMaxByButton) {
   const width = Math.max(760, debugScatterChart.clientWidth || 1000);
-  const height = 430;
+  const height = clampChartHeight(debugChartHeightInput.value, 430);
   const pad = { left: 58, right: 24, top: 22, bottom: 62 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
