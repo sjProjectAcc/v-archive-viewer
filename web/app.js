@@ -4879,27 +4879,6 @@ function getHistoryXAxisTicks(minTime, maxTime) {
   return ticks;
 }
 
-function getHistoryXAxisBounds(minTime, maxTime) {
-  const monthly = historyXAxisModeSelect.value === "monthly";
-  const start = new Date(minTime);
-  const end = new Date(maxTime);
-  let axisMin;
-  let axisMax;
-  if (monthly) {
-    axisMin = new Date(start.getFullYear(), start.getMonth(), 1).getTime();
-    axisMax = new Date(end.getFullYear(), end.getMonth() + 1, 1).getTime();
-  } else {
-    const floorDay = start.getDate() >= 21 ? 21 : start.getDate() >= 11 ? 11 : 1;
-    axisMin = new Date(start.getFullYear(), start.getMonth(), floorDay).getTime();
-    const nextDay = end.getDate() < 11 ? 11 : end.getDate() < 21 ? 21 : 1;
-    axisMax = nextDay === 1
-      ? new Date(end.getFullYear(), end.getMonth() + 1, 1).getTime()
-      : new Date(end.getFullYear(), end.getMonth(), nextDay).getTime();
-  }
-  if (axisMax <= axisMin) axisMax = axisMin + 86400000;
-  return { min: axisMin, max: axisMax };
-}
-
 function formatHistoryXAxisDate(time) {
   const date = new Date(time);
   const pad = (value) => String(value).padStart(2, "0");
@@ -4941,7 +4920,10 @@ function renderHistoryChart(entries) {
 
   const dataMinTime = Math.min(...allPoints.map((point) => point.time));
   const dataMaxTime = Math.max(...allPoints.map((point) => point.time));
-  const { min: minTime, max: maxTime } = getHistoryXAxisBounds(dataMinTime, dataMaxTime);
+  const selectedRange = getHistoryTimeRange();
+  const minTime = Number.isFinite(selectedRange.start) ? selectedRange.start : dataMinTime;
+  const selectedMaxTime = Number.isFinite(selectedRange.end) ? selectedRange.end : dataMaxTime;
+  const maxTime = selectedMaxTime === minTime ? minTime + 86400000 : selectedMaxTime;
   const { min: yMin, max: yMax } = getHistoryYAxisRange(allPoints.map((point) => point.value));
   const xFor = (time) => pad.left + ((time - minTime) / (maxTime - minTime)) * plotW;
   const yFor = (value) => pad.top + plotH - ((value - yMin) / (yMax - yMin)) * plotH;
@@ -4951,12 +4933,15 @@ function renderHistoryChart(entries) {
     const y = yFor(value);
     return `<line class="gridLine" x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}"></line><text class="axisLabel" x="${pad.left - 10}" y="${y + 4}" text-anchor="end">${Math.round(value)}</text>`;
   }).join("");
-  const xTicks = getHistoryXAxisTicks(minTime, maxTime);
+  const calendarTicks = getHistoryXAxisTicks(minTime, maxTime)
+    .filter((time) => time > minTime && time < maxTime)
+    .filter((time) => formatHistoryXAxisDate(time) !== formatHistoryXAxisDate(maxTime));
+  const xTicks = [{ time: minTime, endpoint: true }, ...calendarTicks.map((time) => ({ time, endpoint: false })), { time: maxTime, endpoint: true }];
   const pixelsPerTick = xTicks.length > 1 ? plotW / (xTicks.length - 1) : plotW;
   const labelEvery = Math.max(1, Math.ceil(92 / pixelsPerTick));
-  const xGrid = xTicks.map((time, index) => {
+  const xGrid = xTicks.map(({ time, endpoint }, index) => {
     const x = xFor(time);
-    const label = index % labelEvery === 0 ? formatHistoryXAxisDate(time) : "";
+    const label = endpoint || index % labelEvery === 0 ? formatHistoryXAxisDate(time) : "";
     return `<line class="gridLine" x1="${x}" y1="${pad.top}" x2="${x}" y2="${pad.top + plotH}"></line>${label ? `<text class="axisLabel" x="${x}" y="${height - 20}" text-anchor="middle">${label}</text>` : ""}`;
   }).join("");
   const lines = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => {
