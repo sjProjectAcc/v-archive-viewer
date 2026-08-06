@@ -405,6 +405,7 @@ const historyMetricSelect = document.querySelector("#historyMetricSelect");
 const historyCompareNicknameSelect = document.querySelector("#historyCompareNicknameSelect");
 const historyMergeIntervalSelect = document.querySelector("#historyMergeIntervalSelect");
 const historyChartHeightInput = document.querySelector("#historyChartHeightInput");
+const historyXAxisModeSelect = document.querySelector("#historyXAxisModeSelect");
 const historyStartDate = document.querySelector("#historyStartDate");
 const historyEndDate = document.querySelector("#historyEndDate");
 const historyRangeResetButton = document.querySelector("#historyRangeResetButton");
@@ -577,7 +578,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-rate-v9";
+const UI_SCHEMA_VERSION = "v-log-rate-v10";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -593,6 +594,7 @@ const REQUIRED_UI_IDS = [
   "rateMetricSelect",
   "historyPanel",
   "historyChartHeightInput",
+  "historyXAxisModeSelect",
   "chartHeightInput",
   "achievementPanel",
   "achievementAutoLogPowerInput",
@@ -1050,6 +1052,10 @@ function wireEvents() {
     saveSettings();
     renderHistoryChart(state.historyEntries);
   });
+  historyXAxisModeSelect.addEventListener("change", () => {
+    saveSettings();
+    renderHistoryChart(state.historyEntries);
+  });
   wireChartHeightControl(debugChartHeightInput, 430, renderDebugView);
   [historyStartDate, historyEndDate].forEach((input) => {
     input.addEventListener("input", () => {
@@ -1296,6 +1302,7 @@ function applySavedSettings() {
   historyCompareNicknameSelect.dataset.savedValue = settings.historyCompareNickname || "";
   setIfOptionExists(historyMergeIntervalSelect, settings.historyMergeInterval || "0");
   historyChartHeightInput.value = String(Math.min(900, Math.max(240, Number(settings.historyChartHeight) || 360)));
+  setIfOptionExists(historyXAxisModeSelect, settings.historyXAxisMode || "thirds");
   achievementColumnsInput.value = String(Math.min(MAX_ACHIEVEMENT_COLUMNS, Math.max(1, Number(settings.achievementColumns) || 1)));
   achievementAutoLogPowerInput.value = String(Math.max(0, Number(settings.achievementAutoLogPower) || 1));
   achievementAutoHoursInput.value = String(Math.max(1, Number(settings.achievementAutoHours) || 72));
@@ -1394,6 +1401,7 @@ function saveSettings() {
     historyCompareNickname: historyCompareNicknameSelect.value,
     historyMergeInterval: historyMergeIntervalSelect.value,
     historyChartHeight: historyChartHeightInput.value,
+    historyXAxisMode: historyXAxisModeSelect.value,
     achievementColumns: achievementColumnsInput.value,
     achievementAutoLogPower: achievementAutoLogPowerInput.value,
     achievementAutoHours: achievementAutoHoursInput.value,
@@ -4854,6 +4862,50 @@ function getHistoryChartHeight() {
   return clampChartHeight(historyChartHeightInput.value, 360);
 }
 
+function getHistoryXAxisTicks(minTime, maxTime) {
+  const days = historyXAxisModeSelect.value === "monthly" ? [1] : [1, 11, 21];
+  const startDate = new Date(minTime);
+  const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+  const ticks = [];
+  for (let monthCount = 0; cursor.getTime() <= maxTime && monthCount < 1200; monthCount += 1) {
+    const year = cursor.getFullYear();
+    const month = cursor.getMonth();
+    for (const day of days) {
+      const time = new Date(year, month, day).getTime();
+      if (time >= minTime && time <= maxTime) ticks.push(time);
+    }
+    cursor.setMonth(cursor.getMonth() + 1, 1);
+  }
+  return ticks;
+}
+
+function getHistoryXAxisBounds(minTime, maxTime) {
+  const monthly = historyXAxisModeSelect.value === "monthly";
+  const start = new Date(minTime);
+  const end = new Date(maxTime);
+  let axisMin;
+  let axisMax;
+  if (monthly) {
+    axisMin = new Date(start.getFullYear(), start.getMonth(), 1).getTime();
+    axisMax = new Date(end.getFullYear(), end.getMonth() + 1, 1).getTime();
+  } else {
+    const floorDay = start.getDate() >= 21 ? 21 : start.getDate() >= 11 ? 11 : 1;
+    axisMin = new Date(start.getFullYear(), start.getMonth(), floorDay).getTime();
+    const nextDay = end.getDate() < 11 ? 11 : end.getDate() < 21 ? 21 : 1;
+    axisMax = nextDay === 1
+      ? new Date(end.getFullYear(), end.getMonth() + 1, 1).getTime()
+      : new Date(end.getFullYear(), end.getMonth(), nextDay).getTime();
+  }
+  if (axisMax <= axisMin) axisMax = axisMin + 86400000;
+  return { min: axisMin, max: axisMax };
+}
+
+function formatHistoryXAxisDate(time) {
+  const date = new Date(time);
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 function renderHistoryChart(entries) {
   hideHistoryTooltip();
   const metric = getHistoryMetric();
@@ -4887,9 +4939,9 @@ function renderHistoryChart(entries) {
   }
   historyImageButton.disabled = false;
 
-  const minTime = Math.min(...allPoints.map((point) => point.time));
-  const rawMaxTime = Math.max(...allPoints.map((point) => point.time));
-  const maxTime = rawMaxTime === minTime ? minTime + 86400000 : rawMaxTime;
+  const dataMinTime = Math.min(...allPoints.map((point) => point.time));
+  const dataMaxTime = Math.max(...allPoints.map((point) => point.time));
+  const { min: minTime, max: maxTime } = getHistoryXAxisBounds(dataMinTime, dataMaxTime);
   const { min: yMin, max: yMax } = getHistoryYAxisRange(allPoints.map((point) => point.value));
   const xFor = (time) => pad.left + ((time - minTime) / (maxTime - minTime)) * plotW;
   const yFor = (value) => pad.top + plotH - ((value - yMin) / (yMax - yMin)) * plotH;
@@ -4899,12 +4951,13 @@ function renderHistoryChart(entries) {
     const y = yFor(value);
     return `<line class="gridLine" x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}"></line><text class="axisLabel" x="${pad.left - 10}" y="${y + 4}" text-anchor="end">${Math.round(value)}</text>`;
   }).join("");
-  const xGrid = Array.from({ length: 6 }, (_, index) => {
-    const time = minTime + ((maxTime - minTime) * index) / 5;
+  const xTicks = getHistoryXAxisTicks(minTime, maxTime);
+  const pixelsPerTick = xTicks.length > 1 ? plotW / (xTicks.length - 1) : plotW;
+  const labelEvery = Math.max(1, Math.ceil(92 / pixelsPerTick));
+  const xGrid = xTicks.map((time, index) => {
     const x = xFor(time);
-    const date = new Date(time);
-    const label = `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}`;
-    return `<line class="gridLine" x1="${x}" y1="${pad.top}" x2="${x}" y2="${pad.top + plotH}"></line><text class="axisLabel" x="${x}" y="${height - 20}" text-anchor="middle">${label}</text>`;
+    const label = index % labelEvery === 0 ? formatHistoryXAxisDate(time) : "";
+    return `<line class="gridLine" x1="${x}" y1="${pad.top}" x2="${x}" y2="${pad.top + plotH}"></line>${label ? `<text class="axisLabel" x="${x}" y="${height - 20}" text-anchor="middle">${label}</text>` : ""}`;
   }).join("");
   const lines = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => {
     if (!points.length) return "";
