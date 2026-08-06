@@ -582,7 +582,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-rate-v11";
+const UI_SCHEMA_VERSION = "v-log-rate-v12";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -5252,7 +5252,7 @@ function updateConditionalTabs() {
     element.disabled = !state.isTestMode;
   });
 
-  const unavailable = (viewSelect.value === "debug" || viewSelect.value === "testNotes") && !state.isTestMode;
+  const unavailable = (viewSelect.value === "debug" || viewSelect.value === "testNotes" || viewSelect.value === "tags") && !state.isTestMode;
   if (unavailable) {
     viewSelect.value = "chart";
     state.view = "chart";
