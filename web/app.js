@@ -29,6 +29,7 @@ const state = {
   historyEntries: [],
   historyRows: [],
   historyMetric: "logPower",
+  historyYRanges: {},
   historyCompareEntries: [],
   historyComparePayload: null,
   achievementRows: [],
@@ -405,6 +406,9 @@ const historyMetricSelect = document.querySelector("#historyMetricSelect");
 const historyCompareNicknameSelect = document.querySelector("#historyCompareNicknameSelect");
 const historyMergeIntervalSelect = document.querySelector("#historyMergeIntervalSelect");
 const historyChartHeightInput = document.querySelector("#historyChartHeightInput");
+const historyYMinInput = document.querySelector("#historyYMinInput");
+const historyYMaxInput = document.querySelector("#historyYMaxInput");
+const historyYRangeResetButton = document.querySelector("#historyYRangeResetButton");
 const historyXAxisModeSelect = document.querySelector("#historyXAxisModeSelect");
 const historyStartDate = document.querySelector("#historyStartDate");
 const historyEndDate = document.querySelector("#historyEndDate");
@@ -578,7 +582,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-rate-v10";
+const UI_SCHEMA_VERSION = "v-log-rate-v11";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -594,6 +598,9 @@ const REQUIRED_UI_IDS = [
   "rateMetricSelect",
   "historyPanel",
   "historyChartHeightInput",
+  "historyYMinInput",
+  "historyYMaxInput",
+  "historyYRangeResetButton",
   "historyXAxisModeSelect",
   "chartHeightInput",
   "achievementPanel",
@@ -1032,6 +1039,7 @@ function wireEvents() {
   historyImageButton.addEventListener("click", exportHistoryImage);
   historyMetricSelect.addEventListener("change", () => {
     state.historyMetric = historyMetricSelect.value;
+    syncHistoryYRangeControls();
     saveSettings();
     renderHistoryView();
   });
@@ -1049,6 +1057,19 @@ function wireEvents() {
   });
   historyChartHeightInput.addEventListener("change", () => {
     historyChartHeightInput.value = String(getHistoryChartHeight());
+    saveSettings();
+    renderHistoryChart(state.historyEntries);
+  });
+  [historyYMinInput, historyYMaxInput].forEach((input) => {
+    input.addEventListener("input", () => {
+      storeHistoryYRange();
+      saveSettings();
+      renderHistoryChart(state.historyEntries);
+    });
+  });
+  historyYRangeResetButton.addEventListener("click", () => {
+    delete state.historyYRanges[historyMetricSelect.value];
+    syncHistoryYRangeControls();
     saveSettings();
     renderHistoryChart(state.historyEntries);
   });
@@ -1299,6 +1320,8 @@ function applySavedSettings() {
   historyEndDate.value = settings.historyEndDate || "";
   setIfOptionExists(historyMetricSelect, settings.historyMetric || "logPower");
   state.historyMetric = historyMetricSelect.value;
+  state.historyYRanges = settings.historyYRanges && typeof settings.historyYRanges === "object" ? settings.historyYRanges : {};
+  syncHistoryYRangeControls();
   historyCompareNicknameSelect.dataset.savedValue = settings.historyCompareNickname || "";
   setIfOptionExists(historyMergeIntervalSelect, settings.historyMergeInterval || "0");
   historyChartHeightInput.value = String(Math.min(900, Math.max(240, Number(settings.historyChartHeight) || 360)));
@@ -1401,6 +1424,7 @@ function saveSettings() {
     historyCompareNickname: historyCompareNicknameSelect.value,
     historyMergeInterval: historyMergeIntervalSelect.value,
     historyChartHeight: historyChartHeightInput.value,
+    historyYRanges: state.historyYRanges,
     historyXAxisMode: historyXAxisModeSelect.value,
     achievementColumns: achievementColumnsInput.value,
     achievementAutoLogPower: achievementAutoLogPowerInput.value,
@@ -4862,6 +4886,23 @@ function getHistoryChartHeight() {
   return clampChartHeight(historyChartHeightInput.value, 360);
 }
 
+function storeHistoryYRange() {
+  const metric = historyMetricSelect.value;
+  const min = historyYMinInput.value.trim();
+  const max = historyYMaxInput.value.trim();
+  if (!min && !max) {
+    delete state.historyYRanges[metric];
+    return;
+  }
+  state.historyYRanges[metric] = { min, max };
+}
+
+function syncHistoryYRangeControls() {
+  const range = state.historyYRanges[historyMetricSelect.value] || {};
+  historyYMinInput.value = range.min ?? "";
+  historyYMaxInput.value = range.max ?? "";
+}
+
 function getHistoryXAxisTicks(minTime, maxTime) {
   const days = historyXAxisModeSelect.value === "monthly" ? [1] : [1, 11, 21];
   const startDate = new Date(minTime);
@@ -4924,7 +4965,11 @@ function renderHistoryChart(entries) {
   const minTime = Number.isFinite(selectedRange.start) ? selectedRange.start : dataMinTime;
   const selectedMaxTime = Number.isFinite(selectedRange.end) ? selectedRange.end : dataMaxTime;
   const maxTime = selectedMaxTime === minTime ? minTime + 86400000 : selectedMaxTime;
-  const { min: yMin, max: yMax } = getHistoryYAxisRange(allPoints.map((point) => point.value));
+  const visiblePoints = allPoints.filter((point) => point.time >= minTime && point.time <= maxTime);
+  const { min: yMin, max: yMax } = getHistoryYAxisRange(
+    (visiblePoints.length ? visiblePoints : allPoints).map((point) => point.value),
+    state.historyYRanges[historyMetricSelect.value],
+  );
   const xFor = (time) => pad.left + ((time - minTime) / (maxTime - minTime)) * plotW;
   const yFor = (value) => pad.top + plotH - ((value - yMin) / (yMax - yMin)) * plotH;
 
@@ -4983,7 +5028,7 @@ function renderHistoryChart(entries) {
   bindHistoryTooltips();
 }
 
-function getHistoryYAxisRange(values) {
+function getHistoryYAxisRange(values, manualRange = {}) {
   const finiteValues = values.filter(Number.isFinite);
   if (!finiteValues.length) return { min: 0, max: 100 };
   const dataMin = Math.min(...finiteValues);
@@ -4992,8 +5037,18 @@ function getHistoryYAxisRange(values) {
   const reference = Math.max(Math.abs(dataMin), Math.abs(dataMax), 1);
   const lowerPadding = Math.max(dataSpan * 0.04, reference * 0.0025);
   const upperPadding = Math.max(dataSpan * 0.05, reference * 0.003);
-  const min = Math.max(0, dataMin - lowerPadding);
-  const max = Math.max(min + Number.EPSILON, dataMax + upperPadding);
+  let min = Math.max(0, dataMin - lowerPadding);
+  let max = Math.max(min + Number.EPSILON, dataMax + upperPadding);
+  const manualMin = manualRange.min === "" || manualRange.min == null ? NaN : Number(manualRange.min);
+  const manualMax = manualRange.max === "" || manualRange.max == null ? NaN : Number(manualRange.max);
+  if (Number.isFinite(manualMin) && Number.isFinite(manualMax) && manualMin < manualMax) {
+    min = manualMin;
+    max = manualMax;
+  } else if (Number.isFinite(manualMin) && !Number.isFinite(manualMax) && manualMin < max) {
+    min = manualMin;
+  } else if (Number.isFinite(manualMax) && !Number.isFinite(manualMin) && manualMax > min) {
+    max = manualMax;
+  }
   return { min, max };
 }
 
