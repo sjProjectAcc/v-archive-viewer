@@ -3992,9 +3992,22 @@ function buildAchievementRows(entries) {
       const maxRating = Number(source.maxRating ?? entry.maxRating);
       const maxDjPower = Number(source.maxDjpower ?? entry.maxDjpower);
       const previousPoint = estimateTierRating(previousScore, maxRating, previous.maxCombo === true);
-      const currentPoint = estimateTierRating(currentScore, maxRating, current.maxCombo === true);
+      const estimatedCurrentPoint = estimateTierRating(currentScore, maxRating, current.maxCombo === true);
       const previousDjPower = djPowerScoreRatio(previousScore) * maxDjPower;
-      const currentDjPower = djPowerScoreRatio(currentScore) * maxDjPower;
+      const estimatedCurrentDjPower = djPowerScoreRatio(currentScore) * maxDjPower;
+      const sourceScore = Number(source.score);
+      const matchesCurrentRecord = index === history.length - 1
+        && Number.isFinite(sourceScore)
+        && Math.abs(sourceScore - currentScore) < 0.0001
+        && (source.maxCombo === true) === (current.maxCombo === true);
+      const sourcePoint = Number(source.rating);
+      const sourceDjPower = Number(source.djpower);
+      const hasSourcePoint = source.rating !== null && source.rating !== undefined && source.rating !== "" && Number.isFinite(sourcePoint);
+      const hasSourceDjPower = source.djpower !== null && source.djpower !== undefined && source.djpower !== "" && Number.isFinite(sourceDjPower);
+      const currentPointEstimated = !matchesCurrentRecord || !hasSourcePoint;
+      const currentDjPowerEstimated = !matchesCurrentRecord || !hasSourceDjPower;
+      const currentPoint = currentPointEstimated ? estimatedCurrentPoint : sourcePoint;
+      const currentDjPower = currentDjPowerEstimated ? estimatedCurrentDjPower : sourceDjPower;
       rows.push({
         id: `${entry.id}|${current.ymdt}|${index}`,
         button: Number(entry.button),
@@ -4016,6 +4029,10 @@ function buildAchievementRows(entries) {
         currentPoint,
         previousDjPower,
         currentDjPower,
+        previousPointEstimated: true,
+        currentPointEstimated,
+        previousDjPowerEstimated: true,
+        currentDjPowerEstimated,
         previousMaxCombo: previous.maxCombo === true,
         currentMaxCombo: current.maxCombo === true,
         previousUpdatedAt: previous.ymdt,
@@ -4060,9 +4077,9 @@ function renderAchievementList() {
       <input type="checkbox" data-achievement-id="${encodeURIComponent(row.id)}"${selected ? " checked" : ""}>
       <img class="achievementJacket" src="${escapeHtml(getJacketUrl(row))}" alt="" loading="lazy">
       <span class="achievementSong"><strong>${escapeHtml(row.name)}</strong><span>${row.button}B · ${escapeHtml(row.pattern)} · Lv.${escapeHtml(row.level)} · floor ${escapeHtml(row.floorName)}</span><small class="achievementDiff">score ${formatSigned(row.scoreDiff, 2)} · logPower ${formatSigned(row.logPowerDiff, 2)}</small></span>
-      ${renderAchievementSide(row.previousScore, row.previousLogPower, row.previousPoint, row.previousDjPower, row.previousMaxCombo, row.previousUpdatedAt, "before")}
+      ${renderAchievementSide(row.previousScore, row.previousLogPower, row.previousPoint, row.previousDjPower, row.previousPointEstimated, row.previousDjPowerEstimated, row.previousMaxCombo, row.previousUpdatedAt, "before")}
       <span class="achievementArrow">→</span>
-      ${renderAchievementSide(row.currentScore, row.currentLogPower, row.currentPoint, row.currentDjPower, row.currentMaxCombo, row.currentUpdatedAt, "after")}
+      ${renderAchievementSide(row.currentScore, row.currentLogPower, row.currentPoint, row.currentDjPower, row.currentPointEstimated, row.currentDjPowerEstimated, row.currentMaxCombo, row.currentUpdatedAt, "after")}
     </label>`;
   }).join("");
 }
@@ -4092,7 +4109,7 @@ function getAutoAchievementColumns(count) {
       + Math.max(0, columns - 1) * ACHIEVEMENT_IMAGE_GAP;
     const profileColumns = Math.min(profileCount, Math.max(1, Math.floor((width - ACHIEVEMENT_IMAGE_MARGIN * 2 + profileGap) / 260)));
     const profileRows = Math.ceil(profileCount / profileColumns);
-    const headerHeight = 166 + profileRows * 100 + Math.max(0, profileRows - 1) * profileGap;
+    const headerHeight = 188 + profileRows * 100 + Math.max(0, profileRows - 1) * profileGap;
     const rowCount = Math.ceil(count / columns);
     const height = ACHIEVEMENT_IMAGE_MARGIN * 2 + headerHeight + rowCount * ACHIEVEMENT_IMAGE_CARD_HEIGHT
       + Math.max(0, rowCount - 1) * ACHIEVEMENT_IMAGE_GAP;
@@ -4110,9 +4127,11 @@ function syncAchievementColumnsToSelection(persist = true) {
   if (persist) saveSettings();
 }
 
-function renderAchievementSide(score, logPower, point, djPower, maxCombo, updatedAt, className) {
+function renderAchievementSide(score, logPower, point, djPower, pointEstimated, djPowerEstimated, maxCombo, updatedAt, className) {
   const label = className === "after" ? "이후" : "이전";
-  return `<span class="achievementSide ${className}"><small>${label} · ${escapeHtml(formatDate(updatedAt))}</small><strong>${formatValue(score, "score")}</strong><span>LogPower ${formatProfileNumber(logPower)}</span><span>POINT ${formatProfileNumber(point)} · DJPower ${formatProfileNumber(djPower)}</span>${maxCombo ? "<small>MAX COMBO</small>" : ""}</span>`;
+  const pointLabel = pointEstimated ? "추정 POINT" : "POINT";
+  const djPowerLabel = djPowerEstimated ? "추정 DJPower" : "DJPower";
+  return `<span class="achievementSide ${className}"><small>${label} · ${escapeHtml(formatDate(updatedAt))}</small><strong>${formatValue(score, "score")}</strong><span>LogPower ${formatProfileNumber(logPower)}</span><span>${pointLabel} ${formatProfileNumber(point)} · ${djPowerLabel} ${formatProfileNumber(djPower)}</span>${maxCombo ? "<small>MAX COMBO</small>" : ""}</span>`;
 }
 
 function selectVisibleAchievements() {
@@ -4870,7 +4889,14 @@ function constrainHistorySeries(series, range) {
       const baseline = points.filter((point) => point.time <= range.start).at(-1);
       if (baseline && !visible.some((point) => point.time === range.start)) visible.unshift({ time: range.start, value: baseline.value });
     }
-    constrained.set(button, mergeAdjacentHistoryPoints(visible));
+    const merged = mergeAdjacentHistoryPoints(visible);
+    if (range.end !== Infinity) {
+      const endpoint = points.filter((point) => point.time <= range.end).at(-1);
+      if (endpoint && !merged.some((point) => point.time === range.end)) {
+        merged.push({ time: range.end, value: endpoint.value, boundary: true });
+      }
+    }
+    constrained.set(button, merged);
   }
   return constrained;
 }
@@ -4902,15 +4928,30 @@ function storeHistoryYRange() {
   const max = historyYMaxInput.value.trim();
   if (!min && !max) {
     delete state.historyYRanges[metric];
+    validateHistoryYRangeControls();
     return;
   }
   state.historyYRanges[metric] = { min, max };
+  validateHistoryYRangeControls();
 }
 
 function syncHistoryYRangeControls() {
   const range = state.historyYRanges[historyMetricSelect.value] || {};
   historyYMinInput.value = range.min ?? "";
   historyYMaxInput.value = range.max ?? "";
+  validateHistoryYRangeControls();
+}
+
+function validateHistoryYRangeControls() {
+  const min = historyYMinInput.value === "" ? NaN : Number(historyYMinInput.value);
+  const max = historyYMaxInput.value === "" ? NaN : Number(historyYMaxInput.value);
+  const message = Number.isFinite(min) && Number.isFinite(max) && min >= max
+    ? "Y 최솟값은 최댓값보다 작아야 합니다."
+    : "";
+  historyYMinInput.setCustomValidity(message);
+  historyYMaxInput.setCustomValidity(message);
+  historyYMinInput.title = message;
+  historyYMaxInput.title = message;
 }
 
 function getHistoryXAxisTicks(minTime, maxTime) {
@@ -5020,7 +5061,7 @@ function renderHistoryChart(entries) {
     const info = encodeURIComponent(JSON.stringify({ nickname: dataset.nickname, button, from: previous, to: intervalEnd, metric: metric.label }));
     return `<line class="historyLineHit" x1="${xFor(previous.time).toFixed(2)}" y1="${yFor(previous.value).toFixed(2)}" x2="${xFor(point.time).toFixed(2)}" y2="${yFor(previous.value).toFixed(2)}" data-info="${info}" tabindex="0"></line>`;
   }).join("")).join("")).join("");
-  const pointDots = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => points.map((point) => {
+  const pointDots = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => points.filter((point) => !point.boundary).map((point) => {
     const color = (dataset.compare ? compareColors : colors)[button];
     const info = encodeURIComponent(JSON.stringify({ nickname: dataset.nickname, button, time: point.time, value: point.value, metric: metric.label, current: point.current === true }));
     const compareStyle = dataset.compare ? ` style="fill:var(--panel);stroke:${color}"` : "";
@@ -6519,7 +6560,7 @@ async function drawAchievementImage({ nickname, rows, columns, profile }) {
   const profileGap = 10;
   const profileColumns = Math.min(profile.buttons.length, Math.max(1, Math.floor((width - margin * 2 + profileGap) / 260)));
   const profileRows = Math.ceil(profile.buttons.length / profileColumns);
-  const headerH = 166 + profileRows * 100 + Math.max(0, profileRows - 1) * profileGap;
+  const headerH = 188 + profileRows * 100 + Math.max(0, profileRows - 1) * profileGap;
   const rowCount = Math.ceil(rows.length / columns);
   const height = margin * 2 + headerH + rowCount * cardH + Math.max(0, rowCount - 1) * gap;
   const canvas = document.createElement("canvas");
@@ -6530,15 +6571,16 @@ async function drawAchievementImage({ nickname, rows, columns, profile }) {
   ctx.fillRect(0, 0, width, height);
 
   ctx.fillStyle = "#151922";
-  ctx.font = "900 42px Segoe UI, Malgun Gothic, Arial";
+  setCanvasFontToFit(ctx, "V-LOG RECENT ACHIEVEMENTS", 900, 42, 26, width - margin * 2);
   ctx.fillText("V-LOG RECENT ACHIEVEMENTS", margin, 56);
   ctx.fillStyle = "#1268b3";
   ctx.font = "900 32px Segoe UI, Malgun Gothic, Arial";
-  ctx.fillText(nickname, margin, 98);
+  drawTextFit(ctx, nickname, margin, 98, width - margin * 2);
   ctx.fillStyle = "#586274";
-  ctx.font = "600 19px Segoe UI, Malgun Gothic, Arial";
+  ctx.font = "600 17px Segoe UI, Malgun Gothic, Arial";
   const buttonScope = profile.selectedButton ? ` · ${profile.selectedButton}B 선택` : "";
-  ctx.fillText(`${rows.length}개 성과${buttonScope} · Records ${profile.records.toLocaleString()} · Updated ${profile.updated.toLocaleString()} · Since ${profile.since} · Errors ${profile.errors.toLocaleString()} · ${formatDate(new Date().toISOString())}`, margin, 128);
+  drawTextFit(ctx, `${rows.length}개 성과${buttonScope} · Records ${profile.records.toLocaleString()} · Updated ${profile.updated.toLocaleString()}`, margin, 128, width - margin * 2);
+  drawTextFit(ctx, `Since ${profile.since} · Errors ${profile.errors.toLocaleString()} · ${formatDate(new Date().toISOString())}`, margin, 151, width - margin * 2);
 
   const profileAreaW = profile.buttons.length === 1 ? Math.min(cardW, width - margin * 2) : width - margin * 2;
   const profileW = (profileAreaW - profileGap * Math.max(0, profileColumns - 1)) / profileColumns;
@@ -6547,7 +6589,7 @@ async function drawAchievementImage({ nickname, rows, columns, profile }) {
     const profileColumn = index % profileColumns;
     const profileRow = Math.floor(index / profileColumns);
     const x = margin + profileColumn * (profileW + profileGap);
-    const y = 148 + profileRow * (100 + profileGap);
+    const y = 170 + profileRow * (100 + profileGap);
     drawRoundRect(ctx, x, y, profileW, 100, 7, "#ffffff", "#d9dee7");
     ctx.fillStyle = "#1268b3";
     ctx.font = "900 21px Segoe UI, Malgun Gothic, Arial";
@@ -6609,11 +6651,11 @@ function drawAchievementImageCard(ctx, row, jacket, x, y, w, h) {
   const sideGap = 10;
   const sideW = (w - inset * 2 - sideGap) / 2;
   const sideH = h - (compareY - y) - inset;
-  drawAchievementImageSide(ctx, "이전", row.previousUpdatedAt, row.previousScore, row.previousLogPower, row.previousPoint, row.previousDjPower, row.previousMaxCombo, x + inset, compareY, sideW, sideH, false);
-  drawAchievementImageSide(ctx, "현재", row.currentUpdatedAt, row.currentScore, row.currentLogPower, row.currentPoint, row.currentDjPower, row.currentMaxCombo, x + inset + sideW + sideGap, compareY, sideW, sideH, true);
+  drawAchievementImageSide(ctx, "이전", row.previousUpdatedAt, row.previousScore, row.previousLogPower, row.previousPoint, row.previousDjPower, row.previousPointEstimated, row.previousDjPowerEstimated, row.previousMaxCombo, x + inset, compareY, sideW, sideH, false);
+  drawAchievementImageSide(ctx, "현재", row.currentUpdatedAt, row.currentScore, row.currentLogPower, row.currentPoint, row.currentDjPower, row.currentPointEstimated, row.currentDjPowerEstimated, row.currentMaxCombo, x + inset + sideW + sideGap, compareY, sideW, sideH, true);
 }
 
-function drawAchievementImageSide(ctx, label, updatedAt, score, logPower, point, djPower, maxCombo, x, y, w, h, after) {
+function drawAchievementImageSide(ctx, label, updatedAt, score, logPower, point, djPower, pointEstimated, djPowerEstimated, maxCombo, x, y, w, h, after) {
   drawRoundRect(ctx, x, y, w, h, 7, after ? "#eef6fc" : "#f7f9fc", after ? "#b9d7ee" : "#e2e7ef");
   ctx.fillStyle = after ? "#1268b3" : "#687282";
   ctx.font = "900 19px Segoe UI, Malgun Gothic, Arial";
@@ -6627,8 +6669,8 @@ function drawAchievementImageSide(ctx, label, updatedAt, score, logPower, point,
   ctx.fillStyle = "#586274";
   ctx.font = "800 15px Segoe UI, Malgun Gothic, Arial";
   ctx.fillText(`LogPower ${formatProfileNumber(logPower)}`, x + 16, y + 141);
-  ctx.fillText(`POINT ${formatProfileNumber(point)}`, x + 16, y + 169);
-  ctx.fillText(`DJPower ${formatProfileNumber(djPower)}`, x + 16, y + 197);
+  ctx.fillText(`${pointEstimated ? "추정 POINT" : "POINT"} ${formatProfileNumber(point)}`, x + 16, y + 169);
+  ctx.fillText(`${djPowerEstimated ? "추정 DJPower" : "DJPower"} ${formatProfileNumber(djPower)}`, x + 16, y + 197);
   if (maxCombo) {
     ctx.fillStyle = "#1268b3";
     ctx.font = "900 16px Segoe UI, Malgun Gothic, Arial";
@@ -7116,6 +7158,15 @@ function drawTextFit(ctx, text, x, y, maxWidth) {
   let clipped = value;
   while (clipped.length > 1 && ctx.measureText(`${clipped}…`).width > maxWidth) clipped = clipped.slice(0, -1);
   ctx.fillText(`${clipped}…`, x, y);
+}
+
+function setCanvasFontToFit(ctx, text, weight, preferredSize, minimumSize, maxWidth) {
+  let size = preferredSize;
+  ctx.font = `${weight} ${size}px Segoe UI, Malgun Gothic, Arial`;
+  while (size > minimumSize && ctx.measureText(text).width > maxWidth) {
+    size -= 1;
+    ctx.font = `${weight} ${size}px Segoe UI, Malgun Gothic, Arial`;
+  }
 }
 
 function buildCompareRows() {
