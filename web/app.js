@@ -176,7 +176,7 @@ const TOP_IMAGE_COLUMNS = 5;
 const TOP_IMAGE_ROWS = 6;
 const TOP_IMAGE_COUNT = TOP_IMAGE_COLUMNS * TOP_IMAGE_ROWS;
 const ACHIEVEMENT_IMAGE_CARD_WIDTH = 460;
-const ACHIEVEMENT_IMAGE_CARD_HEIGHT = 400;
+const ACHIEVEMENT_IMAGE_CARD_HEIGHT = 430;
 const ACHIEVEMENT_IMAGE_MARGIN = 30;
 const ACHIEVEMENT_IMAGE_GAP = 16;
 const DJPOWER_TARGET_TOP100_MAX = 10000;
@@ -3989,6 +3989,12 @@ function buildAchievementRows(entries) {
       const previousLogPower = previousScorePoint * difficultyConstant;
       const currentLogPower = currentScorePoint * difficultyConstant;
       if (![previousLogPower, currentLogPower].every(Number.isFinite)) continue;
+      const maxRating = Number(source.maxRating ?? entry.maxRating);
+      const maxDjPower = Number(source.maxDjpower ?? entry.maxDjpower);
+      const previousPoint = estimateTierRating(previousScore, maxRating, previous.maxCombo === true);
+      const currentPoint = estimateTierRating(currentScore, maxRating, current.maxCombo === true);
+      const previousDjPower = djPowerScoreRatio(previousScore) * maxDjPower;
+      const currentDjPower = djPowerScoreRatio(currentScore) * maxDjPower;
       rows.push({
         id: `${entry.id}|${current.ymdt}|${index}`,
         button: Number(entry.button),
@@ -4006,6 +4012,10 @@ function buildAchievementRows(entries) {
         previousLogPower,
         currentLogPower,
         logPowerDiff: currentLogPower - previousLogPower,
+        previousPoint,
+        currentPoint,
+        previousDjPower,
+        currentDjPower,
         previousMaxCombo: previous.maxCombo === true,
         currentMaxCombo: current.maxCombo === true,
         previousUpdatedAt: previous.ymdt,
@@ -4050,9 +4060,9 @@ function renderAchievementList() {
       <input type="checkbox" data-achievement-id="${encodeURIComponent(row.id)}"${selected ? " checked" : ""}>
       <img class="achievementJacket" src="${escapeHtml(getJacketUrl(row))}" alt="" loading="lazy">
       <span class="achievementSong"><strong>${escapeHtml(row.name)}</strong><span>${row.button}B · ${escapeHtml(row.pattern)} · Lv.${escapeHtml(row.level)} · floor ${escapeHtml(row.floorName)}</span><small class="achievementDiff">score ${formatSigned(row.scoreDiff, 2)} · logPower ${formatSigned(row.logPowerDiff, 2)}</small></span>
-      ${renderAchievementSide(row.previousScore, row.previousLogPower, row.previousMaxCombo, row.previousUpdatedAt, "before")}
+      ${renderAchievementSide(row.previousScore, row.previousLogPower, row.previousPoint, row.previousDjPower, row.previousMaxCombo, row.previousUpdatedAt, "before")}
       <span class="achievementArrow">→</span>
-      ${renderAchievementSide(row.currentScore, row.currentLogPower, row.currentMaxCombo, row.currentUpdatedAt, "after")}
+      ${renderAchievementSide(row.currentScore, row.currentLogPower, row.currentPoint, row.currentDjPower, row.currentMaxCombo, row.currentUpdatedAt, "after")}
     </label>`;
   }).join("");
 }
@@ -4100,9 +4110,9 @@ function syncAchievementColumnsToSelection(persist = true) {
   if (persist) saveSettings();
 }
 
-function renderAchievementSide(score, logPower, maxCombo, updatedAt, className) {
+function renderAchievementSide(score, logPower, point, djPower, maxCombo, updatedAt, className) {
   const label = className === "after" ? "이후" : "이전";
-  return `<span class="achievementSide ${className}"><small>${label} · ${escapeHtml(formatDate(updatedAt))}</small><strong>${formatValue(score, "score")}</strong><span>logPower ${formatValue(logPower, "logPower")}</span>${maxCombo ? "<small>MAX COMBO</small>" : ""}</span>`;
+  return `<span class="achievementSide ${className}"><small>${label} · ${escapeHtml(formatDate(updatedAt))}</small><strong>${formatValue(score, "score")}</strong><span>LogPower ${formatProfileNumber(logPower)}</span><span>POINT ${formatProfileNumber(point)} · DJPower ${formatProfileNumber(djPower)}</span>${maxCombo ? "<small>MAX COMBO</small>" : ""}</span>`;
 }
 
 function selectVisibleAchievements() {
@@ -6591,22 +6601,19 @@ function drawAchievementImageCard(ctx, row, jacket, x, y, w, h) {
   ctx.fillStyle = "#586274";
   ctx.font = "800 14px Segoe UI, Malgun Gothic, Arial";
   drawTextFit(ctx, `${row.button}B · ${row.pattern} · Lv.${row.level} · floor ${row.floorName}`, textX, y + 76, textW);
-  ctx.fillStyle = "#1268b3";
-  ctx.font = "900 16px Segoe UI, Malgun Gothic, Arial";
-  drawTextFit(ctx, `Score ${formatSigned(row.scoreDiff, 2)} · LP ${formatSigned(row.logPowerDiff, 2)} · Point ${formatSigned(row.scorePointDiff, 2)}`, textX, y + 106, textW);
   ctx.fillStyle = "#586274";
   ctx.font = "800 14px Segoe UI, Malgun Gothic, Arial";
-  drawTextFit(ctx, formatAchievementElapsed(row.previousUpdatedAt, row.currentUpdatedAt), textX, y + 129, textW);
+  drawTextFit(ctx, formatAchievementElapsed(row.previousUpdatedAt, row.currentUpdatedAt), textX, y + 112, textW);
 
   const compareY = y + inset + songH + 10;
   const sideGap = 10;
   const sideW = (w - inset * 2 - sideGap) / 2;
   const sideH = h - (compareY - y) - inset;
-  drawAchievementImageSide(ctx, "이전", row.previousUpdatedAt, row.previousScore, row.previousScorePoint, row.previousLogPower, row.previousMaxCombo, x + inset, compareY, sideW, sideH, false);
-  drawAchievementImageSide(ctx, "현재", row.currentUpdatedAt, row.currentScore, row.currentScorePoint, row.currentLogPower, row.currentMaxCombo, x + inset + sideW + sideGap, compareY, sideW, sideH, true);
+  drawAchievementImageSide(ctx, "이전", row.previousUpdatedAt, row.previousScore, row.previousLogPower, row.previousPoint, row.previousDjPower, row.previousMaxCombo, x + inset, compareY, sideW, sideH, false);
+  drawAchievementImageSide(ctx, "현재", row.currentUpdatedAt, row.currentScore, row.currentLogPower, row.currentPoint, row.currentDjPower, row.currentMaxCombo, x + inset + sideW + sideGap, compareY, sideW, sideH, true);
 }
 
-function drawAchievementImageSide(ctx, label, updatedAt, score, scorePoint, logPower, maxCombo, x, y, w, h, after) {
+function drawAchievementImageSide(ctx, label, updatedAt, score, logPower, point, djPower, maxCombo, x, y, w, h, after) {
   drawRoundRect(ctx, x, y, w, h, 7, after ? "#eef6fc" : "#f7f9fc", after ? "#b9d7ee" : "#e2e7ef");
   ctx.fillStyle = after ? "#1268b3" : "#687282";
   ctx.font = "900 19px Segoe UI, Malgun Gothic, Arial";
@@ -6619,8 +6626,9 @@ function drawAchievementImageSide(ctx, label, updatedAt, score, scorePoint, logP
   ctx.fillText(formatValue(score, "score"), x + 16, y + 105);
   ctx.fillStyle = "#586274";
   ctx.font = "800 15px Segoe UI, Malgun Gothic, Arial";
-  ctx.fillText(`scorePoint ${formatProfileNumber(scorePoint)}`, x + 16, y + 143);
-  ctx.fillText(`logPower ${formatProfileNumber(logPower)}`, x + 16, y + 171);
+  ctx.fillText(`LogPower ${formatProfileNumber(logPower)}`, x + 16, y + 141);
+  ctx.fillText(`POINT ${formatProfileNumber(point)}`, x + 16, y + 169);
+  ctx.fillText(`DJPower ${formatProfileNumber(djPower)}`, x + 16, y + 197);
   if (maxCombo) {
     ctx.fillStyle = "#1268b3";
     ctx.font = "900 16px Segoe UI, Malgun Gothic, Arial";

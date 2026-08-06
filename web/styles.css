@@ -378,7 +378,6 @@ main {
   gap: 10px;
   align-items: center;
   width: 100%;
-  max-width: 1180px;
   min-height: 96px;
   padding: 10px 12px;
   border: 1px solid var(--line);
