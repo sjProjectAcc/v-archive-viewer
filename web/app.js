@@ -174,6 +174,10 @@ const FALLBACK_BUTTON_TOP50_BASE_MAX = Object.freeze({
 const TOP_IMAGE_COLUMNS = 5;
 const TOP_IMAGE_ROWS = 6;
 const TOP_IMAGE_COUNT = TOP_IMAGE_COLUMNS * TOP_IMAGE_ROWS;
+const ACHIEVEMENT_IMAGE_CARD_WIDTH = 460;
+const ACHIEVEMENT_IMAGE_CARD_HEIGHT = 400;
+const ACHIEVEMENT_IMAGE_MARGIN = 30;
+const ACHIEVEMENT_IMAGE_GAP = 16;
 const DJPOWER_TARGET_TOP100_MAX = 10000;
 // Piecewise exponential fit of the Tier manual curve. Each score is a segment start.
 const TIER_POINT_CURVE_SEGMENTS = Object.freeze([
@@ -1070,6 +1074,7 @@ function wireEvents() {
   achievementSelectVisibleButton.addEventListener("click", selectVisibleAchievements);
   achievementClearButton.addEventListener("click", () => {
     state.achievementSelected.clear();
+    syncAchievementColumnsToSelection();
     renderAchievementList();
   });
   achievementImageButton.addEventListener("click", exportAchievementImage);
@@ -1079,6 +1084,7 @@ function wireEvents() {
     const id = decodeURIComponent(checkbox.dataset.achievementId || "");
     if (checkbox.checked) state.achievementSelected.add(id);
     else state.achievementSelected.delete(id);
+    syncAchievementColumnsToSelection();
     renderAchievementList();
   });
   achievementList.addEventListener("pointerdown", startAchievementDragSelection);
@@ -4027,6 +4033,41 @@ function updateAchievementSelectionControls(visibleRows = getVisibleAchievementR
   achievementClearButton.disabled = selectedCount === 0;
 }
 
+function getSelectedAchievementCount() {
+  const selectedButton = buttonFilter.value;
+  return state.achievementRows.filter((row) => state.achievementSelected.has(row.id)
+    && (!selectedButton || String(row.button) === selectedButton)).length;
+}
+
+function getAutoAchievementColumns(count) {
+  if (count <= 1) return Math.max(1, count);
+  const profileCount = buttonFilter.value ? 1 : BUTTONS.length;
+  const profileGap = 10;
+  let bestColumns = 1;
+  let bestDistance = Infinity;
+  for (let columns = 1; columns <= Math.min(MAX_ACHIEVEMENT_COLUMNS, count); columns += 1) {
+    const width = ACHIEVEMENT_IMAGE_MARGIN * 2 + columns * ACHIEVEMENT_IMAGE_CARD_WIDTH
+      + Math.max(0, columns - 1) * ACHIEVEMENT_IMAGE_GAP;
+    const profileColumns = Math.min(profileCount, Math.max(1, Math.floor((width - ACHIEVEMENT_IMAGE_MARGIN * 2 + profileGap) / 260)));
+    const profileRows = Math.ceil(profileCount / profileColumns);
+    const headerHeight = 166 + profileRows * 100 + Math.max(0, profileRows - 1) * profileGap;
+    const rowCount = Math.ceil(count / columns);
+    const height = ACHIEVEMENT_IMAGE_MARGIN * 2 + headerHeight + rowCount * ACHIEVEMENT_IMAGE_CARD_HEIGHT
+      + Math.max(0, rowCount - 1) * ACHIEVEMENT_IMAGE_GAP;
+    const distance = Math.abs(Math.log(width / height));
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestColumns = columns;
+    }
+  }
+  return bestColumns;
+}
+
+function syncAchievementColumnsToSelection(persist = true) {
+  achievementColumnsInput.value = String(getAutoAchievementColumns(getSelectedAchievementCount()));
+  if (persist) saveSettings();
+}
+
 function renderAchievementSide(score, logPower, maxCombo, updatedAt, className) {
   const label = className === "after" ? "이후" : "이전";
   return `<span class="achievementSide ${className}"><small>${label} · ${escapeHtml(formatDate(updatedAt))}</small><strong>${formatValue(score, "score")}</strong><span>logPower ${formatValue(logPower, "logPower")}</span>${maxCombo ? "<small>MAX COMBO</small>" : ""}</span>`;
@@ -4034,6 +4075,7 @@ function renderAchievementSide(score, logPower, maxCombo, updatedAt, className) 
 
 function selectVisibleAchievements() {
   for (const row of getVisibleAchievementRows()) state.achievementSelected.add(row.id);
+  syncAchievementColumnsToSelection();
   renderAchievementList();
 }
 
@@ -4049,6 +4091,7 @@ function autoSelectAchievements() {
   });
   state.achievementSelected.clear();
   for (const row of matches) state.achievementSelected.add(row.id);
+  syncAchievementColumnsToSelection();
   saveSettings();
   renderAchievementList();
   achievementStatus.textContent = `최근 ${formatProfileNumber(recentHours)}시간 · logPower +${formatProfileNumber(minimumLogPower)} 이상 · ${matches.length}개 자동 선택`;
@@ -4081,6 +4124,7 @@ function applyAchievementDragSelection(item) {
   const id = decodeURIComponent(checkbox.dataset.achievementId || "");
   if (achievementDragValue) state.achievementSelected.add(id);
   else state.achievementSelected.delete(id);
+  syncAchievementColumnsToSelection(false);
   checkbox.checked = achievementDragValue;
   item.classList.toggle("selected", achievementDragValue);
   updateAchievementSelectionControls();
@@ -4090,6 +4134,7 @@ function finishAchievementDragSelection() {
   if (!achievementDragActive) return;
   achievementDragActive = false;
   achievementList.classList.remove("dragSelecting");
+  saveSettings();
   setTimeout(() => {
     achievementSuppressClick = false;
   }, 0);
@@ -6081,12 +6126,16 @@ function renderPointsSummary(rows) {
     const estimatedTop50Sum = top50Rows.reduce((sum, row) => sum + Number(row.estimatedRating || 0), 0);
     const tier = (state.payload?.tiers || []).find((row) => String(row.button) === String(button));
     const tierName = tier?.tierName || "-";
-    return `<div class="tableMetric">
+    return `<div class="tableMetric tableMetricAction">
       <span>${escapeHtml(button)}B Rating TOP50</span>
       <strong>${top50Sum.toFixed(2)}</strong>
       <small>Est. ${estimatedTop50Sum.toFixed(2)} (${formatSigned(estimatedTop50Sum - top50Sum)}) · Tier ${escapeHtml(tierName)}</small>
+      <button class="smallActionButton" type="button" data-point-image-button="${escapeHtml(button)}">Top30 이미지</button>
     </div>`;
   }).join("");
+  tableSummary.querySelectorAll("[data-point-image-button]").forEach((button) => {
+    button.addEventListener("click", () => generatePointImage(button.dataset.pointImageButton));
+  });
   tableSummary.hidden = false;
 }
 
@@ -6263,11 +6312,35 @@ async function generateTopImage(button) {
       nickname: state.payload.nickname || getCurrentNickname(),
       top50Sum,
       rows: topRows.slice(0, TOP_IMAGE_COUNT),
+      mode: "logPower",
     });
     const copied = await saveCanvasImage(canvas, `v-archive-${state.payload.nickname || "user"}-${button}B-top30.png`);
     statusText.textContent = `${button}B Top30 이미지를 다운로드했습니다.${copied ? " 클립보드에도 복사했습니다." : ""}`;
   } catch (error) {
     statusText.textContent = `이미지 생성 오류: ${error.message}`;
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function generatePointImage(button) {
+  if (!state.payload) return;
+  setBusy(true, `${button}B Rating Top30 이미지 생성 중`);
+  try {
+    const pointRows = buildPointRows(state.payload.records || [])
+      .filter((row) => String(row.button) === String(button));
+    const top50Sum = pointRows.slice(0, 50).reduce((sum, row) => sum + Number(row.rating || 0), 0);
+    const canvas = await drawTopImage({
+      button,
+      nickname: state.payload.nickname || getCurrentNickname(),
+      top50Sum,
+      rows: pointRows.slice(0, TOP_IMAGE_COUNT),
+      mode: "point",
+    });
+    const copied = await saveCanvasImage(canvas, `v-archive-${state.payload.nickname || "user"}-${button}B-rating-top30.png`);
+    statusText.textContent = `${button}B Rating Top30 이미지를 다운로드했습니다.${copied ? " 클립보드에도 복사했습니다." : ""}`;
+  } catch (error) {
+    statusText.textContent = `POINT 이미지 생성 오류: ${error.message || error}`;
   } finally {
     setBusy(false);
   }
@@ -6332,10 +6405,10 @@ function buildAchievementProfileSummary() {
 }
 
 async function drawAchievementImage({ nickname, rows, columns, profile }) {
-  const margin = 30;
-  const gap = 16;
-  const cardW = 540;
-  const cardH = 400;
+  const margin = ACHIEVEMENT_IMAGE_MARGIN;
+  const gap = ACHIEVEMENT_IMAGE_GAP;
+  const cardW = ACHIEVEMENT_IMAGE_CARD_WIDTH;
+  const cardH = ACHIEVEMENT_IMAGE_CARD_HEIGHT;
   const width = margin * 2 + columns * cardW + Math.max(0, columns - 1) * gap;
   const profileGap = 10;
   const profileColumns = Math.min(profile.buttons.length, Math.max(1, Math.floor((width - margin * 2 + profileGap) / 260)));
@@ -6396,10 +6469,10 @@ async function drawAchievementImage({ nickname, rows, columns, profile }) {
 function drawAchievementImageCard(ctx, row, jacket, x, y, w, h) {
   drawRoundRect(ctx, x, y, w, h, 8, "#ffffff", "#d9dee7");
   const inset = 10;
-  const songH = 140;
+  const songH = 160;
   drawRoundRect(ctx, x + inset, y + inset, w - inset * 2, songH, 7, "#f7f9fc", "#e2e7ef");
 
-  const jacketSize = 112;
+  const jacketSize = 134;
   const jacketX = x + 22;
   const jacketY = y + 23;
   if (jacket) {
@@ -6750,12 +6823,12 @@ function formatFloorMaxRange(min, max) {
   return Math.abs(Number(max) - Number(min)) < 0.005 ? minText : `${minText} - ${maxText}`;
 }
 
-async function drawTopImage({ button, nickname, top50Sum, rows }) {
+async function drawTopImage({ button, nickname, top50Sum, rows, mode = "logPower" }) {
   const margin = 34;
   const gap = 18;
   const headerH = 150;
   const cardW = 260;
-  const cardH = 365;
+  const cardH = 350;
   const width = margin * 2 + TOP_IMAGE_COLUMNS * cardW + (TOP_IMAGE_COLUMNS - 1) * gap;
   const height = margin * 2 + headerH + TOP_IMAGE_ROWS * cardH + (TOP_IMAGE_ROWS - 1) * gap;
   const canvas = document.createElement("canvas");
@@ -6767,13 +6840,13 @@ async function drawTopImage({ button, nickname, top50Sum, rows }) {
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = "#151922";
   ctx.font = "700 42px Segoe UI, Malgun Gothic, Arial";
-  ctx.fillText(`V-LOG ${button}B Top30`, margin, 58);
+  ctx.fillText(`V-LOG ${button}B ${mode === "point" ? "Rating" : "LogPower"} Top30`, margin, 58);
   ctx.font = "500 24px Segoe UI, Malgun Gothic, Arial";
   ctx.fillStyle = "#4d5868";
   ctx.fillText(`${nickname} · ${formatDate(new Date().toISOString())}`, margin, 94);
   ctx.font = "900 40px Segoe UI, Malgun Gothic, Arial";
   ctx.fillStyle = "#1268b3";
-  ctx.fillText(`Top50 logPower ${top50Sum.toFixed(2)}`, margin, 136);
+  ctx.fillText(`Top50 ${mode === "point" ? "Rating" : "LogPower"} ${top50Sum.toFixed(2)}`, margin, 136);
 
   for (let index = 0; index < TOP_IMAGE_COUNT; index += 1) {
     const row = rows[index];
@@ -6781,14 +6854,15 @@ async function drawTopImage({ button, nickname, top50Sum, rows }) {
     const rowIndex = Math.floor(index / TOP_IMAGE_COLUMNS);
     const x = margin + col * (cardW + gap);
     const y = margin + headerH + rowIndex * (cardH + gap);
-    await drawTopCard(ctx, row, x, y, cardW, cardH);
+    await drawTopCard(ctx, row, x, y, cardW, cardH, mode);
   }
 
   return canvas;
 }
 
-async function drawTopCard(ctx, row, x, y, w, h) {
-  drawRoundRect(ctx, x, y, w, h, 12, "#ffffff", "#d9dee7");
+async function drawTopCard(ctx, row, x, y, w, h, mode = "logPower") {
+  const recent = isRecentRecord(row?.updatedAt);
+  drawRoundRect(ctx, x, y, w, h, 12, recent ? "#fff7cc" : "#ffffff", recent ? "#d7a900" : "#d9dee7");
   if (!row) {
     ctx.fillStyle = "#8a94a4";
     ctx.font = "600 20px Segoe UI, Malgun Gothic, Arial";
@@ -6796,7 +6870,7 @@ async function drawTopCard(ctx, row, x, y, w, h) {
     return;
   }
 
-  const jacketSize = 220;
+  const jacketSize = 176;
   const jacketX = x + (w - jacketSize) / 2;
   const jacketY = y + 18;
   const image = await loadImage(getJacketUrl(row));
@@ -6817,29 +6891,37 @@ async function drawTopCard(ctx, row, x, y, w, h) {
   ctx.fillStyle = "#ffffff";
   ctx.font = "800 22px Segoe UI, Malgun Gothic, Arial";
   ctx.fillText(`#${row.rank}`, jacketX + 12, jacketY + jacketSize - 11);
+  if (recent) {
+    ctx.fillStyle = "#ffd84d";
+    ctx.font = "900 15px Segoe UI, Malgun Gothic, Arial";
+    ctx.fillText("NEW", jacketX + jacketSize - 48, jacketY + jacketSize - 13);
+  }
   if (row.maxCombo === true) {
     ctx.fillStyle = "#4EEEAF";
-    ctx.font = "800 15px Segoe UI, Malgun Gothic, Arial";
-    ctx.fillText("MAX COMBO", jacketX + 96, jacketY + jacketSize - 13);
+    ctx.font = "800 12px Segoe UI, Malgun Gothic, Arial";
+    ctx.fillText("MAX COMBO", jacketX + 58, jacketY + jacketSize - 13);
   }
 
   const textX = x + 16;
-  let textY = y + 266;
+  let textY = y + 222;
   ctx.fillStyle = "#171a1f";
-  ctx.font = "700 18px Segoe UI, Malgun Gothic, Arial";
+  ctx.font = "800 22px Segoe UI, Malgun Gothic, Arial";
   drawTextFit(ctx, row.name || "", textX, textY, w - 32);
-  textY += 25;
+  textY += 29;
   ctx.fillStyle = "#586274";
-  ctx.font = "600 15px Segoe UI, Malgun Gothic, Arial";
+  ctx.font = "700 17px Segoe UI, Malgun Gothic, Arial";
   drawTextFit(ctx, `${row.pattern || ""} · Lv.${row.level ?? ""} · floor ${row.floorName || ""}`, textX, textY, w - 32);
-  textY += 24;
+  textY += 27;
   ctx.fillStyle = "#171a1f";
-  ctx.font = "700 16px Segoe UI, Malgun Gothic, Arial";
+  ctx.font = "800 19px Segoe UI, Malgun Gothic, Arial";
   drawTextFit(ctx, `score ${formatValue(row.score, "score")}`, textX, textY, w - 32);
-  textY += 23;
+  textY += 28;
   ctx.fillStyle = "#1268b3";
-  ctx.font = "800 17px Segoe UI, Malgun Gothic, Arial";
-  drawTextFit(ctx, `${formatValue(row.logPower, "logPower")} / ${formatValue(row.floorMaxPoint, "floorMaxPoint")}`, textX, textY, w - 32);
+  ctx.font = "900 20px Segoe UI, Malgun Gothic, Arial";
+  const metricText = mode === "point"
+    ? `${formatValue(row.rating, "rating")} / ${formatValue(row.maxRating, "maxRating")}`
+    : `${formatValue(row.logPower, "logPower")} / ${formatValue(row.floorMaxPoint, "floorMaxPoint")}`;
+  drawTextFit(ctx, metricText, textX, textY, w - 32);
 }
 
 function getJacketUrl(row) {
@@ -6872,12 +6954,23 @@ async function saveCanvasImage(canvas, fileName) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = fileName;
+  link.download = addImageTimestamp(fileName);
   document.body.appendChild(link);
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   return copied;
+}
+
+function addImageTimestamp(fileName) {
+  const date = new Date();
+  const pad = (value) => String(value).padStart(2, "0");
+  const timestamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+  const name = String(fileName || "v-log-image.png").replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-");
+  const extensionIndex = name.lastIndexOf(".");
+  return extensionIndex > 0
+    ? `${name.slice(0, extensionIndex)}-${timestamp}${name.slice(extensionIndex)}`
+    : `${name}-${timestamp}.png`;
 }
 
 function drawRoundRect(ctx, x, y, w, h, r, fill, stroke) {

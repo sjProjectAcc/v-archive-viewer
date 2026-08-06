@@ -374,9 +374,11 @@ main {
 
 .achievementItem {
   display: grid;
-  grid-template-columns: 28px 72px minmax(220px, 1fr) minmax(170px, 0.65fr) 32px minmax(170px, 0.65fr);
-  gap: 12px;
+  grid-template-columns: 28px 86px minmax(180px, 1fr) minmax(145px, 0.65fr) 24px minmax(145px, 0.65fr);
+  gap: 10px;
   align-items: center;
+  width: 100%;
+  max-width: 1180px;
   min-height: 96px;
   padding: 10px 12px;
   border: 1px solid var(--line);
@@ -405,8 +407,8 @@ main {
 }
 
 .achievementJacket {
-  width: 72px;
-  height: 72px;
+  width: 86px;
+  height: 86px;
   object-fit: cover;
   border: 1px solid var(--line);
   border-radius: 6px;
