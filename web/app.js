@@ -4928,10 +4928,11 @@ function renderHistoryChart(entries) {
   const xFor = (time) => pad.left + ((time - minTime) / (maxTime - minTime)) * plotW;
   const yFor = (value) => pad.top + plotH - ((value - yMin) / (yMax - yMin)) * plotH;
 
-  const yGrid = Array.from({ length: 6 }, (_, index) => {
-    const value = yMin + ((yMax - yMin) * index) / 5;
+  const yGridDivisions = 9;
+  const yGrid = Array.from({ length: yGridDivisions - 1 }, (_, index) => {
+    const value = yMin + ((yMax - yMin) * (index + 1)) / yGridDivisions;
     const y = yFor(value);
-    return `<line class="gridLine" x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}"></line><text class="axisLabel" x="${pad.left - 10}" y="${y + 4}" text-anchor="end">${Math.round(value)}</text>`;
+    return `<line class="gridLine" x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}"></line><text class="axisLabel" x="${pad.left - 10}" y="${y + 4}" text-anchor="end">${formatHistoryYAxisTick(value, (yMax - yMin) / yGridDivisions)}</text>`;
   }).join("");
   const calendarTicks = getHistoryXAxisTicks(minTime, maxTime)
     .filter((time) => time > minTime && time < maxTime)
@@ -4988,15 +4989,17 @@ function getHistoryYAxisRange(values) {
   const dataMin = Math.min(...finiteValues);
   const dataMax = Math.max(...finiteValues);
   const dataSpan = dataMax - dataMin;
-  const padding = dataSpan > 0 ? dataSpan * 0.08 : Math.max(Math.abs(dataMax) * 0.02, 10);
-  const roughStep = Math.max((dataSpan + padding * 2) / 5, Number.EPSILON);
-  const magnitude = 10 ** Math.floor(Math.log10(roughStep));
-  const normalized = roughStep / magnitude;
-  const stepFactor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
-  const step = stepFactor * magnitude;
-  const min = Math.max(0, Math.floor((dataMin - padding) / step) * step);
-  const max = Math.max(min + step, Math.ceil((dataMax + padding) / step) * step);
+  const reference = Math.max(Math.abs(dataMin), Math.abs(dataMax), 1);
+  const lowerPadding = Math.max(dataSpan * 0.04, reference * 0.0025);
+  const upperPadding = Math.max(dataSpan * 0.05, reference * 0.003);
+  const min = Math.max(0, dataMin - lowerPadding);
+  const max = Math.max(min + Number.EPSILON, dataMax + upperPadding);
   return { min, max };
+}
+
+function formatHistoryYAxisTick(value, step) {
+  const maximumFractionDigits = step >= 10 ? 0 : step >= 1 ? 1 : 2;
+  return value.toLocaleString("ko-KR", { maximumFractionDigits });
 }
 
 function bindHistoryTooltips() {
