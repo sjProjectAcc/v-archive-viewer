@@ -361,6 +361,13 @@ main {
   margin-bottom: 14px;
 }
 
+.nicknameManagerAdd {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) auto auto;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
 .nicknameManagerPanel h2,
 .nicknameManagerPanel p {
   margin: 0;
@@ -377,6 +384,42 @@ main {
   gap: 8px;
 }
 
+.nicknameManagerGroup {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--subtle);
+}
+
+.nicknameManagerGroup.dragOver {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.nicknameManagerGroup > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.nicknameManagerGroup h3,
+.nicknameManagerGroup header span {
+  margin: 0;
+}
+
+.nicknameManagerGroup header span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.nicknameManagerGroupItems {
+  display: grid;
+  gap: 6px;
+  min-height: 42px;
+}
+
 .nicknameManagerItem {
   display: flex;
   align-items: center;
@@ -386,6 +429,14 @@ main {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--subtle);
+}
+
+.nicknameManagerItem[draggable] {
+  cursor: grab;
+}
+
+.nicknameManagerItem.dragging {
+  opacity: 0.45;
 }
 
 .nicknameManagerItem > div:first-child {

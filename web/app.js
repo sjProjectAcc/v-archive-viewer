@@ -73,6 +73,7 @@ const SETTINGS_KEY = "vArchiveViewerSettings";
 const NICKNAME_HISTORY_KEY = "vArchiveNicknameHistory";
 const HISTORY_ACCOUNT_NICKNAME_KEY = "vArchiveHistoryAccountNickname";
 const DEFAULT_NICKNAME = "lemoncube7";
+const DEVELOPER_NICKNAME = "lemoncube7";
 const API_BASE_URL = "https://v-archive.net";
 const PUBLIC_APP_URL = "https://sjprojectacc.github.io/v-archive-viewer/";
 const SONG_DB_URL = `${API_BASE_URL}/db/v2/songs.json`;
@@ -424,6 +425,9 @@ const historyEndDate = document.querySelector("#historyEndDate");
 const historyRangeResetButton = document.querySelector("#historyRangeResetButton");
 const nicknameManagerPanel = document.querySelector("#nicknameManagerPanel");
 const nicknameManagerList = document.querySelector("#nicknameManagerList");
+const nicknameManagerInput = document.querySelector("#nicknameManagerInput");
+const nicknameManagerSaveButton = document.querySelector("#nicknameManagerSaveButton");
+const nicknameManagerLoadButton = document.querySelector("#nicknameManagerLoadButton");
 const achievementPanel = document.querySelector("#achievementPanel");
 const achievementStatus = document.querySelector("#achievementStatus");
 const achievementSelectVisibleButton = document.querySelector("#achievementSelectVisibleButton");
@@ -611,6 +615,9 @@ const REQUIRED_UI_IDS = [
   "historyPanel",
   "nicknameManagerPanel",
   "nicknameManagerList",
+  "nicknameManagerInput",
+  "nicknameManagerSaveButton",
+  "nicknameManagerLoadButton",
   "historyLineStyleSelect",
   "historyChartHeightInput",
   "historyYMinInput",
@@ -950,6 +957,11 @@ function wireEvents() {
     if (event.key === "Enter") applyNickname();
   });
   nicknameInput.addEventListener("input", () => saveCurrentNickname(nicknameInput.value));
+  nicknameManagerSaveButton.addEventListener("click", () => saveNicknameFromManager(false));
+  nicknameManagerLoadButton.addEventListener("click", () => saveNicknameFromManager(true));
+  nicknameManagerInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") saveNicknameFromManager(true);
+  });
   viewTabButtons.forEach((button) => {
     button.addEventListener("click", () => selectView(button.dataset.view));
   });
@@ -2566,25 +2578,59 @@ function saveCurrentNickname(nickname) {
 }
 
 function getNicknameHistory() {
+  const groups = getNicknameGroups();
+  return [...groups.visible, ...groups.hidden];
+}
+
+function normalizeNicknameList(nicknames) {
+  const seen = new Set();
+  return (Array.isArray(nicknames) ? nicknames : []).map((nickname) => String(nickname || "").trim())
+    .filter((nickname) => nickname && cacheKey(nickname) !== cacheKey(DEVELOPER_NICKNAME))
+    .filter((nickname) => {
+      const key = cacheKey(nickname);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function getNicknameGroups() {
   try {
-    const nicknames = JSON.parse(appStorageGetItem(NICKNAME_HISTORY_KEY) || "[]");
-    return Array.isArray(nicknames) ? nicknames.filter(Boolean) : [];
+    const stored = JSON.parse(appStorageGetItem(NICKNAME_HISTORY_KEY) || "[]");
+    if (Array.isArray(stored)) return { visible: normalizeNicknameList(stored), hidden: [] };
+    const visible = normalizeNicknameList(stored?.visible);
+    const visibleKeys = new Set(visible.map(cacheKey));
+    const hidden = normalizeNicknameList(stored?.hidden).filter((nickname) => !visibleKeys.has(cacheKey(nickname)));
+    return { visible, hidden };
   } catch {
-    return [];
+    return { visible: [], hidden: [] };
   }
+}
+
+function saveNicknameGroups(groups) {
+  appStorageSetItem(NICKNAME_HISTORY_KEY, JSON.stringify({
+    visible: normalizeNicknameList(groups.visible),
+    hidden: normalizeNicknameList(groups.hidden).filter((nickname) => !new Set(normalizeNicknameList(groups.visible).map(cacheKey)).has(cacheKey(nickname))),
+  }));
 }
 
 function rememberNickname(nickname) {
   const clean = (nickname || "").trim();
   if (!clean) return;
-  const next = [clean, ...getNicknameHistory().filter((item) => item.toLowerCase() !== clean.toLowerCase())].slice(0, 8);
-  appStorageSetItem(NICKNAME_HISTORY_KEY, JSON.stringify(next));
+  if (cacheKey(clean) !== cacheKey(DEVELOPER_NICKNAME)) {
+    const groups = getNicknameGroups();
+    const known = [...groups.visible, ...groups.hidden].some((item) => cacheKey(item) === cacheKey(clean));
+    if (!known) {
+      groups.visible.push(clean);
+      saveNicknameGroups(groups);
+    }
+  }
   saveCurrentNickname(clean);
   renderRecentNicknames();
 }
 
 function renderRecentNicknames() {
-  const nicknames = getNicknameHistory();
+  const nicknames = [DEVELOPER_NICKNAME, ...getNicknameGroups().visible];
   recentNicknamesEl.innerHTML = nicknames
     .map((nickname) => `<button class="nicknameChip" type="button" data-nickname="${escapeHtml(nickname)}">${escapeHtml(nickname)}</button>`)
     .join("");
@@ -4844,10 +4890,28 @@ function loadLegacyDjPowerHistorySeriesCache() {
   }
 }
 
+function saveNicknameFromManager(loadAfterSave) {
+  const nickname = nicknameManagerInput.value.trim();
+  if (!nickname) {
+    nicknameManagerInput.focus();
+    return;
+  }
+  rememberNickname(nickname);
+  nicknameManagerInput.value = "";
+  if (loadAfterSave) {
+    nicknameInput.value = nickname;
+    applyNickname();
+  } else {
+    renderNicknameManager();
+  }
+}
+
 function removeNicknameFromHistory(nickname) {
   const target = cacheKey(nickname);
-  const next = getNicknameHistory().filter((item) => cacheKey(item) !== target);
-  appStorageSetItem(NICKNAME_HISTORY_KEY, JSON.stringify(next));
+  const groups = getNicknameGroups();
+  groups.visible = groups.visible.filter((item) => cacheKey(item) !== target);
+  groups.hidden = groups.hidden.filter((item) => cacheKey(item) !== target);
+  saveNicknameGroups(groups);
   renderRecentNicknames();
 }
 
@@ -4860,8 +4924,27 @@ async function deleteProfileCache(nickname) {
   });
 }
 
+async function clearNicknameCache(nickname) {
+  await Promise.all([deleteProfileCache(nickname), deleteRecordHistories(nickname)]);
+  state.djPowerHistorySeriesCache.clear();
+  state.djPowerHistorySeriesStore = { entries: {} };
+  await saveSharedData(DJPOWER_HISTORY_SERIES_CACHE_KEY, state.djPowerHistorySeriesStore);
+  if (state.historyAccountNickname === cacheKey(nickname)) {
+    state.historyAccountNickname = "";
+    appStorageRemoveItem(HISTORY_ACCOUNT_NICKNAME_KEY);
+  }
+  if (cacheKey(state.payload?.nickname) === cacheKey(nickname)) {
+    state.payload = null;
+    state.historyEntries = [];
+    state.historyRows = [];
+    state.achievementRows = [];
+    state.achievementSelected.clear();
+  }
+  await refreshCompareNicknameOptions();
+}
+
 async function renderNicknameManager() {
-  const nicknames = getNicknameHistory();
+  const groups = getNicknameGroups();
   let cachedProfiles = new Set();
   let historyProfiles = new Set();
   try {
@@ -4870,25 +4953,32 @@ async function renderNicknameManager() {
     historyProfiles = new Set(histories.map((profile) => cacheKey(profile.nickname)));
   } catch {}
   if (viewSelect.value !== "nicknameManager") return;
-  if (!nicknames.length) {
-    nicknameManagerList.innerHTML = `<div class="nicknameManagerEmpty">아직 저장된 닉네임이 없습니다.</div>`;
-    return;
-  }
-  nicknameManagerList.innerHTML = nicknames.map((nickname) => {
+  const renderNicknameItem = (nickname, group, developer = false) => {
     const key = cacheKey(nickname);
     const encodedNickname = encodeURIComponent(nickname);
     const cacheLabel = cachedProfiles.has(key) || historyProfiles.has(key)
       ? `${cachedProfiles.has(key) ? "기록 캐시" : ""}${cachedProfiles.has(key) && historyProfiles.has(key) ? " · " : ""}${historyProfiles.has(key) ? "히스토리 캐시" : ""}`
       : "저장된 기록 없음";
-    return `<article class="nicknameManagerItem">
+    return `<article class="nicknameManagerItem"${developer ? "" : " draggable=\"true\""} data-nickname-group="${group}" data-nickname="${encodedNickname}">
       <div><strong>${escapeHtml(nickname)}</strong><span>${escapeHtml(cacheLabel)}</span></div>
       <div class="nicknameManagerActions">
         <button type="button" data-nickname-action="load" data-nickname="${encodedNickname}">조회</button>
+        ${developer ? "" : `<button type="button" class="secondaryButton" data-nickname-action="${group === "visible" ? "hide" : "show"}" data-nickname="${encodedNickname}">${group === "visible" ? "비표시" : "표시"}</button>
         <button type="button" class="secondaryButton" data-nickname-action="remove" data-nickname="${encodedNickname}">닉네임 삭제</button>
         <button type="button" class="dangerButton" data-nickname-action="clear-cache" data-nickname="${encodedNickname}">캐시 삭제</button>
+        <button type="button" class="dangerButton" data-nickname-action="delete-all" data-nickname="${encodedNickname}">모두 삭제</button>`}
       </div>
     </article>`;
-  }).join("");
+  };
+  const renderGroup = (title, group, nicknames, description) => `<section class="nicknameManagerGroup" data-nickname-group="${group}">
+    <header><h3>${title}</h3><span>${description}</span></header>
+    <div class="nicknameManagerGroupItems">${nicknames.length ? nicknames.map((nickname) => renderNicknameItem(nickname, group, group === "developer")).join("") : `<div class="nicknameManagerEmpty">저장된 닉네임이 없습니다.</div>`}</div>
+  </section>`;
+  nicknameManagerList.innerHTML = [
+    renderGroup("개발자", "developer", [DEVELOPER_NICKNAME], "고정"),
+    renderGroup("표시", "visible", groups.visible, "조회창 아래 버튼 표시"),
+    renderGroup("비표시", "hidden", groups.hidden, "저장만 하고 버튼 숨김"),
+  ].join("");
   nicknameManagerList.querySelectorAll("[data-nickname-action]").forEach((button) => {
     button.addEventListener("click", async () => {
       const nickname = decodeURIComponent(button.dataset.nickname || "");
@@ -4898,35 +4988,72 @@ async function renderNicknameManager() {
         await applyNickname();
         return;
       }
+      if (button.dataset.nicknameAction === "show" || button.dataset.nicknameAction === "hide") {
+        const nextGroups = getNicknameGroups();
+        const from = button.dataset.nicknameAction === "show" ? "hidden" : "visible";
+        const to = from === "visible" ? "hidden" : "visible";
+        const row = nextGroups[from].find((item) => cacheKey(item) === cacheKey(nickname));
+        nextGroups[from] = nextGroups[from].filter((item) => cacheKey(item) !== cacheKey(nickname));
+        if (row) nextGroups[to].push(row);
+        saveNicknameGroups(nextGroups);
+        renderRecentNicknames();
+        renderNicknameManager();
+        return;
+      }
       if (button.dataset.nicknameAction === "remove") {
         if (!confirm(`${nickname}을(를) 최근 닉네임 목록에서 지울까요? 기록 캐시는 유지됩니다.`)) return;
         removeNicknameFromHistory(nickname);
         renderNicknameManager();
         return;
       }
-      if (!confirm(`${nickname}의 기록·히스토리 캐시를 지울까요? 다음 조회 시 다시 받아야 합니다.`)) return;
+      const deleteAll = button.dataset.nicknameAction === "delete-all";
+      if (!confirm(deleteAll
+        ? `${nickname}을(를) 목록과 로컬 캐시에서 모두 지울까요? 다음 조회 시 다시 받아야 합니다.`
+        : `${nickname}의 기록·히스토리 캐시를 지울까요? 닉네임은 목록에 유지됩니다.`)) return;
       try {
-        await Promise.all([deleteProfileCache(nickname), deleteRecordHistories(nickname)]);
-        state.djPowerHistorySeriesCache.clear();
-        state.djPowerHistorySeriesStore = { entries: {} };
-        await saveSharedData(DJPOWER_HISTORY_SERIES_CACHE_KEY, state.djPowerHistorySeriesStore);
-        if (state.historyAccountNickname === cacheKey(nickname)) {
-          state.historyAccountNickname = "";
-          appStorageRemoveItem(HISTORY_ACCOUNT_NICKNAME_KEY);
-        }
-        if (cacheKey(state.payload?.nickname) === cacheKey(nickname)) {
-          state.payload = null;
-          state.historyEntries = [];
-          state.historyRows = [];
-          state.achievementRows = [];
-          state.achievementSelected.clear();
-        }
-        statusText.textContent = `${nickname}의 로컬 기록 캐시를 삭제했습니다.`;
-        await refreshCompareNicknameOptions();
+        await clearNicknameCache(nickname);
+        if (deleteAll) removeNicknameFromHistory(nickname);
+        statusText.textContent = deleteAll ? `${nickname}을(를) 목록과 로컬 캐시에서 삭제했습니다.` : `${nickname}의 로컬 기록 캐시를 삭제했습니다.`;
         renderNicknameManager();
       } catch (error) {
         statusText.textContent = `캐시 삭제 오류: ${error.message || error}`;
       }
+    });
+  });
+  nicknameManagerList.querySelectorAll(".nicknameManagerItem[draggable]").forEach((item) => {
+    item.addEventListener("dragstart", (event) => {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", `${item.dataset.nicknameGroup}|${item.dataset.nickname}`);
+      item.classList.add("dragging");
+    });
+    item.addEventListener("dragend", () => item.classList.remove("dragging"));
+  });
+  nicknameManagerList.querySelectorAll(".nicknameManagerGroup[data-nickname-group='visible'], .nicknameManagerGroup[data-nickname-group='hidden']").forEach((groupElement) => {
+    groupElement.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      groupElement.classList.add("dragOver");
+    });
+    groupElement.addEventListener("dragleave", () => groupElement.classList.remove("dragOver"));
+    groupElement.addEventListener("drop", (event) => {
+      event.preventDefault();
+      groupElement.classList.remove("dragOver");
+      const [fromGroup, encodedNickname] = event.dataTransfer.getData("text/plain").split("|");
+      const nickname = decodeURIComponent(encodedNickname || "");
+      const toGroup = groupElement.dataset.nicknameGroup;
+      if (!nickname || !["visible", "hidden"].includes(fromGroup) || !["visible", "hidden"].includes(toGroup)) return;
+      const nextGroups = getNicknameGroups();
+      const sourceIndex = nextGroups[fromGroup].findIndex((item) => cacheKey(item) === cacheKey(nickname));
+      if (sourceIndex < 0) return;
+      const [moved] = nextGroups[fromGroup].splice(sourceIndex, 1);
+      const targetItem = event.target.closest(".nicknameManagerItem[data-nickname-group]");
+      let targetIndex = targetItem && targetItem.dataset.nicknameGroup === toGroup
+        ? nextGroups[toGroup].findIndex((item) => cacheKey(item) === cacheKey(decodeURIComponent(targetItem.dataset.nickname || "")))
+        : -1;
+      if (targetIndex < 0) targetIndex = nextGroups[toGroup].length;
+      nextGroups[toGroup].splice(targetIndex, 0, moved);
+      saveNicknameGroups(nextGroups);
+      renderRecentNicknames();
+      renderNicknameManager();
     });
   });
 }
