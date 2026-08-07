@@ -272,6 +272,15 @@ main {
   font-weight: 500;
 }
 
+.viewTabTestDivider {
+  flex: 0 0 1px;
+  align-self: center;
+  width: 1px;
+  height: 24px;
+  margin: 0 8px;
+  background: var(--line);
+}
+
 .viewSelectFallback {
   position: absolute;
   width: 1px;
