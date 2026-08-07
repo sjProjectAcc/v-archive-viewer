@@ -483,6 +483,7 @@ const logPowerCalculatorPanel = document.querySelector("#logPowerCalculatorPanel
 const calculatorTitle = document.querySelector("#calculatorTitle");
 const logPowerCalculatorContext = document.querySelector("#logPowerCalculatorContext");
 const calculatorMode = document.querySelector("#calculatorMode");
+const calculatorButtonControl = document.querySelector("#calculatorButtonControl");
 const logPowerCalculatorButton = document.querySelector("#logPowerCalculatorButton");
 const calculatorFloorControl = document.querySelector("#calculatorFloorControl");
 const logPowerCalculatorFloor = document.querySelector("#logPowerCalculatorFloor");
@@ -490,6 +491,10 @@ const calculatorPatternControl = document.querySelector("#calculatorPatternContr
 const djPowerCalculatorPattern = document.querySelector("#djPowerCalculatorPattern");
 const calculatorLevelControl = document.querySelector("#calculatorLevelControl");
 const djPowerCalculatorLevel = document.querySelector("#djPowerCalculatorLevel");
+const calculatorMaxRatingControl = document.querySelector("#calculatorMaxRatingControl");
+const calculatorMaxComboControl = document.querySelector("#calculatorMaxComboControl");
+const pointCalculatorMaxRating = document.querySelector("#pointCalculatorMaxRating");
+const pointCalculatorMaxCombo = document.querySelector("#pointCalculatorMaxCombo");
 const logPowerCalculatorScore = document.querySelector("#logPowerCalculatorScore");
 const logPowerCalculatorTarget = document.querySelector("#logPowerCalculatorTarget");
 const calculatorInverseTitle = document.querySelector("#calculatorInverseTitle");
@@ -633,6 +638,11 @@ const REQUIRED_UI_IDS = [
   "tagsPanel",
   "logPowerCalculatorPanel",
   "calculatorMode",
+  "calculatorButtonControl",
+  "calculatorMaxRatingControl",
+  "calculatorMaxComboControl",
+  "pointCalculatorMaxRating",
+  "pointCalculatorMaxCombo",
   "djPowerCalculatorPattern",
   "djPowerCalculatorLevel",
   "logPowerCalculatorTarget",
@@ -1281,7 +1291,7 @@ function wireEvents() {
     saveSettings();
     renderDebugView();
   });
-  [calculatorMode, logPowerCalculatorButton, logPowerCalculatorFloor, djPowerCalculatorPattern, djPowerCalculatorLevel, logPowerCalculatorScore, logPowerCalculatorTarget].forEach((control) => {
+  [calculatorMode, logPowerCalculatorButton, logPowerCalculatorFloor, djPowerCalculatorPattern, djPowerCalculatorLevel, pointCalculatorMaxRating, pointCalculatorMaxCombo, logPowerCalculatorScore, logPowerCalculatorTarget].forEach((control) => {
     control.addEventListener("input", () => {
       saveSettings();
       renderLogPowerCalculator();
@@ -1365,6 +1375,8 @@ function applySavedSettings() {
   selfCompareEnd.value = settings.selfCompareEnd || "";
   setIfOptionExists(logPowerCalculatorButton, settings.logPowerCalculatorButton || "");
   setIfOptionExists(calculatorMode, settings.calculatorMode || "logPower");
+  pointCalculatorMaxRating.value = String(Math.max(0, Number(settings.pointCalculatorMaxRating) || 100));
+  pointCalculatorMaxCombo.checked = settings.pointCalculatorMaxCombo !== false;
   setIfOptionExists(logPowerCalculatorFloor, settings.logPowerCalculatorFloor || "16.1");
   setIfOptionExists(djPowerCalculatorPattern, settings.djPowerCalculatorPattern || "SC");
   djPowerCalculatorLevel.value = String(Math.min(15, Math.max(1, Number(settings.djPowerCalculatorLevel) || 15)));
@@ -1466,6 +1478,8 @@ function saveSettings() {
     selfCompareEnd: selfCompareEnd.value,
     logPowerCalculatorButton: logPowerCalculatorButton.value,
     calculatorMode: calculatorMode.value,
+    pointCalculatorMaxRating: pointCalculatorMaxRating.value,
+    pointCalculatorMaxCombo: pointCalculatorMaxCombo.checked,
     logPowerCalculatorFloor: logPowerCalculatorFloor.value,
     djPowerCalculatorPattern: djPowerCalculatorPattern.value,
     djPowerCalculatorLevel: djPowerCalculatorLevel.value,
@@ -7638,15 +7652,21 @@ function buildCompareRows() {
 function renderLogPowerCalculator() {
   if (!logPowerCalculatorPanel) return;
   const djPowerMode = calculatorMode.value === "djPower";
-  calculatorTitle.textContent = djPowerMode ? "DJPower 계산기" : "LogPower 계산기";
-  calculatorFloorControl.hidden = djPowerMode;
+  const pointMode = calculatorMode.value === "point";
+  calculatorTitle.textContent = djPowerMode ? "DJPower 계산기" : pointMode ? "POINT 계산기" : "LogPower 계산기";
+  calculatorButtonControl.hidden = pointMode;
+  calculatorFloorControl.hidden = djPowerMode || pointMode;
   calculatorPatternControl.hidden = !djPowerMode;
   calculatorLevelControl.hidden = !djPowerMode;
-  calculatorInverseTitle.textContent = djPowerMode ? "원본 DJPower로 Score 찾기" : "LogPower로 Score 찾기";
+  calculatorMaxRatingControl.hidden = !pointMode;
+  calculatorMaxComboControl.hidden = !pointMode;
+  calculatorInverseTitle.textContent = djPowerMode ? "원본 DJPower로 Score 찾기" : pointMode ? "POINT로 Score 찾기" : "LogPower로 Score 찾기";
   calculatorInverseDescription.textContent = djPowerMode
     ? "선택한 패턴과 레벨에서 목표 원본 DJPower에 도달하는 최소 Score를 계산합니다."
-    : "입력한 LogPower에 도달하는 최소 Score를 floor별로 계산합니다.";
-  calculatorTargetLabel.textContent = djPowerMode ? "원본 DJPower" : "LogPower";
+    : pointMode
+      ? "입력한 maxRating과 MAX COMBO 상태에서 목표 POINT에 도달하는 최소 Score를 계산합니다."
+      : "입력한 LogPower에 도달하는 최소 Score를 floor별로 계산합니다.";
+  calculatorTargetLabel.textContent = djPowerMode ? "원본 DJPower" : pointMode ? "POINT" : "LogPower";
   const floorLabel = logPowerCalculatorFloor.value;
   const rawScore = logPowerCalculatorScore.value.trim();
   const score = Math.min(100, Math.max(0, Number(rawScore)));
@@ -7654,6 +7674,10 @@ function renderLogPowerCalculator() {
   const buttons = BUTTONS.includes(selectedButton) ? [selectedButton] : BUTTONS;
   if (djPowerMode) {
     renderDjPowerCalculator(buttons, rawScore, score);
+    return;
+  }
+  if (pointMode) {
+    renderPointCalculator(rawScore, score);
     return;
   }
   const baseConstant = baseDifficultyConstantForFloor(floorLabel);
@@ -7680,6 +7704,27 @@ function renderLogPowerCalculator() {
   }).join("");
   const capLabel = score > 99.9 ? " · 99.9로 상한 적용" : "";
   logPowerCalculatorBreakdown.innerHTML = `<span>Score Point <strong>${point.toFixed(4)}</strong>${capLabel}</span><span>floor 기본 상수 <strong>${baseConstant.toFixed(4)}</strong></span><span>${hasLiveScale ? "최신 곡 목록" : "내장값"} 기준 버튼별 TOP50 5000 보정</span>`;
+}
+
+function renderPointCalculator(rawScore, score) {
+  const maxRating = Number(pointCalculatorMaxRating.value);
+  const maxCombo = pointCalculatorMaxCombo.checked;
+  const rating = rawScore === "" ? NaN : estimateTierRating(score, maxRating, maxCombo);
+  const pointPercent = rawScore === "" ? NaN : tierPointPercentForScore(score);
+  const maximumPoint = estimateTierRating(100, maxRating, maxCombo);
+  logPowerCalculatorContext.textContent = `maxRating ${Number.isFinite(maxRating) ? maxRating.toFixed(2) : "-"} · ${maxCombo ? "MAX COMBO" : "MAX COMBO 아님 (-2)"}`;
+  renderPointScoreTable(maxRating, maxCombo);
+  if (!Number.isFinite(rating) || !Number.isFinite(pointPercent)) {
+    logPowerCalculatorResults.innerHTML = `<div class="achievementEmpty">maxRating과 score를 확인해 주세요.</div>`;
+    logPowerCalculatorBreakdown.textContent = "";
+    return;
+  }
+  logPowerCalculatorResults.innerHTML = `<article class="logPowerCalculatorCard">
+    <span>POINT</span>
+    <strong>${rating.toFixed(2)}</strong>
+    <small>최대 ${maximumPoint.toFixed(2)} · 점수 보정률 ${pointPercent.toFixed(4)}%</small>
+  </article>`;
+  logPowerCalculatorBreakdown.innerHTML = `<span>maxRating <strong>${maxRating.toFixed(2)}</strong></span><span>MAX COMBO <strong>${maxCombo ? "적용" : "미적용 (-2.00)"}</strong></span><span>score ${score.toFixed(2)} 기준 POINT를 계산합니다.</span>`;
 }
 
 function renderDjPowerCalculator(buttons, rawScore, score) {
@@ -7740,6 +7785,34 @@ function requiredScoreForDjPower(target, rawMax) {
   for (let index = 0; index < 60; index += 1) {
     const middle = (low + high) / 2;
     if (djPowerScoreRatio(middle) * rawMax >= target) high = middle;
+    else low = middle;
+  }
+  return Math.min(100, Math.ceil((high - 1e-9) * 100) / 100);
+}
+
+function renderPointScoreTable(maxRating, maxCombo) {
+  const rawTarget = logPowerCalculatorTarget.value.trim();
+  const target = Number(rawTarget);
+  if (rawTarget === "" || !Number.isFinite(target) || target < 0 || !Number.isFinite(maxRating) || maxRating <= 0) {
+    logPowerCalculatorScoreTable.innerHTML = `<tbody><tr><td class="empty">0 이상의 POINT와 올바른 maxRating을 입력해 주세요.</td></tr></tbody>`;
+    return;
+  }
+  const maximum = estimateTierRating(100, maxRating, maxCombo);
+  const score = requiredScoreForPoint(target, maxRating, maxCombo);
+  const scoreText = target === 0 ? "90.00 이하" : Number.isFinite(score) ? score.toFixed(2) : "도달 불가";
+  logPowerCalculatorScoreTable.innerHTML = `<thead><tr><th>목표 POINT</th><th>maxRating</th><th>MAX COMBO</th><th>최대 POINT</th><th>최소 Score</th></tr></thead><tbody><tr><td class="num">${target.toFixed(2)}</td><td class="num">${maxRating.toFixed(2)}</td><td>${maxCombo ? "적용" : "미적용 (-2)"}</td><td class="num">${maximum.toFixed(2)}</td><td class="num${Number.isFinite(score) || target === 0 ? "" : " calculatorImpossible"}">${scoreText}</td></tr></tbody>`;
+}
+
+function requiredScoreForPoint(target, maxRating, maxCombo) {
+  if (!Number.isFinite(target) || target < 0 || !Number.isFinite(maxRating) || maxRating <= 0) return NaN;
+  if (target === 0) return 0;
+  const maximum = estimateTierRating(100, maxRating, maxCombo);
+  if (!Number.isFinite(maximum) || target > maximum + 1e-9) return NaN;
+  let low = 0;
+  let high = 100;
+  for (let index = 0; index < 60; index += 1) {
+    const middle = (low + high) / 2;
+    if (estimateTierRating(middle, maxRating, maxCombo) >= target) high = middle;
     else low = middle;
   }
   return Math.min(100, Math.ceil((high - 1e-9) * 100) / 100);

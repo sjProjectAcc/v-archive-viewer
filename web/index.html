@@ -512,11 +512,13 @@
         </div>
       </div>
       <div class="logPowerCalculatorControls">
-        <label>모드 <select id="calculatorMode"><option value="logPower">LogPower</option><option value="djPower">DJPower</option></select></label>
-        <label>버튼 <select id="logPowerCalculatorButton"><option value="">전체</option><option value="4">4B</option><option value="5">5B</option><option value="6">6B</option><option value="8">8B</option></select></label>
+        <label>모드 <select id="calculatorMode"><option value="logPower">LogPower</option><option value="djPower">DJPower</option><option value="point">POINT</option></select></label>
+        <label id="calculatorButtonControl">버튼 <select id="logPowerCalculatorButton"><option value="">전체</option><option value="4">4B</option><option value="5">5B</option><option value="6">6B</option><option value="8">8B</option></select></label>
         <label id="calculatorFloorControl">floor <select id="logPowerCalculatorFloor"></select></label>
         <label id="calculatorPatternControl" hidden>패턴 <select id="djPowerCalculatorPattern"><option value="NM">NM</option><option value="HD">HD</option><option value="MX">MX</option><option value="SC" selected>SC</option></select></label>
         <label id="calculatorLevelControl" hidden>레벨 <input id="djPowerCalculatorLevel" type="number" min="1" max="15" step="1" value="15"></label>
+        <label id="calculatorMaxRatingControl" hidden>maxRating <input id="pointCalculatorMaxRating" type="number" min="0" step="0.01" value="100"></label>
+        <label id="calculatorMaxComboControl" hidden><input id="pointCalculatorMaxCombo" type="checkbox" checked> MAX COMBO</label>
         <label>score <input id="logPowerCalculatorScore" type="number" min="0" max="100" step="0.01" value="99"></label>
       </div>
       <div id="logPowerCalculatorResults" class="logPowerCalculatorResults"></div>
