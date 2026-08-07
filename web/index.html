@@ -141,7 +141,8 @@
       </label>
       <label class="compareOnly">
         비교 닉네임
-        <input id="compareNicknameInput" type="text" autocomplete="off" spellcheck="false" placeholder="상대 닉네임">
+        <input id="compareNicknameInput" type="text" list="compareNicknameOptions" autocomplete="off" spellcheck="false" placeholder="조회 캐시에서 선택 또는 입력">
+        <datalist id="compareNicknameOptions"></datalist>
       </label>
       <button id="compareLoadButton" class="compareOnly" type="button">비교 불러오기</button>
       <label class="compareOnly">

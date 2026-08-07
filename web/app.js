@@ -549,6 +549,7 @@ const recordsFloorMinSelect = document.querySelector("#recordsFloorMinSelect");
 const recordsFloorMaxSelect = document.querySelector("#recordsFloorMaxSelect");
 const recordsOnlyEls = document.querySelectorAll(".recordsOnly");
 const compareNicknameInput = document.querySelector("#compareNicknameInput");
+const compareNicknameOptions = document.querySelector("#compareNicknameOptions");
 const compareLoadButton = document.querySelector("#compareLoadButton");
 const compareModeSelect = document.querySelector("#compareModeSelect");
 const compareSortSelect = document.querySelector("#compareSortSelect");
@@ -2625,6 +2626,7 @@ async function refresh(full) {
     }
   } finally {
     setBusy(false);
+    await refreshCompareNicknameOptions();
   }
 }
 
@@ -2657,6 +2659,7 @@ async function loadComparison(full = false) {
     }
   } finally {
     setBusy(false);
+    await refreshCompareNicknameOptions();
   }
 }
 
@@ -2980,6 +2983,38 @@ async function saveProfileCache(nickname, cache) {
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
+}
+
+async function listCachedProfileNicknames() {
+  const db = await openCacheDb();
+  const profiles = await new Promise((resolve, reject) => {
+    const request = db.transaction(PROFILE_STORE, "readonly").objectStore(PROFILE_STORE).getAll();
+    request.onsuccess = () => resolve(Array.isArray(request.result) ? request.result : []);
+    request.onerror = () => reject(request.error);
+  });
+  const recentOrder = new Map(getNicknameHistory().map((nickname, index) => [cacheKey(nickname), index]));
+  return profiles
+    .filter((profile) => (profile.records?.length || profile.tiers?.length || profile.djClasses?.length))
+    .map((profile) => String(profile.nickname || profile.id || "").trim())
+    .filter(Boolean)
+    .sort((a, b) => {
+      const aOrder = recentOrder.get(cacheKey(a)) ?? Number.MAX_SAFE_INTEGER;
+      const bOrder = recentOrder.get(cacheKey(b)) ?? Number.MAX_SAFE_INTEGER;
+      return aOrder - bOrder || a.localeCompare(b, "ko");
+    });
+}
+
+async function refreshCompareNicknameOptions() {
+  try {
+    const currentKey = cacheKey(state.payload?.nickname || getCurrentNickname());
+    const nicknames = await listCachedProfileNicknames();
+    compareNicknameOptions.innerHTML = nicknames
+      .filter((nickname) => cacheKey(nickname) !== currentKey)
+      .map((nickname) => `<option value="${escapeHtml(nickname)}"></option>`)
+      .join("");
+  } catch {
+    compareNicknameOptions.innerHTML = "";
+  }
 }
 
 async function loadRecordHistories(nickname) {
