@@ -4971,6 +4971,9 @@ function getHistoryMetric() {
   if (state.historyMetric === "point") {
     return { label: "Rating TOP50", fileName: "point-top50", buildSeries: buildPointHistorySeries };
   }
+  if (state.historyMetric === "logPowerLog") {
+    return { label: "Top50 LogPower (log scale)", fileName: "logpower-log-scale", buildSeries: buildLogPowerHistorySeries, logScale: true };
+  }
   return { label: "Top50 LogPower", fileName: "logpower", buildSeries: buildLogPowerHistorySeries };
 }
 
@@ -5135,18 +5138,33 @@ function renderHistoryChart(entries) {
   const selectedMaxTime = Number.isFinite(selectedRange.end) ? selectedRange.end : dataMaxTime;
   const maxTime = selectedMaxTime === minTime ? minTime + 86400000 : selectedMaxTime;
   const visiblePoints = allPoints.filter((point) => point.time >= minTime && point.time <= maxTime);
-  const { min: yMin, max: yMax } = getHistoryYAxisRange(
-    (visiblePoints.length ? visiblePoints : allPoints).map((point) => point.value),
+  const yValues = (visiblePoints.length ? visiblePoints : allPoints).map((point) => point.value);
+  const logValues = yValues.filter((value) => Number.isFinite(value) && value > 0);
+  const baseRange = getHistoryYAxisRange(
+    metric.logScale && logValues.length ? logValues : yValues,
     state.historyYRanges[historyMetricSelect.value],
   );
+  const smallestPositive = logValues.length ? Math.min(...logValues) : 1;
+  const yMin = metric.logScale ? Math.max(smallestPositive * 0.95, Number(baseRange.min) || 0) : baseRange.min;
+  const yMax = metric.logScale ? Math.max(yMin * (1 + Number.EPSILON), baseRange.max) : baseRange.max;
+  const logYMin = metric.logScale ? Math.log10(yMin) : 0;
+  const logYMax = metric.logScale ? Math.log10(yMax) : 1;
   const xFor = (time) => pad.left + ((time - minTime) / (maxTime - minTime)) * plotW;
-  const yFor = (value) => pad.top + plotH - ((value - yMin) / (yMax - yMin)) * plotH;
+  const yFor = (value) => {
+    if (!metric.logScale) return pad.top + plotH - ((value - yMin) / (yMax - yMin)) * plotH;
+    const safeValue = Math.max(yMin, Number(value) || yMin);
+    return pad.top + plotH - ((Math.log10(safeValue) - logYMin) / (logYMax - logYMin)) * plotH;
+  };
 
   const yGridDivisions = 9;
   const yGrid = Array.from({ length: yGridDivisions - 1 }, (_, index) => {
-    const value = yMin + ((yMax - yMin) * (index + 1)) / yGridDivisions;
+    const ratio = (index + 1) / yGridDivisions;
+    const value = metric.logScale
+      ? 10 ** (logYMin + (logYMax - logYMin) * ratio)
+      : yMin + ((yMax - yMin) * ratio);
     const y = yFor(value);
-    return `<line class="gridLine" x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}"></line><text class="axisLabel" x="${pad.left - 10}" y="${y + 4}" text-anchor="end">${formatHistoryYAxisTick(value, (yMax - yMin) / yGridDivisions)}</text>`;
+    const tickStep = metric.logScale ? value : (yMax - yMin) / yGridDivisions;
+    return `<line class="gridLine" x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}"></line><text class="axisLabel" x="${pad.left - 10}" y="${y + 4}" text-anchor="end">${formatHistoryYAxisTick(value, tickStep)}</text>`;
   }).join("");
   const calendarTicks = getHistoryXAxisTicks(minTime, maxTime)
     .filter((time) => time > minTime && time < maxTime)
