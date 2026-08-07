@@ -12,6 +12,8 @@ const state = {
   djPowerHistoryUpdateTimes: [],
   djPowerHistoryPreparing: null,
   djPowerHistorySeriesCache: new Map(),
+  djPowerHistorySeriesStore: null,
+  djPowerHistorySeriesStoreHydrating: null,
   floorPatternCounts: null,
   view: "chart",
   chartMetric: "score",
@@ -119,7 +121,8 @@ const TOP50_SCALE_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 const DJPOWER_HISTORY_LEGACY_CATALOG_CACHE_KEY = "vArchiveDjPowerHistoryCatalogV1";
 const DJPOWER_HISTORY_DLC_CACHE_KEY = "vArchiveDjPowerHistoryDlcsV1";
 const DJPOWER_HISTORY_RELEASE_CACHE_KEY = "vArchiveDjPowerHistoryReleaseV1";
-const DJPOWER_HISTORY_SERIES_CACHE_KEY = "vArchiveDjPowerHistorySeriesV1";
+const DJPOWER_HISTORY_SERIES_LEGACY_CACHE_KEY = "vArchiveDjPowerHistorySeriesV1";
+const DJPOWER_HISTORY_SERIES_CACHE_KEY = "vArchiveDjPowerHistorySeriesV2";
 const DJPOWER_HISTORY_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 const DJPOWER_NEW_RULE_CHANGED_AT = Date.parse("2025-09-11T00:00:00.000Z");
 const DJPOWER_BASE_DLC_CODES = new Set(["R", "RV", "P1", "P2"]);
@@ -4680,6 +4683,7 @@ async function ensureDjPowerHistoryMetadata() {
   if (state.djPowerHistoryPreparing) return state.djPowerHistoryPreparing;
   state.djPowerHistoryPreparing = (async () => {
     appStorageRemoveItem(DJPOWER_HISTORY_LEGACY_CATALOG_CACHE_KEY);
+    await hydrateDjPowerHistorySeriesCache();
     let dlcSource;
     try {
       const cached = JSON.parse(appStorageGetItem(DJPOWER_HISTORY_DLC_CACHE_KEY) || "null");
@@ -4823,12 +4827,35 @@ function getDjPowerHistorySeriesCacheKey(entries, payload = state.payload) {
   ].join("|"));
 }
 
-function loadDjPowerHistorySeriesCache() {
+function loadLegacyDjPowerHistorySeriesCache() {
   try {
-    const cached = JSON.parse(appStorageGetItem(DJPOWER_HISTORY_SERIES_CACHE_KEY) || "null");
+    const cached = JSON.parse(appStorageGetItem(DJPOWER_HISTORY_SERIES_LEGACY_CACHE_KEY) || "null");
     return cached?.entries && typeof cached.entries === "object" ? cached.entries : {};
   } catch {
     return {};
+  }
+}
+
+async function hydrateDjPowerHistorySeriesCache() {
+  if (state.djPowerHistorySeriesStore) return state.djPowerHistorySeriesStore;
+  if (state.djPowerHistorySeriesStoreHydrating) return state.djPowerHistorySeriesStoreHydrating;
+  state.djPowerHistorySeriesStoreHydrating = (async () => {
+    const stored = await loadSharedData(DJPOWER_HISTORY_SERIES_CACHE_KEY).catch(() => null);
+    if (stored?.entries && typeof stored.entries === "object") {
+      state.djPowerHistorySeriesStore = stored;
+      return stored;
+    }
+    const legacyEntries = loadLegacyDjPowerHistorySeriesCache();
+    const next = { entries: legacyEntries };
+    state.djPowerHistorySeriesStore = next;
+    if (Object.keys(legacyEntries).length) await saveSharedData(DJPOWER_HISTORY_SERIES_CACHE_KEY, next);
+    appStorageRemoveItem(DJPOWER_HISTORY_SERIES_LEGACY_CACHE_KEY);
+    return next;
+  })();
+  try {
+    return await state.djPowerHistorySeriesStoreHydrating;
+  } finally {
+    state.djPowerHistorySeriesStoreHydrating = null;
   }
 }
 
@@ -4836,7 +4863,9 @@ function saveDjPowerHistorySeriesCache(cacheEntries) {
   const kept = Object.entries(cacheEntries)
     .sort(([, a], [, b]) => Number(b.savedAt || 0) - Number(a.savedAt || 0))
     .slice(0, 16);
-  appStorageSetItem(DJPOWER_HISTORY_SERIES_CACHE_KEY, JSON.stringify({ entries: Object.fromEntries(kept) }));
+  const next = { entries: Object.fromEntries(kept) };
+  state.djPowerHistorySeriesStore = next;
+  void saveSharedData(DJPOWER_HISTORY_SERIES_CACHE_KEY, next).catch(() => {});
 }
 
 function serializeHistorySeries(series) {
@@ -4878,7 +4907,7 @@ function buildDjPowerHistorySeries(entries, payload = state.payload) {
   const cacheKey = getDjPowerHistorySeriesCacheKey(entries, payload);
   const memoryCached = state.djPowerHistorySeriesCache.get(cacheKey);
   if (memoryCached) return constrainHistorySeries(deserializeHistorySeries(memoryCached, buttons), getHistoryTimeRange());
-  const storedCache = loadDjPowerHistorySeriesCache();
+  const storedCache = state.djPowerHistorySeriesStore?.entries || {};
   const stored = storedCache[cacheKey];
   if (stored?.series) {
     state.djPowerHistorySeriesCache.set(cacheKey, stored.series);
