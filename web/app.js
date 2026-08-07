@@ -4206,8 +4206,7 @@ function getAutoAchievementColumns(count) {
   if (count <= 1) return Math.max(1, count);
   const profileCount = buttonFilter.value ? 1 : BUTTONS.length;
   const profileGap = 10;
-  let bestColumns = 1;
-  let bestDistance = Infinity;
+  const layouts = [];
   for (let columns = 1; columns <= Math.min(MAX_ACHIEVEMENT_COLUMNS, count); columns += 1) {
     const width = ACHIEVEMENT_IMAGE_MARGIN * 2 + columns * ACHIEVEMENT_IMAGE_CARD_WIDTH
       + Math.max(0, columns - 1) * ACHIEVEMENT_IMAGE_GAP;
@@ -4217,13 +4216,12 @@ function getAutoAchievementColumns(count) {
     const rowCount = Math.ceil(count / columns);
     const height = ACHIEVEMENT_IMAGE_MARGIN * 2 + headerHeight + rowCount * ACHIEVEMENT_IMAGE_CARD_HEIGHT
       + Math.max(0, rowCount - 1) * ACHIEVEMENT_IMAGE_GAP;
-    const distance = Math.abs(Math.log(width / height));
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      bestColumns = columns;
-    }
+    layouts.push({ columns, aspectRatio: width / height });
   }
-  return bestColumns;
+  const portraitLayouts = layouts.filter((layout) => layout.aspectRatio <= 1);
+  const candidates = portraitLayouts.length ? portraitLayouts : layouts;
+  candidates.sort((a, b) => Math.abs(Math.log(a.aspectRatio)) - Math.abs(Math.log(b.aspectRatio)) || a.columns - b.columns);
+  return candidates[0]?.columns || 1;
 }
 
 function syncAchievementColumnsToSelection(persist = true) {
