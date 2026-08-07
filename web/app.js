@@ -116,7 +116,8 @@ const FLOOR_STEP_RATIO = 10 / 9;
 const TARGET_TOP50_MAX = 5000;
 const TOP50_SCALE_CACHE_KEY = "vArchiveTop50ScaleCache0900DjPowerV2";
 const TOP50_SCALE_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
-const DJPOWER_HISTORY_CATALOG_CACHE_KEY = "vArchiveDjPowerHistoryCatalogV1";
+const DJPOWER_HISTORY_LEGACY_CATALOG_CACHE_KEY = "vArchiveDjPowerHistoryCatalogV1";
+const DJPOWER_HISTORY_DLC_CACHE_KEY = "vArchiveDjPowerHistoryDlcsV1";
 const DJPOWER_HISTORY_RELEASE_CACHE_KEY = "vArchiveDjPowerHistoryReleaseV1";
 const DJPOWER_HISTORY_SERIES_CACHE_KEY = "vArchiveDjPowerHistorySeriesV1";
 const DJPOWER_HISTORY_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
@@ -4666,23 +4667,22 @@ function buildDjPowerHistoryMetadata(songs, dlcs, dynamicReleaseAtByTitle = {}) 
 async function ensureDjPowerHistoryMetadata() {
   if (state.djPowerHistoryPreparing) return state.djPowerHistoryPreparing;
   state.djPowerHistoryPreparing = (async () => {
-    let source;
+    appStorageRemoveItem(DJPOWER_HISTORY_LEGACY_CATALOG_CACHE_KEY);
+    let dlcSource;
     try {
-      const cached = JSON.parse(appStorageGetItem(DJPOWER_HISTORY_CATALOG_CACHE_KEY) || "null");
-      if (cached?.songs && cached?.dlcs && Date.now() - Number(cached.updatedAt || 0) < DJPOWER_HISTORY_CACHE_TTL) source = cached;
+      const cached = JSON.parse(appStorageGetItem(DJPOWER_HISTORY_DLC_CACHE_KEY) || "null");
+      if (cached?.dlcs && Date.now() - Number(cached.updatedAt || 0) < DJPOWER_HISTORY_CACHE_TTL) dlcSource = cached;
     } catch {}
-    if (!source) {
-      const [songsResponse, dlcsResponse] = await Promise.all([
-        fetchWithTimeout(SONG_DB_URL, { credentials: "omit" }),
-        fetchWithTimeout(DLC_DB_URL, { credentials: "omit" }),
-      ]);
-      if (!songsResponse.ok || !dlcsResponse.ok) throw new Error("곡 또는 DLC 목록을 불러오지 못했습니다.");
-      source = { updatedAt: Date.now(), songs: await songsResponse.json(), dlcs: await dlcsResponse.json() };
-      appStorageSetItem(DJPOWER_HISTORY_CATALOG_CACHE_KEY, JSON.stringify(source));
+    if (!dlcSource) {
+      const dlcsResponse = await fetchWithTimeout(DLC_DB_URL, { credentials: "omit" });
+      if (!dlcsResponse.ok) throw new Error("DLC 목록을 불러오지 못했습니다.");
+      dlcSource = { updatedAt: Date.now(), dlcs: await dlcsResponse.json() };
+      appStorageSetItem(DJPOWER_HISTORY_DLC_CACHE_KEY, JSON.stringify(dlcSource));
     }
+    const songs = await ensureHangySongCatalog(false);
 
     const dynamicCache = loadDjPowerHistoryReleaseCache();
-    let metadata = buildDjPowerHistoryMetadata(source.songs, source.dlcs, dynamicCache.releaseAtByTitle);
+    let metadata = buildDjPowerHistoryMetadata(songs, dlcSource.dlcs, dynamicCache.releaseAtByTitle);
     const staticNames = new Set(DJPOWER_STATIC_RELEASES.flatMap(([, names]) => names.map(normalizeDjPowerSongName)));
     const unresolved = Object.values(metadata.catalog).filter((song) => {
       if (!DJPOWER_RV_CP_CODES.has(song.dlcCode)) return false;
@@ -4704,10 +4704,13 @@ async function ensureDjPowerHistoryMetadata() {
         if (index + 1 < unresolved.length) await delay(150);
       }
       appStorageSetItem(DJPOWER_HISTORY_RELEASE_CACHE_KEY, JSON.stringify(dynamicCache));
-      metadata = buildDjPowerHistoryMetadata(source.songs, source.dlcs, dynamicCache.releaseAtByTitle);
+      metadata = buildDjPowerHistoryMetadata(songs, dlcSource.dlcs, dynamicCache.releaseAtByTitle);
     }
     state.djPowerHistoryCatalog = metadata.catalog;
-    state.djPowerHistoryCatalogUpdatedAt = Number(source.updatedAt) || 0;
+    state.djPowerHistoryCatalogUpdatedAt = Math.max(
+      Number(state.hangySongCatalogCache?.updatedAt) || 0,
+      Number(dlcSource.updatedAt) || 0,
+    );
     state.djPowerHistoryReleaseAtByTitle = metadata.releaseAtByTitle;
     state.djPowerHistoryUpdateTimes = metadata.updateTimes;
     return metadata;
