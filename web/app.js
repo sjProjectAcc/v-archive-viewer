@@ -408,6 +408,7 @@ const historyAccountLoginButton = document.querySelector("#historyAccountLoginBu
 const historyAccountFileButton = document.querySelector("#historyAccountFileButton");
 const historyAccountStatus = document.querySelector("#historyAccountStatus");
 const historyMetricSelect = document.querySelector("#historyMetricSelect");
+const historyLineStyleSelect = document.querySelector("#historyLineStyleSelect");
 const historyCompareNicknameSelect = document.querySelector("#historyCompareNicknameSelect");
 const historyMergeIntervalSelect = document.querySelector("#historyMergeIntervalSelect");
 const historyChartHeightInput = document.querySelector("#historyChartHeightInput");
@@ -603,6 +604,7 @@ const REQUIRED_UI_IDS = [
   "rateMetricControl",
   "rateMetricSelect",
   "historyPanel",
+  "historyLineStyleSelect",
   "historyChartHeightInput",
   "historyYMinInput",
   "historyYMaxInput",
@@ -1049,6 +1051,10 @@ function wireEvents() {
     saveSettings();
     renderHistoryView();
   });
+  historyLineStyleSelect.addEventListener("change", () => {
+    saveSettings();
+    renderHistoryChart(state.historyEntries);
+  });
   historyCompareNicknameSelect.addEventListener("change", () => {
     saveSettings();
     renderHistoryView();
@@ -1326,6 +1332,7 @@ function applySavedSettings() {
   historyEndDate.value = settings.historyEndDate || "";
   setIfOptionExists(historyMetricSelect, settings.historyMetric || "logPower");
   state.historyMetric = historyMetricSelect.value;
+  setIfOptionExists(historyLineStyleSelect, settings.historyLineStyle || "step");
   state.historyYRanges = settings.historyYRanges && typeof settings.historyYRanges === "object" ? settings.historyYRanges : {};
   syncHistoryYRangeControls();
   historyCompareNicknameSelect.dataset.savedValue = settings.historyCompareNickname || "";
@@ -1427,6 +1434,7 @@ function saveSettings() {
     historyStartDate: historyStartDate.value,
     historyEndDate: historyEndDate.value,
     historyMetric: historyMetricSelect.value,
+    historyLineStyle: historyLineStyleSelect.value,
     historyCompareNickname: historyCompareNicknameSelect.value,
     historyMergeInterval: historyMergeIntervalSelect.value,
     historyChartHeight: historyChartHeightInput.value,
@@ -5181,7 +5189,9 @@ function renderHistoryChart(entries) {
     const renderPoints = getHistoryRenderPoints(points, minTime, maxTime);
     if (!renderPoints.length) return "";
     const color = (dataset.compare ? compareColors : colors)[button];
-    const coordinates = renderPoints.flatMap((point, index) => {
+    const coordinates = historyLineStyleSelect.value === "line"
+      ? renderPoints.map((point) => `${xFor(point.time).toFixed(2)},${yFor(point.value).toFixed(2)}`).join(" ")
+      : renderPoints.flatMap((point, index) => {
       const current = `${xFor(point.time).toFixed(2)},${yFor(point.value).toFixed(2)}`;
       if (index === 0) return [current];
       const previous = renderPoints[index - 1];
@@ -5189,16 +5199,17 @@ function renderHistoryChart(entries) {
         `${xFor(point.time).toFixed(2)},${yFor(previous.value).toFixed(2)}`,
         current,
       ];
-    }).join(" ");
+      }).join(" ");
     return `<polyline class="historyLine${dataset.compare ? " historyCompareLine" : ""}" points="${coordinates}" fill="none" stroke="${color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></polyline>`;
   }).join("")).join("");
   const lineHits = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => {
     const renderPoints = getHistoryRenderPoints(points, minTime, maxTime);
     return renderPoints.slice(1).map((point, index) => {
       const previous = renderPoints[index];
-      const intervalEnd = { time: point.time, value: previous.value };
+      const lineStyle = historyLineStyleSelect.value;
+      const intervalEnd = { time: point.time, value: lineStyle === "line" ? point.value : previous.value };
       const info = encodeURIComponent(JSON.stringify({ nickname: dataset.nickname, button, from: previous, to: intervalEnd, metric: metric.label }));
-      return `<line class="historyLineHit" x1="${xFor(previous.time).toFixed(2)}" y1="${yFor(previous.value).toFixed(2)}" x2="${xFor(point.time).toFixed(2)}" y2="${yFor(previous.value).toFixed(2)}" data-info="${info}" tabindex="0"></line>`;
+      return `<line class="historyLineHit" x1="${xFor(previous.time).toFixed(2)}" y1="${yFor(previous.value).toFixed(2)}" x2="${xFor(point.time).toFixed(2)}" y2="${yFor(intervalEnd.value).toFixed(2)}" data-info="${info}" tabindex="0"></line>`;
     }).join("");
   }).join("")).join("");
   const pointDots = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => points.filter((point) => !point.boundary).map((point) => {
