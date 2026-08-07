@@ -1532,8 +1532,11 @@ function handleWheelControl(event) {
     control.selectedIndex = nextIndex;
   } else {
     if (!control.value && control.type === "date") return;
+    const singleStepControl = control === achievementColumnsInput || control === djPowerCalculatorLevel
+      || control === historyChartHeightInput || control === chartHeightInput
+      || control === compareChartHeightInput || control === debugChartHeightInput;
     const stepCount = control.type === "number" || control.type === "range"
-      ? ((control === achievementColumnsInput || control === djPowerCalculatorLevel || control === historyChartHeightInput || control === chartHeightInput || control === compareChartHeightInput || control === debugChartHeightInput) ? 1 : event.shiftKey ? 10 : 5)
+      ? (singleStepControl ? 1 : control === achievementAutoHoursInput ? 6 : event.shiftKey ? 10 : 5)
       : 1;
     try {
       direction > 0 ? control.stepDown(stepCount) : control.stepUp(stepCount);
