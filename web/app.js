@@ -6811,6 +6811,7 @@ function drawAchievementImageSide(ctx, label, updatedAt, score, logPower, point,
 }
 
 function formatAchievementElapsed(startValue, endValue) {
+  if (!startValue || !endValue) return "";
   const start = new Date(startValue).getTime();
   const end = new Date(endValue).getTime();
   if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "";
