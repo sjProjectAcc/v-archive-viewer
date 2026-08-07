@@ -4901,6 +4901,14 @@ function constrainHistorySeries(series, range) {
   return constrained;
 }
 
+function getHistoryRenderPoints(points, minTime, maxTime) {
+  const visible = points.filter((point) => point.time >= minTime && point.time <= maxTime);
+  if (!visible.length) return visible;
+  const last = visible.at(-1);
+  if (last.time >= maxTime) return visible;
+  return [...visible, { time: maxTime, value: last.value, boundary: true }];
+}
+
 function clampChartHeight(value, fallback) {
   const numeric = Number(value);
   return Math.min(900, Math.max(240, Number.isFinite(numeric) && numeric > 0 ? numeric : fallback));
@@ -5042,12 +5050,13 @@ function renderHistoryChart(entries) {
     return `<line class="gridLine" x1="${x}" y1="${pad.top}" x2="${x}" y2="${pad.top + plotH}"></line>${label ? `<text class="axisLabel" x="${x}" y="${height - 20}" text-anchor="middle">${label}</text>` : ""}`;
   }).join("");
   const lines = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => {
-    if (!points.length) return "";
+    const renderPoints = getHistoryRenderPoints(points, minTime, maxTime);
+    if (!renderPoints.length) return "";
     const color = (dataset.compare ? compareColors : colors)[button];
-    const coordinates = points.flatMap((point, index) => {
+    const coordinates = renderPoints.flatMap((point, index) => {
       const current = `${xFor(point.time).toFixed(2)},${yFor(point.value).toFixed(2)}`;
       if (index === 0) return [current];
-      const previous = points[index - 1];
+      const previous = renderPoints[index - 1];
       return [
         `${xFor(point.time).toFixed(2)},${yFor(previous.value).toFixed(2)}`,
         current,
@@ -5055,12 +5064,15 @@ function renderHistoryChart(entries) {
     }).join(" ");
     return `<polyline class="historyLine${dataset.compare ? " historyCompareLine" : ""}" points="${coordinates}" fill="none" stroke="${color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></polyline>`;
   }).join("")).join("");
-  const lineHits = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => points.slice(1).map((point, index) => {
-    const previous = points[index];
-    const intervalEnd = { time: point.time, value: previous.value };
-    const info = encodeURIComponent(JSON.stringify({ nickname: dataset.nickname, button, from: previous, to: intervalEnd, metric: metric.label }));
-    return `<line class="historyLineHit" x1="${xFor(previous.time).toFixed(2)}" y1="${yFor(previous.value).toFixed(2)}" x2="${xFor(point.time).toFixed(2)}" y2="${yFor(previous.value).toFixed(2)}" data-info="${info}" tabindex="0"></line>`;
-  }).join("")).join("")).join("");
+  const lineHits = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => {
+    const renderPoints = getHistoryRenderPoints(points, minTime, maxTime);
+    return renderPoints.slice(1).map((point, index) => {
+      const previous = renderPoints[index];
+      const intervalEnd = { time: point.time, value: previous.value };
+      const info = encodeURIComponent(JSON.stringify({ nickname: dataset.nickname, button, from: previous, to: intervalEnd, metric: metric.label }));
+      return `<line class="historyLineHit" x1="${xFor(previous.time).toFixed(2)}" y1="${yFor(previous.value).toFixed(2)}" x2="${xFor(point.time).toFixed(2)}" y2="${yFor(previous.value).toFixed(2)}" data-info="${info}" tabindex="0"></line>`;
+    }).join("");
+  }).join("")).join("");
   const pointDots = datasets.map((dataset) => [...dataset.series.entries()].map(([button, points]) => points.filter((point) => !point.boundary).map((point) => {
     const color = (dataset.compare ? compareColors : colors)[button];
     const info = encodeURIComponent(JSON.stringify({ nickname: dataset.nickname, button, time: point.time, value: point.value, metric: metric.label, current: point.current === true }));
