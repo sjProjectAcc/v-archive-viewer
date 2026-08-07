@@ -1,5 +1,5 @@
 {
-  "version": "0.1.49",
+  "version": "0.1.50",
   "scripts": {
     "build": "node scripts/build-static.mjs",
     "tags:update": "node scripts/update-tag-data.mjs",
