@@ -450,6 +450,18 @@ main {
   font-size: 19px;
 }
 
+.achievementSide.achievementNew {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.achievementSide.achievementNew strong {
+  color: var(--muted);
+  font-size: 2.4rem;
+  line-height: 1;
+}
+
 .achievementSide.after strong,
 .achievementDiff {
   color: var(--accent);

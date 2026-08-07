@@ -4080,24 +4080,24 @@ function buildAchievementRows(entries) {
     if (!Number.isFinite(difficultyConstant)) return [];
     const history = [...(entry.history || [])].sort((a, b) => new Date(a.ymdt) - new Date(b.ymdt));
     const rows = [];
-    for (let index = 1; index < history.length; index += 1) {
-      const previous = history[index - 1];
+    for (let index = 0; index < history.length; index += 1) {
+      const previous = index > 0 ? history[index - 1] : null;
       const current = history[index];
-      const previousScore = Number(previous.score);
       const currentScore = Number(current.score);
-      const scoreDiff = currentScore - previousScore;
-      const gainedMaxCombo = previous.maxCombo !== true && current.maxCombo === true;
-      if (!(scoreDiff > 0) && !gainedMaxCombo) continue;
-      const previousScorePoint = scoreToPoint(previousScore);
+      const previousScore = previous ? Number(previous.score) : null;
+      const scoreDiff = previous ? currentScore - previousScore : currentScore;
+      const gainedMaxCombo = previous ? previous.maxCombo !== true && current.maxCombo === true : current.maxCombo === true;
+      if (previous && !(scoreDiff > 0) && !gainedMaxCombo) continue;
+      const previousScorePoint = previous ? scoreToPoint(previousScore) : 0;
       const currentScorePoint = scoreToPoint(currentScore);
-      const previousLogPower = previousScorePoint * difficultyConstant;
+      const previousLogPower = previous ? previousScorePoint * difficultyConstant : 0;
       const currentLogPower = currentScorePoint * difficultyConstant;
       if (![previousLogPower, currentLogPower].every(Number.isFinite)) continue;
       const maxRating = Number(source.maxRating ?? entry.maxRating);
       const maxDjPower = Number(source.maxDjpower ?? entry.maxDjpower);
-      const previousPoint = estimateTierRating(previousScore, maxRating, previous.maxCombo === true);
+      const previousPoint = previous ? estimateTierRating(previousScore, maxRating, previous.maxCombo === true) : 0;
       const estimatedCurrentPoint = estimateTierRating(currentScore, maxRating, current.maxCombo === true);
-      const previousDjPower = djPowerScoreRatio(previousScore) * maxDjPower;
+      const previousDjPower = previous ? djPowerScoreRatio(previousScore) * maxDjPower : 0;
       const estimatedCurrentDjPower = djPowerScoreRatio(currentScore) * maxDjPower;
       const sourceScore = Number(source.score);
       const matchesCurrentRecord = index === history.length - 1
@@ -4133,13 +4133,13 @@ function buildAchievementRows(entries) {
         currentPoint,
         previousDjPower,
         currentDjPower,
-        previousPointEstimated: true,
+        previousPointEstimated: Boolean(previous),
         currentPointEstimated,
-        previousDjPowerEstimated: true,
+        previousDjPowerEstimated: Boolean(previous),
         currentDjPowerEstimated,
-        previousMaxCombo: previous.maxCombo === true,
+        previousMaxCombo: previous?.maxCombo === true,
         currentMaxCombo: current.maxCombo === true,
-        previousUpdatedAt: previous.ymdt,
+        previousUpdatedAt: previous?.ymdt || null,
         currentUpdatedAt: current.ymdt,
       });
     }
@@ -4169,8 +4169,8 @@ function renderAchievementList() {
   const visibleRows = getVisibleAchievementRows();
   updateAchievementSelectionControls(visibleRows);
   achievementStatus.textContent = state.achievementRows.length
-    ? `최근 등록순 ${state.achievementRows.length}개 성과 · History에서 수집된 인접 기록 비교`
-    : "비교할 이전 기록이 없습니다. History 탭에서 히스토리를 먼저 수집해 주세요.";
+    ? `최근 등록순 ${state.achievementRows.length}개 성과 · 최초 기록은 NEW로 표시`
+    : "선택할 성과 기록이 없습니다. History 탭에서 히스토리를 먼저 수집해 주세요.";
   if (!visibleRows.length) {
     achievementList.innerHTML = `<div class="achievementEmpty">조건에 맞는 최근 성과가 없습니다.</div>`;
     return;
@@ -4233,6 +4233,9 @@ function syncAchievementColumnsToSelection(persist = true) {
 
 function renderAchievementSide(score, logPower, point, djPower, pointEstimated, djPowerEstimated, maxCombo, updatedAt, className) {
   const label = className === "after" ? "이후" : "이전";
+  if (className === "before" && !updatedAt) {
+    return `<span class="achievementSide before achievementNew"><strong>NEW</strong></span>`;
+  }
   const pointLabel = pointEstimated ? "추정 POINT" : "POINT";
   const djPowerLabel = djPowerEstimated ? "추정 DJPower" : "DJPower";
   return `<span class="achievementSide ${className}"><small>${label} · ${escapeHtml(formatDate(updatedAt))}</small><strong>${formatValue(score, "score")}</strong><span>LogPower ${formatProfileNumber(logPower)}</span><span>${pointLabel} ${formatProfileNumber(point)} · ${djPowerLabel} ${formatProfileNumber(djPower)}</span>${maxCombo ? "<small>MAX COMBO</small>" : ""}</span>`;
@@ -6775,6 +6778,16 @@ function drawAchievementImageCard(ctx, row, jacket, x, y, w, h) {
 
 function drawAchievementImageSide(ctx, label, updatedAt, score, logPower, point, djPower, pointEstimated, djPowerEstimated, maxCombo, x, y, w, h, after) {
   drawRoundRect(ctx, x, y, w, h, 7, after ? "#eef6fc" : "#f7f9fc", after ? "#b9d7ee" : "#e2e7ef");
+  if (!after && !updatedAt) {
+    ctx.fillStyle = "#687282";
+    ctx.font = "900 44px Segoe UI, Malgun Gothic, Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("NEW", x + w / 2, y + h / 2);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    return;
+  }
   ctx.fillStyle = after ? "#1268b3" : "#687282";
   ctx.font = "900 19px Segoe UI, Malgun Gothic, Arial";
   ctx.fillText(label, x + 16, y + 30);
