@@ -422,6 +422,8 @@ const historyXAxisModeSelect = document.querySelector("#historyXAxisModeSelect")
 const historyStartDate = document.querySelector("#historyStartDate");
 const historyEndDate = document.querySelector("#historyEndDate");
 const historyRangeResetButton = document.querySelector("#historyRangeResetButton");
+const nicknameManagerPanel = document.querySelector("#nicknameManagerPanel");
+const nicknameManagerList = document.querySelector("#nicknameManagerList");
 const achievementPanel = document.querySelector("#achievementPanel");
 const achievementStatus = document.querySelector("#achievementStatus");
 const achievementSelectVisibleButton = document.querySelector("#achievementSelectVisibleButton");
@@ -607,6 +609,8 @@ const REQUIRED_UI_IDS = [
   "rateMetricControl",
   "rateMetricSelect",
   "historyPanel",
+  "nicknameManagerPanel",
+  "nicknameManagerList",
   "historyLineStyleSelect",
   "historyChartHeightInput",
   "historyYMinInput",
@@ -3231,8 +3235,9 @@ function setBusy(isBusy, text = "") {
 }
 
 function render() {
-  if (!state.payload) return;
+  if (!state.payload && viewSelect.value !== "nicknameManager") return;
   renderActiveView();
+  if (!state.payload) return;
   const sync = state.payload.sync || {};
   const mode = sync.forceFullRefresh ? "전체" : sync.since === "full" ? "전체" : "증분";
   const catalogStatus = Number(sync.catalogChangedPatterns) > 0 || Number(sync.catalogAdjustedRecords) > 0
@@ -3253,6 +3258,7 @@ function renderActiveView() {
   const isLogPowerCalculator = viewSelect.value === "logPowerCalculator";
   const isDebug = viewSelect.value === "debug";
   const isReadme = viewSelect.value === "readme";
+  const isNicknameManager = viewSelect.value === "nicknameManager";
   const isTestNotes = viewSelect.value === "testNotes";
   const isOverview = viewSelect.value === "summaryInfo";
   [
@@ -3266,9 +3272,10 @@ function renderActiveView() {
     [logPowerCalculatorPanel, !isLogPowerCalculator],
     [debugPanel, !isDebug],
     [readmePanel, !isReadme],
+    [nicknameManagerPanel, !isNicknameManager],
     [testNotesPanel, !isTestNotes],
     [overviewPanel, !isOverview],
-    [tableSection, isChart || isOverview || isDebug || isReadme || isTestNotes || isTags || isHangyTags || isAchievements || isLogPowerCalculator],
+    [tableSection, isChart || isOverview || isDebug || isReadme || isNicknameManager || isTestNotes || isTags || isHangyTags || isAchievements || isLogPowerCalculator],
   ].forEach(([element, hidden]) => {
     if (element) element.hidden = hidden;
   });
@@ -3294,6 +3301,7 @@ function renderActiveView() {
     refreshPublishedHangyTags(false);
   }
   else if (isLogPowerCalculator) renderLogPowerCalculator();
+  else if (isNicknameManager) renderNicknameManager();
   else if (isDebug) renderDebugView();
   else if (isOverview) renderOverview();
   else if (isReadme) return;
@@ -4834,6 +4842,93 @@ function loadLegacyDjPowerHistorySeriesCache() {
   } catch {
     return {};
   }
+}
+
+function removeNicknameFromHistory(nickname) {
+  const target = cacheKey(nickname);
+  const next = getNicknameHistory().filter((item) => cacheKey(item) !== target);
+  appStorageSetItem(NICKNAME_HISTORY_KEY, JSON.stringify(next));
+  renderRecentNicknames();
+}
+
+async function deleteProfileCache(nickname) {
+  const db = await openCacheDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(PROFILE_STORE, "readwrite").objectStore(PROFILE_STORE).delete(cacheKey(nickname));
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function renderNicknameManager() {
+  const nicknames = getNicknameHistory();
+  let cachedProfiles = new Set();
+  let historyProfiles = new Set();
+  try {
+    const [profiles, histories] = await Promise.all([listCachedProfileNicknames(), listLocalHistoryProfiles()]);
+    cachedProfiles = new Set(profiles.map(cacheKey));
+    historyProfiles = new Set(histories.map((profile) => cacheKey(profile.nickname)));
+  } catch {}
+  if (viewSelect.value !== "nicknameManager") return;
+  if (!nicknames.length) {
+    nicknameManagerList.innerHTML = `<div class="nicknameManagerEmpty">아직 저장된 닉네임이 없습니다.</div>`;
+    return;
+  }
+  nicknameManagerList.innerHTML = nicknames.map((nickname) => {
+    const key = cacheKey(nickname);
+    const encodedNickname = encodeURIComponent(nickname);
+    const cacheLabel = cachedProfiles.has(key) || historyProfiles.has(key)
+      ? `${cachedProfiles.has(key) ? "기록 캐시" : ""}${cachedProfiles.has(key) && historyProfiles.has(key) ? " · " : ""}${historyProfiles.has(key) ? "히스토리 캐시" : ""}`
+      : "저장된 기록 없음";
+    return `<article class="nicknameManagerItem">
+      <div><strong>${escapeHtml(nickname)}</strong><span>${escapeHtml(cacheLabel)}</span></div>
+      <div class="nicknameManagerActions">
+        <button type="button" data-nickname-action="load" data-nickname="${encodedNickname}">조회</button>
+        <button type="button" class="secondaryButton" data-nickname-action="remove" data-nickname="${encodedNickname}">닉네임 삭제</button>
+        <button type="button" class="dangerButton" data-nickname-action="clear-cache" data-nickname="${encodedNickname}">캐시 삭제</button>
+      </div>
+    </article>`;
+  }).join("");
+  nicknameManagerList.querySelectorAll("[data-nickname-action]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const nickname = decodeURIComponent(button.dataset.nickname || "");
+      if (!nickname) return;
+      if (button.dataset.nicknameAction === "load") {
+        nicknameInput.value = nickname;
+        await applyNickname();
+        return;
+      }
+      if (button.dataset.nicknameAction === "remove") {
+        if (!confirm(`${nickname}을(를) 최근 닉네임 목록에서 지울까요? 기록 캐시는 유지됩니다.`)) return;
+        removeNicknameFromHistory(nickname);
+        renderNicknameManager();
+        return;
+      }
+      if (!confirm(`${nickname}의 기록·히스토리 캐시를 지울까요? 다음 조회 시 다시 받아야 합니다.`)) return;
+      try {
+        await Promise.all([deleteProfileCache(nickname), deleteRecordHistories(nickname)]);
+        state.djPowerHistorySeriesCache.clear();
+        state.djPowerHistorySeriesStore = { entries: {} };
+        await saveSharedData(DJPOWER_HISTORY_SERIES_CACHE_KEY, state.djPowerHistorySeriesStore);
+        if (state.historyAccountNickname === cacheKey(nickname)) {
+          state.historyAccountNickname = "";
+          appStorageRemoveItem(HISTORY_ACCOUNT_NICKNAME_KEY);
+        }
+        if (cacheKey(state.payload?.nickname) === cacheKey(nickname)) {
+          state.payload = null;
+          state.historyEntries = [];
+          state.historyRows = [];
+          state.achievementRows = [];
+          state.achievementSelected.clear();
+        }
+        statusText.textContent = `${nickname}의 로컬 기록 캐시를 삭제했습니다.`;
+        await refreshCompareNicknameOptions();
+        renderNicknameManager();
+      } catch (error) {
+        statusText.textContent = `캐시 삭제 오류: ${error.message || error}`;
+      }
+    });
+  });
 }
 
 async function hydrateDjPowerHistorySeriesCache() {

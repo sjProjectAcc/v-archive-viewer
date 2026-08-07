@@ -53,6 +53,7 @@
       <button class="viewTab desktopOnly" type="button" role="tab" data-view="history">성장 기록</button>
       <button class="viewTab desktopOnly" type="button" role="tab" data-view="achievements">성과 카드</button>
       <button class="viewTab desktopOnly" type="button" role="tab" data-view="hangyTags">태그*행이봇</button>
+      <button class="viewTab viewTabUtility" type="button" role="tab" data-view="nicknameManager">닉네임 관리</button>
       <button class="viewTab viewTabUtility" type="button" role="tab" data-view="logPowerCalculator">계산기</button>
       <button class="viewTab viewTabUtility" type="button" role="tab" data-view="readme">도움말</button>
       <span class="viewTabTestDivider testOnly" role="presentation" aria-hidden="true" hidden></span>
@@ -72,6 +73,7 @@
           <option value="records">기록</option>
           <option value="tags" class="testOnly" hidden>태그*로페봇</option>
           <option value="hangyTags" class="desktopOnly">태그*행이봇</option>
+          <option value="nicknameManager">닉네임 관리</option>
           <option value="history" class="desktopOnly">성장 기록</option>
           <option value="achievements" class="desktopOnly">성과 카드</option>
           <option value="selfCompare" class="desktopOnly">시점 비교</option>
@@ -623,6 +625,14 @@
         <section><h3>13. 데스크톱 앱과 업데이트</h3><p>웹 버전은 일반 기록 조회와 분석에 사용할 수 있고, 데스크톱 앱은 CORS 제한 없이 History API와 계정 로그인을 사용할 수 있습니다.</p><ul><li>업데이트 확인은 GitHub Pages의 버전 정보만 읽습니다.</li><li>새 버전이 있으면 GitHub Release의 Windows ZIP을 내려받아 앱을 교체합니다.</li><li>업데이트가 보이지 않으면 수동 업데이트 확인을 누른 뒤 앱을 다시 시작해 보세요.</li></ul></section>
         <section><h3>14. 개인정보와 문제 해결</h3><p>회원 번호와 로그인 토큰은 V-ARCHIVE 로그인 및 History 요청에만 사용하며, 이 프로젝트의 별도 운영 서버로 전송하지 않습니다. 토큰이 들어 있는 파일은 공유하지 마세요.</p><ul><li>기록이 이상하면 먼저 일반 새로고침, 이후 전체 새로고침 순서로 확인합니다.</li><li>History가 비어 있으면 조회 닉네임과 연결 계정이 같은지 확인하고 전체 재수집을 실행합니다.</li><li>API 오류의 상세 내용은 종합 화면 아래쪽 오류 기록에서 확인합니다.</li><li>필터가 예상과 다르면 버튼·패턴·검색·floor 범위를 전체로 되돌려 확인합니다.</li></ul></section>
       </div>
+    </section>
+
+    <section class="nicknameManagerPanel" id="nicknameManagerPanel" hidden>
+      <header>
+        <h2>닉네임 관리</h2>
+        <p>개발자: lemoncube</p>
+      </header>
+      <div id="nicknameManagerList" class="nicknameManagerList"></div>
     </section>
 
     <section class="readmePanel testOnly" id="testNotesPanel" hidden>

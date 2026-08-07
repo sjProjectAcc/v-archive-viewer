@@ -346,6 +346,68 @@ main {
   padding: 14px;
 }
 
+.nicknameManagerPanel {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.nicknameManagerPanel > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.nicknameManagerPanel h2,
+.nicknameManagerPanel p {
+  margin: 0;
+}
+
+.nicknameManagerPanel p,
+.nicknameManagerItem span,
+.nicknameManagerEmpty {
+  color: var(--muted);
+}
+
+.nicknameManagerList {
+  display: grid;
+  gap: 8px;
+}
+
+.nicknameManagerItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--subtle);
+}
+
+.nicknameManagerItem > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.nicknameManagerActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.nicknameManagerEmpty {
+  padding: 28px;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
 .achievementHeader {
   align-items: flex-start;
 }
