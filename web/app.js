@@ -49,6 +49,9 @@ const state = {
   tagsLoadError: "",
   hangyTagsRows: [],
   hangyTagsTargets: [],
+  hangyTagsCache: null,
+  hangyTagsCacheHydrated: false,
+  hangySongCatalogCache: null,
   hangyTagsLoading: false,
   hangyTagsStatus: "",
   hangyTagsSortKey: "name",
@@ -80,9 +83,10 @@ const HISTORY_REQUEST_DELAY_MIN = 100;
 const HISTORY_REQUEST_DELAY_MAX = 15000;
 const NETWORK_REQUEST_TIMEOUT = 20000;
 const DB_NAME = "vArchiveViewerCache";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const PROFILE_STORE = "profiles";
 const HISTORY_STORE = "recordHistories";
+const SHARED_DATA_STORE = "sharedData";
 const HANGY_TAG_CACHE_KEY = "vArchiveHangyPatternTagsV1";
 const HANGY_SONG_CATALOG_CACHE_KEY = "vArchiveHangySongCatalogV1";
 const HANGY_SONG_CATALOG_CACHE_TTL = 12 * 60 * 60 * 1000;
@@ -2007,9 +2011,13 @@ function hangyTagsScopeKey(button, pattern) {
 }
 
 function loadHangyTagsCache() {
+  if (state.hangyTagsCache) return state.hangyTagsCache;
   try {
     const cached = JSON.parse(appStorageGetItem(HANGY_TAG_CACHE_KEY) || "null");
-    if (!cached?.scopes || typeof cached.scopes !== "object") return { scopes: {} };
+    if (!cached?.scopes || typeof cached.scopes !== "object") {
+      state.hangyTagsCache = { scopes: {} };
+      return state.hangyTagsCache;
+    }
     const scopes = {};
     let migrated = false;
     for (const [legacyKey, scope] of Object.entries(cached.scopes)) {
@@ -2033,14 +2041,35 @@ function loadHangyTagsCache() {
         // The merged cache remains usable for this session when storage is unavailable.
       }
     }
-    return normalized;
+    state.hangyTagsCache = normalized;
+    return state.hangyTagsCache;
   } catch {
-    return { scopes: {} };
+    state.hangyTagsCache = { scopes: {} };
+    return state.hangyTagsCache;
   }
 }
 
 function saveHangyTagsCache(cache) {
-  appStorageSetItem(HANGY_TAG_CACHE_KEY, JSON.stringify(cache));
+  state.hangyTagsCache = cache;
+  state.hangyTagsCacheHydrated = true;
+  appStorageRemoveItem(HANGY_TAG_CACHE_KEY);
+  void saveSharedData(HANGY_TAG_CACHE_KEY, cache).catch(() => {});
+}
+
+async function hydrateHangyTagsCache() {
+  if (state.hangyTagsCacheHydrated) return loadHangyTagsCache();
+  const stored = await loadSharedData(HANGY_TAG_CACHE_KEY).catch(() => null);
+  if (stored?.scopes && typeof stored.scopes === "object") {
+    state.hangyTagsCache = stored;
+    state.hangyTagsCacheHydrated = true;
+    return stored;
+  }
+  state.hangyTagsCache = null;
+  const legacy = loadHangyTagsCache();
+  if (Object.keys(legacy.scopes || {}).length) await saveSharedData(HANGY_TAG_CACHE_KEY, legacy);
+  appStorageRemoveItem(HANGY_TAG_CACHE_KEY);
+  state.hangyTagsCacheHydrated = true;
+  return legacy;
 }
 
 async function loadPublishedHangyScope(force = false) {
@@ -2050,6 +2079,7 @@ async function loadPublishedHangyScope(force = false) {
   if (state.publishedHangyScopesLoading.has(scopeKey)) return false;
   state.publishedHangyScopesLoading.add(scopeKey);
   try {
+    await hydrateHangyTagsCache();
     const manifest = await loadPublishedTagManifest(force);
     const source = manifest?.hangybot?.scopes?.[scopeKey];
     if (!source?.version || !source?.url) return false;
@@ -2099,22 +2129,41 @@ function hangyRecordSignature(record) {
 }
 
 function loadHangySongCatalog() {
+  if (state.hangySongCatalogCache) return state.hangySongCatalogCache;
   try {
     const cached = JSON.parse(appStorageGetItem(HANGY_SONG_CATALOG_CACHE_KEY) || "null");
-    return Array.isArray(cached?.songs) ? cached : null;
+    state.hangySongCatalogCache = Array.isArray(cached?.songs) ? cached : null;
+    return state.hangySongCatalogCache;
   } catch {
     return null;
   }
 }
 
+async function hydrateHangySongCatalog() {
+  if (state.hangySongCatalogCache) return state.hangySongCatalogCache;
+  const stored = await loadSharedData(HANGY_SONG_CATALOG_CACHE_KEY).catch(() => null);
+  if (Array.isArray(stored?.songs)) {
+    state.hangySongCatalogCache = stored;
+    appStorageRemoveItem(HANGY_SONG_CATALOG_CACHE_KEY);
+    return stored;
+  }
+  const legacy = loadHangySongCatalog();
+  if (legacy) await saveSharedData(HANGY_SONG_CATALOG_CACHE_KEY, legacy);
+  appStorageRemoveItem(HANGY_SONG_CATALOG_CACHE_KEY);
+  return legacy;
+}
+
 async function ensureHangySongCatalog(force = false) {
-  const cached = loadHangySongCatalog();
+  const cached = await hydrateHangySongCatalog();
   if (!force && cached && Date.now() - Number(cached.updatedAt || 0) < HANGY_SONG_CATALOG_CACHE_TTL) return cached.songs;
   const response = await fetchWithTimeout(SONG_DB_URL, { credentials: "omit" });
   if (!response.ok) throw new Error(`곡 목록 HTTP ${response.status}`);
   const songs = await response.json();
   if (!Array.isArray(songs)) throw new Error("곡 목록 응답이 올바르지 않습니다.");
-  appStorageSetItem(HANGY_SONG_CATALOG_CACHE_KEY, JSON.stringify({ updatedAt: Date.now(), songs }));
+  const next = { updatedAt: Date.now(), songs };
+  state.hangySongCatalogCache = next;
+  await saveSharedData(HANGY_SONG_CATALOG_CACHE_KEY, next);
+  appStorageRemoveItem(HANGY_SONG_CATALOG_CACHE_KEY);
   return songs;
 }
 
@@ -3075,6 +3124,24 @@ async function deleteRecordHistories(nickname) {
   });
 }
 
+async function loadSharedData(id) {
+  const db = await openCacheDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(SHARED_DATA_STORE, "readonly").objectStore(SHARED_DATA_STORE).get(id);
+    request.onsuccess = () => resolve(request.result?.value ?? null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveSharedData(id, value) {
+  const db = await openCacheDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(SHARED_DATA_STORE, "readwrite").objectStore(SHARED_DATA_STORE).put({ id, value });
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
 function openCacheDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(state.isTestMode ? `${DB_NAME}Test` : DB_NAME, DB_VERSION);
@@ -3085,6 +3152,7 @@ function openCacheDb() {
         const store = db.createObjectStore(HISTORY_STORE, { keyPath: "id" });
         store.createIndex("nickname", "nickname", { unique: false });
       }
+      if (!db.objectStoreNames.contains(SHARED_DATA_STORE)) db.createObjectStore(SHARED_DATA_STORE, { keyPath: "id" });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
