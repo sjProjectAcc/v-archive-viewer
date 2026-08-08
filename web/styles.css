@@ -1449,7 +1449,7 @@ main {
 
 .svgChart {
   width: 100%;
-  min-height: 430px;
+  min-height: var(--chart-height, 430px);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -1457,7 +1457,40 @@ main {
 .svgChart svg {
   display: block;
   width: 100%;
-  height: 430px;
+  height: var(--chart-height, 430px);
+}
+
+.growthGuideCharts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.growthGuideCharts h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.growthGuideBand {
+  fill: rgba(27, 139, 196, 0.38);
+  stroke: rgba(12, 88, 140, 0.86);
+  stroke-width: 1;
+}
+
+.growthGuideTop50 td {
+  background: rgba(240, 168, 58, 0.14);
+}
+
+:root[data-theme="dark"] .growthGuideBand {
+  fill: rgba(111, 202, 255, 0.48);
+  stroke: #c4e9ff;
+}
+
+@media (max-width: 980px) {
+  .growthGuideCharts {
+    grid-template-columns: 1fr;
+  }
 }
 
 .chartBg {
@@ -1533,6 +1566,18 @@ main {
   fill: rgba(18, 104, 179, 0.58);
   stroke: rgba(18, 104, 179, 0.88);
   stroke-width: 1;
+}
+
+.highlightMinimumLine {
+  stroke: #bf4d5c;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+  opacity: 0.88;
+  pointer-events: none;
+}
+
+:root[data-theme="dark"] .highlightMinimumLine {
+  stroke: #ff9cac;
 }
 
 .top50Dot {

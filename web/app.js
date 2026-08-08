@@ -113,6 +113,8 @@ const HANGY_TRAIT_LABELS = Object.freeze({
   trigger: "트리거 복합",
 });
 const SCORE_BASE = Math.pow(30, 1 / 10);
+const SCORE95_BASE = Math.pow(50, 1 / 10);
+const LOGPOWER95_FLOOR_RELATION = -Math.log((100 - 99.86) / 5) / Math.log(SCORE95_BASE) / 10;
 const ANCHOR_FLOOR_LABEL = "15.2";
 const ANCHOR_DIFFICULTY_CONSTANT = 10;
 const FLOOR_STEP_RATIO = 10 / 9;
@@ -237,9 +239,8 @@ const columns = {
     ["button", "button"],
     ["djPowerGroup", "구분"],
     ["rank", "rank"],
-    ["normalizedDjPower", "DJPower"],
-    ["normalizedMaxDjPower", "최대 DJPower"],
-    ["rawDjPower", "원본 DJPower"],
+    ["rawDjPower", "DJPower"],
+    ["rawMaxDjPower", "최대 DJPower"],
     ["name", "name"],
     ["pattern", "pattern"],
     ["level", "level"],
@@ -251,6 +252,19 @@ const columns = {
     ["button", "button"],
     ["rank", "rank"],
     ["logPower", "logPower"],
+    ["floorMaxPoint", "floorMax"],
+    ["name", "name"],
+    ["pattern", "pattern"],
+    ["level", "level"],
+    ["floorName", "floor"],
+    ["score", "score"],
+    ["maxCombo", "maxCombo"],
+    ["updatedAt", "updatedAt"],
+  ],
+  top10095: [
+    ["button", "button"],
+    ["rank", "rank"],
+    ["logPower", "logPower_95"],
     ["floorMaxPoint", "floorMax"],
     ["name", "name"],
     ["pattern", "pattern"],
@@ -283,10 +297,9 @@ const columns = {
     ["level", "level"],
     ["floor", "floor"],
     ["score", "score"],
-    ["rating", "rating"],
-    ["maxRating", "maxRating"],
-    ["djpower", "djpower"],
-    ["maxDjpower", "maxDjpower"],
+    ["rating", "rating/maxrating"],
+    ["djpower", "djpower/maxdjpower"],
+    ["logPower", "logpower/maxlogpower"],
     ["updatedAt", "updatedAt"],
   ],
   history: [
@@ -479,6 +492,14 @@ const hangyTagsFilterResetButton = document.querySelector("#hangyTagsFilterReset
 const hangyTraitFilterList = document.querySelector("#hangyTraitFilterList");
 const hangyTagsSummary = document.querySelector("#hangyTagsSummary");
 const hangyTagsTable = document.querySelector("#hangyTagsTable");
+const growthGuidePanel = document.querySelector("#growthGuidePanel");
+const growthGuideModeSelect = document.querySelector("#growthGuideModeSelect");
+const growthGuideSortSelect = document.querySelector("#growthGuideSortSelect");
+const growthGuideSummary = document.querySelector("#growthGuideSummary");
+const growthGuideTable = document.querySelector("#growthGuideTable");
+const growthGuideLogPowerChart = document.querySelector("#growthGuideLogPowerChart");
+const growthGuideScoreChart = document.querySelector("#growthGuideScoreChart");
+const growthGuideScorePointChart = document.querySelector("#growthGuideScorePointChart");
 const logPowerCalculatorPanel = document.querySelector("#logPowerCalculatorPanel");
 const calculatorTitle = document.querySelector("#calculatorTitle");
 const logPowerCalculatorContext = document.querySelector("#logPowerCalculatorContext");
@@ -603,7 +624,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-rate-v12";
+const UI_SCHEMA_VERSION = "v-log-rate-v13";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -636,6 +657,10 @@ const REQUIRED_UI_IDS = [
   "achievementAutoSelectButton",
   "selfComparePanel",
   "tagsPanel",
+  "growthGuidePanel",
+  "growthGuideModeSelect",
+  "growthGuideSortSelect",
+  "growthGuideTable",
   "logPowerCalculatorPanel",
   "calculatorMode",
   "calculatorButtonControl",
@@ -980,6 +1005,9 @@ function wireEvents() {
     state.sortKey = null;
     saveSettings();
     render();
+  });
+  [growthGuideModeSelect, growthGuideSortSelect].forEach((control) => {
+    control.addEventListener("input", () => renderGrowthGuide());
   });
   compareLoadButton.addEventListener("click", () => loadComparison(false));
   compareNicknameInput.addEventListener("keydown", (event) => {
@@ -2742,6 +2770,7 @@ async function refresh(full) {
     render();
     await completePendingHistoryAccount();
     await reconnectConfiguredHistoryAccount();
+    void collectUpdatedHistoriesAutomatically();
   } catch (error) {
     statusText.textContent = `오류: ${error.message}`;
     try {
@@ -3315,6 +3344,7 @@ function renderActiveView() {
   const isSelfCompare = viewSelect.value === "selfCompare";
   const isTags = viewSelect.value === "tags";
   const isHangyTags = viewSelect.value === "hangyTags";
+  const isGrowthGuide = viewSelect.value === "growthGuide";
   const isLogPowerCalculator = viewSelect.value === "logPowerCalculator";
   const isDebug = viewSelect.value === "debug";
   const isReadme = viewSelect.value === "readme";
@@ -3329,13 +3359,14 @@ function renderActiveView() {
     [selfComparePanel, !isSelfCompare],
     [tagsPanel, !isTags],
     [hangyTagsPanel, !isHangyTags],
+    [growthGuidePanel, !isGrowthGuide],
     [logPowerCalculatorPanel, !isLogPowerCalculator],
     [debugPanel, !isDebug],
     [readmePanel, !isReadme],
     [nicknameManagerPanel, !isNicknameManager],
     [testNotesPanel, !isTestNotes],
     [overviewPanel, !isOverview],
-    [tableSection, isChart || isOverview || isDebug || isReadme || isNicknameManager || isTestNotes || isTags || isHangyTags || isAchievements || isLogPowerCalculator],
+    [tableSection, isChart || isOverview || isDebug || isReadme || isNicknameManager || isTestNotes || isTags || isHangyTags || isAchievements || isGrowthGuide || isLogPowerCalculator],
   ].forEach(([element, hidden]) => {
     if (element) element.hidden = hidden;
   });
@@ -3360,6 +3391,7 @@ function renderActiveView() {
     renderHangyTagsView();
     refreshPublishedHangyTags(false);
   }
+  else if (isGrowthGuide) renderGrowthGuide();
   else if (isLogPowerCalculator) renderLogPowerCalculator();
   else if (isNicknameManager) renderNicknameManager();
   else if (isDebug) renderDebugView();
@@ -3395,6 +3427,7 @@ function renderCompareChart() {
   const clientWidth = compareScatterChart.clientWidth || 760;
   const width = Math.max(760, clientWidth);
   const height = clampChartHeight(compareChartHeightInput.value, 600);
+  setChartHeight(compareScatterChart, height);
   const pad = { left: 74, right: 74, top: 36, bottom: 62 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
@@ -4236,7 +4269,7 @@ function getFilteredAchievementRows() {
   return state.achievementRows.filter((row) => {
     if (button && String(row.button) !== button) return false;
     if (pattern && row.pattern !== pattern) return false;
-    if (query && !JSON.stringify(row).toLowerCase().includes(query)) return false;
+    if (!matchesSearch(row, query)) return false;
     return true;
   });
 }
@@ -4904,6 +4937,13 @@ function loadLegacyDjPowerHistorySeriesCache() {
   }
 }
 
+async function collectUpdatedHistoriesAutomatically() {
+  const updatedRecords = Number(state.payload?.sync?.updatedRecords || 0);
+  const nickname = cacheKey(state.payload?.nickname || getCurrentNickname());
+  if (!updatedRecords || updatedRecords > 50 || state.historyAccountNickname !== nickname) return;
+  await collectRecordHistories();
+}
+
 function saveNicknameFromManager(loadAfterSave) {
   const nickname = nicknameManagerInput.value.trim();
   if (!nickname) {
@@ -5392,6 +5432,7 @@ function renderHistoryChart(entries) {
   const compareColors = { 4: "#f07a24", 5: "#d9368b", 6: "#d6a000", 8: "#9b4dca" };
   const width = 1200;
   const height = getHistoryChartHeight();
+  setChartHeight(historyChart, height);
   const pad = { left: 72, right: 24, top: 24, bottom: 48 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
@@ -5801,6 +5842,7 @@ function renderChart() {
 
   const width = Math.max(760, chartEl.clientWidth || 1000);
   const height = clampChartHeight(chartHeightInput.value, 430);
+  setChartHeight(chartEl, height);
   const pad = { left: 58, right: 24, top: 22, bottom: 62 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
@@ -5889,8 +5931,21 @@ function renderChart() {
     return `<polyline class="floorMaxLine${buttonClass}" points="${points}"><title>${escapeHtml(label)}</title></polyline>`;
   }).join("");
   const grid = buildGrid(xRange, yRange, pad, plotW, plotH, xFor, yFor);
+  const packedOffsets = buildPackedChartOffsets(records, {
+    labelOf: (row) => row.xLabel,
+    yOf: (row) => yFor(row.metricValue),
+    plotWidth: plotW,
+    labelCount: xRange.labels.length,
+  });
+  const highlightedRows = records.filter((row) => top50Keys.has(recordKey(row)) || djBasicKeys.has(recordKey(row)) || djNewKeys.has(recordKey(row)));
+  const highlightMinimum = highlightedRows.length
+    ? Math.min(...highlightedRows.map((row) => row.metricValue).filter(Number.isFinite))
+    : NaN;
+  const highlightMinimumLine = Number.isFinite(highlightMinimum)
+    ? `<line class="highlightMinimumLine" x1="${pad.left}" y1="${yFor(highlightMinimum).toFixed(2)}" x2="${(pad.left + plotW).toFixed(2)}" y2="${yFor(highlightMinimum).toFixed(2)}"><title>selected minimum ${escapeHtml(formatChartMetric(highlightMinimum, metric.key))}</title></line>`
+    : "";
   const dots = records.map((row) => {
-    const jitter = stableJitter(`${row.name}-${row.pattern}-${row.level}`) * 0.42;
+    const jitter = packedOffsets.get(recordKey(row)) || 0;
     const cx = clampChartDotX(xFor(row.xLabel, jitter), pad.left, plotW).toFixed(2);
     const cy = yFor(row.metricValue).toFixed(2);
     const isBelowNextFloorMin = metric.xMode !== "maxDjpower" && belowNextFloorMin(row, minByFloor);
@@ -5938,6 +5993,7 @@ function renderChart() {
         ${maxPoints ? `<polyline class="maxLine" points="${maxPoints}"></polyline>` : ""}
         ${averagePoints ? `<polyline class="avgLine" points="${averagePoints}"></polyline>` : ""}
         ${minPoints ? `<polyline class="minLine" points="${minPoints}"></polyline>` : ""}
+        ${highlightMinimumLine}
         ${dots}
       </g>
       <text class="axisTitle" x="16" y="18">${escapeHtml(metric.label)}</text>
@@ -6490,8 +6546,45 @@ function stableJitter(text) {
   return (hash % 1000) / 1000 - 0.5;
 }
 
+function buildPackedChartOffsets(rows, { labelOf, yOf, plotWidth, labelCount }) {
+  const denominator = Math.max(1, labelCount - 1);
+  const offsets = new Map();
+  const groups = new Map();
+  for (const row of rows) {
+    const label = labelOf(row);
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label).push(row);
+  }
+  for (const group of groups.values()) {
+    const occupied = [];
+    group.slice().sort((a, b) => yOf(a) - yOf(b) || compare(recordKey(a), recordKey(b))).forEach((row) => {
+      const y = yOf(row);
+      if (!occupied.some((point) => Math.abs(point.y - y) < 11)) {
+        offsets.set(recordKey(row), 0);
+        occupied.push({ y, offset: 0 });
+        return;
+      }
+      let attempt = 1;
+      let offset = 0;
+      while (attempt < 32) {
+        const direction = attempt % 2 ? 1 : -1;
+        offset = direction * Math.ceil(attempt / 2) * 8;
+        if (!occupied.some((point) => Math.abs(point.y - y) < 11 && Math.abs(point.offset - offset) < 7)) break;
+        attempt += 1;
+      }
+      offsets.set(recordKey(row), offset * denominator / Math.max(1, plotWidth));
+      occupied.push({ y, offset });
+    });
+  }
+  return offsets;
+}
+
 function clampChartDotX(x, plotLeft, plotWidth) {
   return Math.min(plotLeft + plotWidth - CHART_DOT_EDGE_INSET, Math.max(plotLeft + CHART_DOT_EDGE_INSET, x));
+}
+
+function setChartHeight(element, height) {
+  if (element) element.style.setProperty("--chart-height", `${Math.round(height)}px`);
 }
 
 function renderTable() {
@@ -6542,13 +6635,13 @@ function renderTableSummary(view, rows) {
     renderPointsSummary(rows);
     return;
   }
-  if (view !== "top100") {
+  if (!["top100", "top10095"].includes(view)) {
     tableSummary.hidden = true;
     tableSummary.innerHTML = "";
     return;
   }
   const buttons = buttonFilter.value ? [buttonFilter.value] : ["4", "5", "6", "8"];
-  const cards = buttons.map((button) => renderTop100Metric(button, rows));
+  const cards = buttons.map((button) => renderTop100Metric(button, rows, view));
   tableSummary.innerHTML = cards.join("");
   tableSummary.querySelectorAll("[data-top-image-button]").forEach((button) => {
     button.addEventListener("click", () => generateTopImage(button.dataset.topImageButton));
@@ -6635,9 +6728,25 @@ function filterRecordsForFloorImage(records) {
     if (button && String(row.button) !== button) return false;
     if (pattern && String(row.pattern || "") !== pattern) return false;
     if (!getFloorLabel(row)) return false;
-    if (!query) return true;
-    return JSON.stringify(row).toLowerCase().includes(query);
+    return matchesSearch(row, query);
   });
+}
+
+function matchesSearch(row, query) {
+  const normalizedQuery = String(query || "").trim().toLocaleLowerCase("ko");
+  if (!normalizedQuery) return true;
+  const haystack = [
+    row.title,
+    row.name,
+    row.button && `${row.button}b`,
+    row.pattern,
+    row.level,
+    row.floorName,
+    row.floor,
+    row.dlcCode,
+    row.dlcName,
+  ].filter((value) => value !== null && value !== undefined).join(" ").toLocaleLowerCase("ko");
+  return normalizedQuery.split(/\s+/).every((token) => haystack.includes(token));
 }
 
 function getCatalogPatternCount(floorLabel) {
@@ -6668,14 +6777,15 @@ function getCatalogButtonsForFloor(floorLabel) {
   });
 }
 
-function renderTop100Metric(button, rows) {
+function renderTop100Metric(button, rows, view = "top100") {
   const sum = rows
     .filter((row) => String(row.button) === button && row.rank <= 50)
     .reduce((total, row) => total + Number(row.logPower || 0), 0);
+  const isExperimental = view === "top10095";
   return `<div class="tableMetric tableMetricAction">
-    <span>${button}B Top50 logPower</span>
+    <span>${button}B Top50 ${isExperimental ? "logPower_95" : "logPower"}</span>
     <strong>${sum.toFixed(2)}</strong>
-    <button class="smallActionButton" type="button" data-top-image-button="${escapeHtml(button)}">Top30 이미지</button>
+    ${isExperimental ? "" : `<button class="smallActionButton" type="button" data-top-image-button="${escapeHtml(button)}">Top30 이미지</button>`}
   </div>`;
 }
 
@@ -6796,6 +6906,7 @@ function applyNameWidth() {
 function getRowsForView(view) {
   if (view === "compare") return buildCompareRows();
   if (view === "top100") return buildTop100Rows(state.payload.records || []);
+  if (view === "top10095") return buildTop10095Rows(state.payload.records || []);
   if (view === "points") return buildPointRows(state.payload.records || []);
   if (view === "djPowerTop100") return buildDjPowerTop100Rows(state.payload.records || []);
   if (view === "history") return [...state.historyRows];
@@ -7706,6 +7817,34 @@ function renderLogPowerCalculator() {
   logPowerCalculatorBreakdown.innerHTML = `<span>Score Point <strong>${point.toFixed(4)}</strong>${capLabel}</span><span>floor 기본 상수 <strong>${baseConstant.toFixed(4)}</strong></span><span>${hasLiveScale ? "최신 곡 목록" : "내장값"} 기준 버튼별 TOP50 5000 보정</span>`;
 }
 
+function buildTop10095Rows(records) {
+  const selectedButton = buttonFilter.value;
+  const buttons = selectedButton ? [selectedButton] : ["4", "5", "6", "8"];
+  const baseMaxByButton = simulatedTop50BaseMaxByButton(LOGPOWER95_FLOOR_RELATION) || {};
+  return buttons.flatMap((button) => {
+    const baseMax = Number(baseMaxByButton[String(button)]);
+    const multiplier = Number.isFinite(baseMax) && baseMax > 0 ? TARGET_TOP50_MAX / baseMax : 1;
+    return records
+      .filter((row) => String(row.button) === String(button))
+      .map((row) => {
+        const floorName = getFloorLabel(row);
+        const difficultyConstant = simulatedBaseDifficultyConstant(floorName, LOGPOWER95_FLOOR_RELATION) * multiplier;
+        return {
+          ...row,
+          floorName,
+          scorePoint: scoreToPoint95(Number(row.score)),
+          difficultyConstant,
+          floorMaxPoint: 10 * difficultyConstant,
+          logPower: scoreToPoint95(Number(row.score)) * difficultyConstant,
+        };
+      })
+      .filter((row) => Number.isFinite(row.logPower))
+      .sort((a, b) => b.logPower - a.logPower || b.score - a.score || compare(a.name, b.name))
+      .slice(0, 100)
+      .map((row, index) => ({ ...row, rank: index + 1 }));
+  });
+}
+
 function renderPointCalculator(rawScore, score) {
   const maxRating = Number(pointCalculatorMaxRating.value);
   const maxCombo = pointCalculatorMaxCombo.checked;
@@ -7849,6 +7988,7 @@ function buildDjPowerGroupRows(records, group, limit, multiplier) {
       ...row,
       djPowerGroup: group,
       rawDjPower,
+      rawMaxDjPower,
       normalizedDjPower: rawDjPower * multiplier,
       normalizedMaxDjPower: rawMaxDjPower * multiplier,
     };
@@ -7991,6 +8131,132 @@ function scoreToPoint(score) {
   return Math.max(0, Math.min(10, point));
 }
 
+function buildGrowthGuideRows() {
+  const records = filterRows(state.payload?.records || []);
+  const top50ByButton = new Map();
+  for (const button of buttonFilter.value ? [String(buttonFilter.value)] : BUTTONS.map(String)) {
+    const ranked = records
+      .filter((row) => String(row.button) === button)
+      .map((row) => ({ row, logPower: scoreToPoint(Number(row.score)) * difficultyConstantForFloor(getFloorLabel(row), button) }))
+      .filter((item) => Number.isFinite(item.logPower))
+      .sort((a, b) => b.logPower - a.logPower);
+    top50ByButton.set(button, ranked.length >= 50 ? ranked[49].logPower : 0);
+  }
+  const topKeys = new Set();
+  for (const button of top50ByButton.keys()) {
+    records
+      .filter((row) => String(row.button) === button)
+      .map((row) => ({ row, logPower: scoreToPoint(Number(row.score)) * difficultyConstantForFloor(getFloorLabel(row), button) }))
+      .filter((item) => Number.isFinite(item.logPower))
+      .sort((a, b) => b.logPower - a.logPower)
+      .slice(0, 50)
+      .forEach((item) => topKeys.add(recordKey(item.row)));
+  }
+  return records.map((row) => {
+    const floorLabel = getFloorLabel(row);
+    const constant = difficultyConstantForFloor(floorLabel, row.button);
+    const logPower = scoreToPoint(Number(row.score)) * constant;
+    const maxLogPower = 10 * constant;
+    const cutoff = top50ByButton.get(String(row.button)) || 0;
+    const isTop50 = topKeys.has(recordKey(row));
+    return {
+      ...row,
+      floorName: floorLabel,
+      logPower,
+      maxLogPower,
+      cutoff,
+      gapToCutoff: logPower - cutoff,
+      potentialGap: maxLogPower - cutoff,
+      isTop50,
+      guideStatus: isTop50 ? "TOP50" : maxLogPower >= cutoff ? "진입 가능" : "범위 밖",
+    };
+  }).filter((row) => Number.isFinite(row.logPower) && Number.isFinite(row.maxLogPower));
+}
+
+function renderGrowthGuide() {
+  if (!state.payload || viewSelect.value !== "growthGuide") return;
+  const allRows = buildGrowthGuideRows();
+  const mode = growthGuideModeSelect.value;
+  const rows = allRows.filter((row) => mode === "all" || (mode === "top50" ? row.isTop50 : !row.isTop50 && row.maxLogPower >= row.cutoff));
+  const sort = growthGuideSortSelect.value;
+  const sortValue = (row) => {
+    if (sort === "gapDesc") return row.potentialGap;
+    if (sort === "currentDesc") return row.logPower;
+    if (sort === "floorDesc") return floorIndex(row.floorName);
+    if (sort === "name") return row.name || "";
+    return row.maxLogPower;
+  };
+  rows.sort((a, b) => sort === "name"
+    ? compare(sortValue(a), sortValue(b))
+    : compareForSort(sortValue(b), sortValue(a)) || compare(a.name, b.name));
+  const top50 = allRows.filter((row) => row.isTop50).length;
+  const potential = allRows.filter((row) => !row.isTop50 && row.maxLogPower >= row.cutoff).length;
+  growthGuideSummary.innerHTML = [
+    ["현재 Top50", top50],
+    ["99.9 진입 가능", potential],
+    ["표시", rows.length],
+  ].map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`).join("");
+  const columns = [["guideStatus", "상태"], ["button", "button"], ["name", "name"], ["pattern", "pattern"], ["level", "level"], ["floorName", "floor"], ["score", "score"], ["logPower", "현재 LogPower"], ["cutoff", "Top50 진입선"], ["maxLogPower", "99.9 LogPower"], ["potentialGap", "진입 여유"]];
+  growthGuideTable.innerHTML = rows.length
+    ? `<thead><tr>${columns.map(([, label]) => `<th>${escapeHtml(label)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr class="${row.isTop50 ? "growthGuideTop50" : ""}">${columns.map(([key]) => renderGrowthGuideCell(row, key)).join("")}</tr>`).join("")}</tbody>`
+    : `<tbody><tr><td class="empty">현재 조건에 맞는 기록이 없습니다.</td></tr></tbody>`;
+  renderGrowthGuideRangeChart(growthGuideLogPowerChart, allRows, "logPower", "maxLogPower", "LogPower");
+  renderGrowthGuideRangeChart(growthGuideScoreChart, allRows, "score", null, "Score", 99.9);
+  renderGrowthGuideRangeChart(growthGuideScorePointChart, allRows, "scorePoint", null, "scorePoint", 10);
+}
+
+function renderGrowthGuideCell(row, key) {
+  if (key === "scorePoint") return `<td class="num">${formatValue(scoreToPoint(Number(row.score)), "scorePoint")}</td>`;
+  if (["logPower", "cutoff", "maxLogPower", "potentialGap"].includes(key)) return `<td class="num">${Number(row[key]).toFixed(2)}</td>`;
+  return renderCell(row, key);
+}
+
+function renderGrowthGuideRangeChart(element, rows, lowKey, highKey, label, fixedHigh) {
+  const height = 270;
+  setChartHeight(element, height);
+  const width = Math.max(760, element.clientWidth || 900);
+  const pad = { left: 54, right: 18, top: 18, bottom: 42 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const labels = [...new Set(rows.map((row) => row.floorName).filter(Boolean))].sort((a, b) => floorIndex(a) - floorIndex(b));
+  if (!labels.length) {
+    element.innerHTML = `<div class="empty">표시할 기록이 없습니다.</div>`;
+    return;
+  }
+  const ranges = new Map(labels.map((floor) => [floor, []]));
+  for (const row of rows) {
+    const low = lowKey === "scorePoint" ? scoreToPoint(Number(row.score)) : Number(row[lowKey]);
+    const high = fixedHigh ?? Number(row[highKey]);
+    if (Number.isFinite(low) && Number.isFinite(high)) ranges.get(row.floorName).push([Math.min(low, high), Math.max(low, high)]);
+  }
+  const values = [...ranges.values()].flat();
+  const min = Math.max(0, Math.min(...values.map(([low]) => low)) - 0.05);
+  const max = Math.max(min + 0.1, (fixedHigh ?? Math.max(...values.map(([, high]) => high))) + (fixedHigh ? 0 : 0.05));
+  const xFor = (index) => pad.left + (labels.length === 1 ? plotW / 2 : index * plotW / (labels.length - 1));
+  const yFor = (value) => pad.top + (1 - (value - min) / (max - min)) * plotH;
+  const bandWidth = Math.max(5, Math.min(16, plotW / Math.max(1, labels.length) * 0.55));
+  const bands = labels.map((floor, index) => {
+    const valuesForFloor = ranges.get(floor);
+    if (!valuesForFloor?.length) return "";
+    const low = Math.min(...valuesForFloor.map(([value]) => value));
+    const high = Math.max(...valuesForFloor.map(([, value]) => value));
+    const y = yFor(high);
+    return `<rect class="growthGuideBand" x="${(xFor(index) - bandWidth / 2).toFixed(2)}" y="${y.toFixed(2)}" width="${bandWidth.toFixed(2)}" height="${Math.max(1, yFor(low) - y).toFixed(2)}"><title>${escapeHtml(floor)} · ${low.toFixed(2)} - ${high.toFixed(2)}</title></rect>`;
+  }).join("");
+  const ticks = Array.from({ length: 5 }, (_, index) => min + (max - min) * index / 4);
+  const grid = ticks.map((value) => `<line class="gridLine" x1="${pad.left}" x2="${pad.left + plotW}" y1="${yFor(value)}" y2="${yFor(value)}"></line><text class="axisLabel" x="${pad.left - 8}" y="${yFor(value) + 4}" text-anchor="end">${value.toFixed(2)}</text>`).join("");
+  const xLabels = labels.map((floor, index) => index % Math.max(1, Math.ceil(labels.length / 10)) === 0 ? `<text class="axisLabel" x="${xFor(index)}" y="${height - 16}" text-anchor="middle">${escapeHtml(floor)}</text>` : "").join("");
+  element.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="floor by ${escapeHtml(label)} guide range"><rect class="chartBg" x="0" y="0" width="${width}" height="${height}"></rect>${grid}${bands}${xLabels}<text class="axisTitle" x="12" y="18">${escapeHtml(label)}</text></svg>`;
+}
+
+function scoreToPoint95(score) {
+  if (!Number.isFinite(score)) return NaN;
+  const capped = Math.min(score, 99.9);
+  if (capped <= 95) return 0;
+  const point = -Math.log((100 - capped) / 5) / Math.log(SCORE95_BASE);
+  return Math.max(0, Math.min(10, point));
+}
+
 function getEffectiveTableView() {
   return viewSelect.value === "rate" ? rateMetricSelect.value : viewSelect.value;
 }
@@ -8077,7 +8343,8 @@ function simulatedTop50BaseMaxByButton(relation) {
 function renderDebugView() {
   if (!state.payload || viewSelect.value !== "debug") return;
   const metric = debugMetricSelect.value;
-  debugLogPowerSection.hidden = metric !== "logPower";
+  const isLogPower95 = metric === "logPower95";
+  debugLogPowerSection.hidden = metric !== "logPower" && !isLogPower95;
   debugDjPowerSection.hidden = metric !== "djpower";
   debugPointSection.hidden = metric !== "point";
   const records = filterRows(state.payload.records || []);
@@ -8089,10 +8356,15 @@ function renderDebugView() {
     renderDebugDjPowerDiagnostics(records);
     return;
   }
-  const relation = clampDebugRatio(debugRatioInput.value);
+  const relation = isLogPower95 ? LOGPOWER95_FLOOR_RELATION : clampDebugRatio(debugRatioInput.value);
   setDebugRatio(relation);
-  debugRatioEquation.textContent = `현재 floor 10점 = 다음 floor ${(relation * 10).toFixed(2)}점`;
+  debugRatioInput.disabled = isLogPower95;
+  debugRatioRange.disabled = isLogPower95;
+  debugRatioEquation.textContent = isLogPower95
+    ? `LogPower_95 · 95.00 = 0 · 99.90 = 10 · 99.86 -> 바로 아래 floor 99.90 · 관계값 ${relation.toFixed(6)}`
+    : `현재 floor 10점 = 다음 floor ${(relation * 10).toFixed(2)}점`;
   const baseMaxByButton = simulatedTop50BaseMaxByButton(relation);
+  const scorePoint = isLogPower95 ? scoreToPoint95 : scoreToPoint;
   const selectedButtons = buttonFilter.value ? [Number(buttonFilter.value)] : BUTTONS;
   debugSummary.innerHTML = selectedButtons.map((button) => {
     const simulatedBaseMax = Number(baseMaxByButton?.[String(button)]);
@@ -8101,7 +8373,7 @@ function renderDebugView() {
       : NaN;
     const simulated = records
       .filter((record) => Number(record.button) === button)
-      .map((record) => scoreToPoint(Number(record.score)) * simulatedBaseDifficultyConstant(getFloorLabel(record), relation) * multiplier)
+      .map((record) => scorePoint(Number(record.score)) * simulatedBaseDifficultyConstant(getFloorLabel(record), relation) * multiplier)
       .filter(Number.isFinite)
       .sort((a, b) => b - a)
       .slice(0, 50)
@@ -8117,7 +8389,7 @@ function renderDebugView() {
     return `<div class="metric"><span>${button}B Top50 · 현재 ${current.toFixed(2)}</span><strong>${Number.isFinite(value) ? value.toFixed(2) : "곡 목록 필요"}</strong><span>${Number.isFinite(value) ? `차이 ${formatSigned(value - current, 2)}` : "정규화 정보를 불러오지 못했습니다."}</span></div>`;
   }).join("");
 
-  renderDebugScatter(records, relation, baseMaxByButton);
+  renderDebugScatter(records, relation, baseMaxByButton, scorePoint, isLogPower95 ? "LogPower_95" : "LogPower");
 
   const rows = [...floorLabels].reverse().map((floorLabel) => {
     const current = 10 * baseDifficultyConstantForFloor(floorLabel);
@@ -8164,6 +8436,7 @@ function renderDebugPointDiagnostics(records) {
 function renderDebugPointChart(rows) {
   const width = Math.max(760, debugPointChart.clientWidth || 1000);
   const height = clampChartHeight(debugChartHeightInput.value, 430);
+  setChartHeight(debugPointChart, height);
   const pad = { left: 58, right: 24, top: 26, bottom: 54 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
@@ -8288,6 +8561,7 @@ function debugDjPowerErrorRange(rows, scoreRange, maxAbsoluteDifference) {
 function renderDebugDjPowerChart(rows, maxAbsoluteDifference) {
   const width = Math.max(760, debugDjPowerChart.clientWidth || 1000);
   const height = clampChartHeight(debugChartHeightInput.value, 430);
+  setChartHeight(debugDjPowerChart, height);
   const pad = { left: 54, right: 24, top: 24, bottom: 52 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
@@ -8332,6 +8606,7 @@ function renderDebugDjPowerChart(rows, maxAbsoluteDifference) {
 function renderDebugDjPowerErrorChart(rows, maxAbsoluteDifference) {
   const width = Math.max(760, debugDjPowerErrorChart.clientWidth || 1000);
   const height = clampChartHeight(debugChartHeightInput.value, 430);
+  setChartHeight(debugDjPowerErrorChart, height);
   const pad = { left: 58, right: 24, top: 34, bottom: 52 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
@@ -8375,9 +8650,10 @@ function showDebugDjPowerTooltip(event, encodedInfo) {
   debugChartTooltip.style.top = `${Math.max(12, Math.min(y, window.innerHeight - debugChartTooltip.offsetHeight - 12))}px`;
 }
 
-function renderDebugScatter(records, relation, baseMaxByButton) {
+function renderDebugScatter(records, relation, baseMaxByButton, scorePoint = scoreToPoint, metricLabel = "LogPower") {
   const width = Math.max(760, debugScatterChart.clientWidth || 1000);
   const height = clampChartHeight(debugChartHeightInput.value, 430);
+  setChartHeight(debugScatterChart, height);
   const pad = { left: 58, right: 24, top: 22, bottom: 62 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
@@ -8387,7 +8663,7 @@ function renderDebugScatter(records, relation, baseMaxByButton) {
     const baseMax = Number(baseMaxByButton?.[String(button)]);
     const multiplier = Number.isFinite(baseMax) && baseMax > 0 ? TARGET_TOP50_MAX / baseMax : NaN;
     const currentLogPower = scoreToPoint(Number(record.score)) * difficultyConstantForFloor(floorLabel, button);
-    const simulatedLogPower = scoreToPoint(Number(record.score)) * simulatedBaseDifficultyConstant(floorLabel, relation) * multiplier;
+    const simulatedLogPower = scorePoint(Number(record.score)) * simulatedBaseDifficultyConstant(floorLabel, relation) * multiplier;
     return { ...record, floorLabel, currentLogPower, simulatedLogPower };
   }).filter((record) => floorLabels.includes(record.floorLabel) && Number.isFinite(record.simulatedLogPower));
 
@@ -8459,7 +8735,7 @@ function renderDebugScatter(records, relation, baseMaxByButton) {
         ${minPoints ? `<polyline class="minLine" points="${minPoints}"></polyline>` : ""}
         ${dots}
       </g>
-      <text class="axisTitle" x="16" y="18">simulated LogPower</text>
+      <text class="axisTitle" x="16" y="18">simulated ${escapeHtml(metricLabel)}</text>
       <text class="axisTitle" x="${width - 170}" y="${height - 16}">floorName (n.m)</text>
     </svg>`;
   debugScatterChart.querySelectorAll(".debugChartPoint").forEach((point) => {
@@ -8549,6 +8825,10 @@ function sortRows(rows) {
     rows.sort((a, b) => compareForSort(b.updatedAt, a.updatedAt));
     return;
   }
+  if (viewSelect.value === "records" && !state.sortKey) {
+    rows.sort((a, b) => compareForSort(b.updatedAt, a.updatedAt));
+    return;
+  }
   if (viewSelect.value === "selfCompare" && !state.sortKey) {
     rows.sort((a, b) => compareForSort(b.logPowerDiff, a.logPowerDiff) || compare(a.button, b.button) || compare(a.name, b.name));
     return;
@@ -8584,7 +8864,23 @@ function renderCell(row, key) {
   if (key === "otherScore" && row.otherMaxCombo === true) classes.push("comboScore");
   if (key === "previousScore" && row.previousMaxCombo === true) classes.push("comboScore");
   if (key === "currentScore" && row.currentMaxCombo === true) classes.push("comboScore");
+  if (getEffectiveTableView() === "records" && key === "rating") {
+    return `<td class="${classes.join(" ")}">${escapeHtml(formatRecordRatio(row.rating, row.maxRating))}</td>`;
+  }
+  if (getEffectiveTableView() === "records" && key === "djpower") {
+    return `<td class="${classes.join(" ")}">${escapeHtml(formatRecordRatio(row.djpower, row.maxDjpower))}</td>`;
+  }
+  if (getEffectiveTableView() === "records" && key === "logPower") {
+    const constant = difficultyConstantForFloor(getFloorLabel(row), row.button);
+    return `<td class="${classes.join(" ")}">${escapeHtml(formatRecordRatio(scoreToPoint(Number(row.score)) * constant, 10 * constant))}</td>`;
+  }
   return `<td class="${classes.join(" ")}">${escapeHtml(formatValue(value, key))}</td>`;
+}
+
+function formatRecordRatio(current, maximum) {
+  const currentText = Number.isFinite(Number(current)) ? Number(current).toFixed(2) : "-";
+  const maximumText = Number.isFinite(Number(maximum)) ? Number(maximum).toFixed(2) : "-";
+  return `${currentText}/${maximumText}`;
 }
 
 function compare(a, b) {

@@ -69,6 +69,7 @@
           <option value="chart">산포도</option>
           <option value="compare">사용자 비교</option>
           <option value="rate">RATE</option>
+          <option value="growthGuide">LogPower 성장 가이드</option>
           <option value="logPowerCalculator">계산기</option>
           <option value="records">기록</option>
           <option value="tags" class="testOnly" hidden>태그*로페봇</option>
@@ -88,6 +89,7 @@
         RATE
         <select id="rateMetricSelect">
           <option value="top100">LogPower</option>
+          <option value="top10095" class="testOnly" hidden>LogPower_95</option>
           <option value="points">POINT</option>
           <option value="djPowerTop100">DJPower</option>
         </select>
@@ -504,6 +506,24 @@
       <p class="tagsSource">태그 데이터: V-ARCHIVE pattern-tag (행이봇) · SC 데이터는 V-LOG 공용 스냅샷에서 받고 기기에 캐시합니다.</p>
     </section>
 
+    <section class="toolPanel" id="growthGuidePanel" hidden>
+      <div class="toolHeader">
+        <div>
+          <h2>LogPower 성장 가이드</h2>
+          <p>현재 Top50 진입선과 99.9 기준 잠재치를 비교합니다.</p>
+        </div>
+        <label>표시 <select id="growthGuideModeSelect"><option value="all">전체</option><option value="potential">Top50 진입 가능</option><option value="top50">현재 Top50</option></select></label>
+        <label>정렬 <select id="growthGuideSortSelect"><option value="potentialDesc">잠재 LogPower 큰 순</option><option value="gapDesc">진입선 여유 큰 순</option><option value="currentDesc">현재 LogPower 큰 순</option><option value="floorDesc">floor 높은 순</option><option value="name">곡명</option></select></label>
+      </div>
+      <div id="growthGuideSummary" class="summary"></div>
+      <div class="growthGuideCharts">
+        <section><h3>Floor × LogPower</h3><div id="growthGuideLogPowerChart" class="svgChart"></div></section>
+        <section><h3>Floor × Score</h3><div id="growthGuideScoreChart" class="svgChart"></div></section>
+        <section><h3>Floor × scorePoint</h3><div id="growthGuideScorePointChart" class="svgChart"></div></section>
+      </div>
+      <div class="overviewTableWrap"><table id="growthGuideTable"></table></div>
+    </section>
+
     <section class="toolPanel" id="logPowerCalculatorPanel" hidden>
       <div class="toolHeader">
         <div>
@@ -541,7 +561,7 @@
           <h2>실험실</h2>
           <p>계산식과 실제 기록을 비교해 보정값을 확인합니다.</p>
         </div>
-        <label>대상 <select id="debugMetricSelect"><option value="logPower">LogPower</option><option value="djpower">DJPower</option><option value="point">POINT</option></select></label>
+        <label>대상 <select id="debugMetricSelect"><option value="logPower">LogPower</option><option value="logPower95">LogPower_95</option><option value="djpower">DJPower</option><option value="point">POINT</option></select></label>
         <label>그래프 높이 <input id="debugChartHeightInput" type="number" min="240" max="900" step="20" value="430"></label>
       </div>
       <div id="debugLogPowerSection">
