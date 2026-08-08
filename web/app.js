@@ -511,6 +511,12 @@ const hangyTagsFilterResetButton = document.querySelector("#hangyTagsFilterReset
 const hangyTraitFilterList = document.querySelector("#hangyTraitFilterList");
 const hangyTagsSummary = document.querySelector("#hangyTagsSummary");
 const hangyTagsTable = document.querySelector("#hangyTagsTable");
+const hangyRawTagsPanel = document.querySelector("#hangyRawTagsPanel");
+const hangyRawTagsStatus = document.querySelector("#hangyRawTagsStatus");
+const hangyRawTagsButtonSelect = document.querySelector("#hangyRawTagsButtonSelect");
+const hangyRawTagsSearchInput = document.querySelector("#hangyRawTagsSearchInput");
+const hangyRawTagsSummary = document.querySelector("#hangyRawTagsSummary");
+const hangyRawTagsTable = document.querySelector("#hangyRawTagsTable");
 const growthGuidePanel = document.querySelector("#growthGuidePanel");
 const growthGuideModeSelect = document.querySelector("#growthGuideModeSelect");
 const growthGuideSortSelect = document.querySelector("#growthGuideSortSelect");
@@ -1267,6 +1273,8 @@ function wireEvents() {
       refreshPublishedHangyTags(false);
     });
   });
+  hangyRawTagsButtonSelect.addEventListener("change", () => refreshHangyRawTagsView());
+  hangyRawTagsSearchInput.addEventListener("input", () => renderHangyRawTagsView());
   [hangyTagsSearchInput, hangyTagsLevelMinInput, hangyTagsLevelMaxInput, hangyTagsSumMinInput, hangyTagsSumMaxInput].forEach((control) => {
     control.addEventListener("input", () => {
       saveSettings();
@@ -2164,9 +2172,7 @@ async function hydrateHangyTagsCache() {
   return legacy;
 }
 
-async function loadPublishedHangyScope(force = false) {
-  const button = hangyTagsButtonSelect.value;
-  const pattern = hangyTagsPatternSelect.value;
+async function loadPublishedHangyScope(force = false, button = hangyTagsButtonSelect.value, pattern = hangyTagsPatternSelect.value) {
   const scopeKey = hangyTagsScopeKey(button, pattern);
   if (state.publishedHangyScopesLoading.has(scopeKey)) return false;
   state.publishedHangyScopesLoading.add(scopeKey);
@@ -2260,8 +2266,10 @@ async function ensureHangySongCatalog(force = false) {
 }
 
 function buildHangyTargets(songs) {
-  const button = Number(hangyTagsButtonSelect.value);
-  const pattern = hangyTagsPatternSelect.value;
+  return buildHangyTargetsForScope(songs, Number(hangyTagsButtonSelect.value), hangyTagsPatternSelect.value);
+}
+
+function buildHangyTargetsForScope(songs, button, pattern = "SC") {
   const recordsByKey = new Map((state.payload?.records || []).map((record) => [recordKey(record), record]));
   return songs.flatMap((song) => {
     const patternData = song?.patterns?.[`${button}B`]?.[pattern];
@@ -2641,6 +2649,50 @@ function saveCurrentNickname(nickname) {
 function getNicknameHistory() {
   const groups = getNicknameGroups();
   return [...groups.visible, ...groups.hidden];
+}
+
+function getHangyRowsForScope(button, pattern = "SC") {
+  const catalog = loadHangySongCatalog();
+  if (!catalog?.songs) return [];
+  const targets = buildHangyTargetsForScope(catalog.songs, Number(button), pattern);
+  const entries = loadHangyTagsCache().scopes[hangyTagsScopeKey(button, pattern)]?.entries || {};
+  return targets
+    .map((record) => entries[recordKey(record)]?.row ? { ...entries[recordKey(record)].row, ...record } : null)
+    .filter(Boolean);
+}
+
+async function refreshHangyRawTagsView() {
+  if (viewSelect.value !== "hangyRawTags") return;
+  const button = hangyRawTagsButtonSelect.value;
+  try {
+    const catalog = await ensureHangySongCatalog(false);
+    const loaded = await loadPublishedHangyScope(false, button, "SC");
+    if (!loaded) throw new Error("공용 태그 데이터가 아직 없습니다.");
+    const rows = getHangyRowsForScope(button, "SC");
+    state.hangyRawTagsStatus = `${button}B SC · ${rows.length}/${buildHangyTargetsForScope(catalog, Number(button), "SC").length}개를 불러왔습니다.`;
+  } catch (error) {
+    state.hangyRawTagsStatus = `공용 행이봇 태그 확인 실패 · ${error.message || error}`;
+  }
+  renderHangyRawTagsView();
+}
+
+function renderHangyRawTagsView() {
+  if (viewSelect.value !== "hangyRawTags") return;
+  const button = hangyRawTagsButtonSelect.value;
+  const query = hangyRawTagsSearchInput.value.trim().toLocaleLowerCase("ko");
+  const rows = getHangyRowsForScope(button, "SC")
+    .filter((row) => !query || `${row.title} ${row.name} ${(row.hangyTags || []).map((tag) => `${tag.tagGroup} ${tag.tagCode} ${tag.memo || ""}`).join(" ")}`.toLocaleLowerCase("ko").includes(query))
+    .sort((a, b) => compare(a.name, b.name) || compare(a.title, b.title));
+  hangyRawTagsStatus.textContent = state.hangyRawTagsStatus || `${button}B SC 데이터를 확인하고 있습니다.`;
+  hangyRawTagsSummary.textContent = `${button}B · SC · 표시 ${rows.length}개`;
+  if (!rows.length) {
+    hangyRawTagsTable.innerHTML = `<tbody><tr><td class="empty">표시할 원본 태그가 없습니다.</td></tr></tbody>`;
+    return;
+  }
+  const formatTags = (tags) => (tags || []).length
+    ? tags.map((tag) => escapeHtml(`${tag.tagGroup || "-"}:${tag.tagCode || "-"}${tag.value !== undefined && tag.value !== null ? ` (${tag.value})` : ""}${tag.memo ? ` · ${tag.memo}` : ""}`)).join("<br>")
+    : "-";
+  hangyRawTagsTable.innerHTML = `<thead><tr><th>title</th><th>name</th><th>level</th><th>floor</th><th>tags</th></tr></thead><tbody>${rows.map((row) => `<tr><td class="num">${escapeHtml(row.title)}</td><td class="nameCell">${escapeHtml(row.name)}</td><td class="num">${escapeHtml(row.level ?? "-")}</td><td class="num">${escapeHtml(row.floorName || row.floor || "-")}</td><td>${formatTags(row.hangyTags)}</td></tr>`).join("")}</tbody>`;
 }
 
 function normalizeNicknameList(nicknames) {
@@ -3363,6 +3415,7 @@ function renderActiveView() {
   const isSelfCompare = viewSelect.value === "selfCompare";
   const isTags = viewSelect.value === "tags";
   const isHangyTags = viewSelect.value === "hangyTags";
+  const isHangyRawTags = viewSelect.value === "hangyRawTags";
   const isGrowthGuide = viewSelect.value === "growthGuide";
   const isLogPowerCalculator = viewSelect.value === "logPowerCalculator";
   const isDebug = viewSelect.value === "debug";
@@ -3378,6 +3431,7 @@ function renderActiveView() {
     [selfComparePanel, !isSelfCompare],
     [tagsPanel, !isTags],
     [hangyTagsPanel, !isHangyTags],
+    [hangyRawTagsPanel, !isHangyRawTags],
     [growthGuidePanel, !isGrowthGuide],
     [logPowerCalculatorPanel, !isLogPowerCalculator],
     [debugPanel, !isDebug],
@@ -3385,7 +3439,7 @@ function renderActiveView() {
     [nicknameManagerPanel, !isNicknameManager],
     [testNotesPanel, !isTestNotes],
     [overviewPanel, !isOverview],
-    [tableSection, isChart || isOverview || isDebug || isReadme || isNicknameManager || isTestNotes || isTags || isHangyTags || isAchievements || isGrowthGuide || isLogPowerCalculator],
+    [tableSection, isChart || isOverview || isDebug || isReadme || isNicknameManager || isTestNotes || isTags || isHangyTags || isHangyRawTags || isAchievements || isGrowthGuide || isLogPowerCalculator],
   ].forEach(([element, hidden]) => {
     if (element) element.hidden = hidden;
   });
@@ -3410,6 +3464,7 @@ function renderActiveView() {
     renderHangyTagsView();
     refreshPublishedHangyTags(false);
   }
+  else if (isHangyRawTags) refreshHangyRawTagsView();
   else if (isGrowthGuide) renderGrowthGuide();
   else if (isLogPowerCalculator) renderLogPowerCalculator();
   else if (isNicknameManager) renderNicknameManager();
@@ -6587,13 +6642,37 @@ function buildPackedChartOffsets(rows, { labelOf, yOf, plotWidth, labelCount }) 
         offsets.set(recordKey(cluster[0]), { x: 0, y: 0 });
         continue;
       }
-      // Center one diagonal collision block on its floor line. SVG y grows downward,
-      // so increasing x with decreasing y makes the visual block slope as '/'.
+      // Keep the first dot as the diagonal head. Later collisions first occupy the
+      // slot directly below it, then use a centered '/' row only when that slot is full.
+      const occupied = [];
+      const placements = [];
+      const headY = yOf(cluster[0]);
+      const overlaps = (candidate) => occupied.some((point) => {
+        const dx = candidate.x - point.x;
+        const dy = candidate.y - point.y;
+        return dx * dx + dy * dy < 9 * 9;
+      });
       cluster.forEach((row, index) => {
-        const offsetPixels = (index - (cluster.length - 1) / 2) * 8;
+        let position = index === 0 ? { x: 0, y: headY } : { x: 0, y: headY + 9 };
+        let diagonal = index !== 0 && overlaps(position);
+        if (diagonal) {
+          const diagonalIndex = placements.filter((entry) => entry.diagonal).length;
+          const expectedDiagonalCount = cluster.length - placements.filter((entry) => !entry.diagonal).length;
+          const centeredIndex = diagonalIndex - Math.max(0, expectedDiagonalCount - 1) / 2;
+          position = { x: centeredIndex * 9, y: headY - centeredIndex * 9 };
+          while (overlaps(position)) {
+            const direction = centeredIndex >= 0 ? 1 : -1;
+            position.x += direction * 9;
+            position.y -= direction * 9;
+          }
+        }
+        occupied.push(position);
+        placements.push({ row, position, diagonal });
+      });
+      placements.forEach(({ row, position }) => {
         offsets.set(recordKey(row), {
-          x: offsetPixels * denominator / Math.max(1, plotWidth),
-          y: -offsetPixels,
+          x: position.x * denominator / Math.max(1, plotWidth),
+          y: position.y - yOf(row),
         });
       });
     }
