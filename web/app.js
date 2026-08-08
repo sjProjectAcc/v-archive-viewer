@@ -117,7 +117,7 @@ const SCORE95_BASE = Math.pow(50, 1 / 10);
 const LOGPOWER95_FLOOR_RELATION = -Math.log((100 - 99.86) / 5) / Math.log(SCORE95_BASE) / 10;
 const ANCHOR_FLOOR_LABEL = "15.2";
 const ANCHOR_DIFFICULTY_CONSTANT = 10;
-const FLOOR_STEP_RATIO = 10 / 9;
+const FLOOR_STEP_RATIO = 1 / 0.918;
 const TARGET_TOP50_MAX = 5000;
 const TOP50_SCALE_CACHE_KEY = "vArchiveTop50ScaleCache0900DjPowerV2";
 const TOP50_SCALE_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
@@ -222,6 +222,25 @@ const TIER_POINT_CURVE_SEGMENTS = Object.freeze([
   Object.freeze({ start: 99.98, offset: 99.3444212, scale: 0.08596084, rate: 107.741749483 }),
 ]);
 const TIER_NON_MAX_COMBO_PENALTY = 2;
+const POINT_MAX_RATING_BY_FLOOR = Object.freeze({
+  "1.1": 140, "1.2": 142, "1.3": 144,
+  "2.1": 146, "2.2": 148, "2.3": 150,
+  "3.1": 151, "3.2": 152, "3.3": 153,
+  "4.1": 154, "4.2": 155, "4.3": 156,
+  "5.1": 157, "5.2": 158, "5.3": 159,
+  "6.1": 160, "6.2": 161, "6.3": 162,
+  "7.1": 163, "7.2": 164, "7.3": 165,
+  "8.1": 166, "8.2": 167, "8.3": 168,
+  "9.1": 170, "9.2": 172, "9.3": 174,
+  "10.1": 176, "10.2": 178, "10.3": 180,
+  "11.1": 182, "11.2": 184, "11.3": 186,
+  "12.1": 187, "12.2": 188, "12.3": 190,
+  "13.1": 191, "13.2": 192, "13.3": 194,
+  "14.1": 195, "14.2": 196, "14.3": 198,
+  "15.1": 199, "15.2": 200, "15.3": 202,
+  "16.1": 204, "16.2": 206, "16.3": 208,
+  "17.1": 210, "17.2": 212, "17.3": 214,
+});
 const DJPOWER_SC_DIFFICULTY_CONSTANTS = Object.freeze({
   15: 44, 14: 42, 13: 40, 12: 38, 11: 36,
   10: 34, 9: 32, 8: 30, 7: 29, 6: 28,
@@ -5432,7 +5451,7 @@ function renderHistoryChart(entries) {
   const compareColors = { 4: "#f07a24", 5: "#d9368b", 6: "#d6a000", 8: "#9b4dca" };
   const width = 1200;
   const height = getHistoryChartHeight();
-  setChartHeight(historyChart, height);
+  setChartHeight(historyLogPowerChart, height);
   const pad = { left: 72, right: 24, top: 24, bottom: 48 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
@@ -5945,9 +5964,9 @@ function renderChart() {
     ? `<line class="highlightMinimumLine" x1="${pad.left}" y1="${yFor(highlightMinimum).toFixed(2)}" x2="${(pad.left + plotW).toFixed(2)}" y2="${yFor(highlightMinimum).toFixed(2)}"><title>selected minimum ${escapeHtml(formatChartMetric(highlightMinimum, metric.key))}</title></line>`
     : "";
   const dots = records.map((row) => {
-    const jitter = packedOffsets.get(recordKey(row)) || 0;
-    const cx = clampChartDotX(xFor(row.xLabel, jitter), pad.left, plotW).toFixed(2);
-    const cy = yFor(row.metricValue).toFixed(2);
+    const packed = packedOffsets.get(recordKey(row)) || { x: 0, y: 0 };
+    const cx = clampChartDotX(xFor(row.xLabel, packed.x), pad.left, plotW).toFixed(2);
+    const cy = Math.min(pad.top + plotH - CHART_DOT_EDGE_INSET, Math.max(pad.top + CHART_DOT_EDGE_INSET, yFor(row.metricValue) + packed.y)).toFixed(2);
     const isBelowNextFloorMin = metric.xMode !== "maxDjpower" && belowNextFloorMin(row, minByFloor);
     const isTop50 = top50Keys.has(recordKey(row));
     const isDjBasic = djBasicKeys.has(recordKey(row));
@@ -6556,25 +6575,28 @@ function buildPackedChartOffsets(rows, { labelOf, yOf, plotWidth, labelCount }) 
     groups.get(label).push(row);
   }
   for (const group of groups.values()) {
-    const occupied = [];
-    group.slice().sort((a, b) => yOf(a) - yOf(b) || compare(recordKey(a), recordKey(b))).forEach((row) => {
-      const y = yOf(row);
-      if (!occupied.some((point) => Math.abs(point.y - y) < 11)) {
-        offsets.set(recordKey(row), 0);
-        occupied.push({ y, offset: 0 });
-        return;
+    const ordered = group.slice().sort((a, b) => yOf(a) - yOf(b) || compare(recordKey(a), recordKey(b)));
+    const clusters = [];
+    for (const row of ordered) {
+      const lastCluster = clusters.at(-1);
+      if (!lastCluster || yOf(row) - yOf(lastCluster.at(-1)) >= 11) clusters.push([row]);
+      else lastCluster.push(row);
+    }
+    for (const cluster of clusters) {
+      if (cluster.length === 1) {
+        offsets.set(recordKey(cluster[0]), { x: 0, y: 0 });
+        continue;
       }
-      let attempt = 1;
-      let offset = 0;
-      while (attempt < 32) {
-        const direction = attempt % 2 ? 1 : -1;
-        offset = direction * Math.ceil(attempt / 2) * 8;
-        if (!occupied.some((point) => Math.abs(point.y - y) < 11 && Math.abs(point.offset - offset) < 7)) break;
-        attempt += 1;
-      }
-      offsets.set(recordKey(row), offset * denominator / Math.max(1, plotWidth));
-      occupied.push({ y, offset });
-    });
+      // Center one diagonal collision block on its floor line. SVG y grows downward,
+      // so increasing x with decreasing y makes the visual block slope as '/'.
+      cluster.forEach((row, index) => {
+        const offsetPixels = (index - (cluster.length - 1) / 2) * 8;
+        offsets.set(recordKey(row), {
+          x: offsetPixels * denominator / Math.max(1, plotWidth),
+          y: -offsetPixels,
+        });
+      });
+    }
   }
   return offsets;
 }
@@ -7766,16 +7788,16 @@ function renderLogPowerCalculator() {
   const pointMode = calculatorMode.value === "point";
   calculatorTitle.textContent = djPowerMode ? "DJPower 계산기" : pointMode ? "POINT 계산기" : "LogPower 계산기";
   calculatorButtonControl.hidden = pointMode;
-  calculatorFloorControl.hidden = djPowerMode || pointMode;
+  calculatorFloorControl.hidden = djPowerMode;
   calculatorPatternControl.hidden = !djPowerMode;
   calculatorLevelControl.hidden = !djPowerMode;
-  calculatorMaxRatingControl.hidden = !pointMode;
+  calculatorMaxRatingControl.hidden = true;
   calculatorMaxComboControl.hidden = !pointMode;
   calculatorInverseTitle.textContent = djPowerMode ? "원본 DJPower로 Score 찾기" : pointMode ? "POINT로 Score 찾기" : "LogPower로 Score 찾기";
   calculatorInverseDescription.textContent = djPowerMode
     ? "선택한 패턴과 레벨에서 목표 원본 DJPower에 도달하는 최소 Score를 계산합니다."
     : pointMode
-      ? "입력한 maxRating과 MAX COMBO 상태에서 목표 POINT에 도달하는 최소 Score를 계산합니다."
+      ? "floor별 maxRating과 MAX COMBO 상태에서 목표 POINT에 도달하는 최소 Score를 계산합니다."
       : "입력한 LogPower에 도달하는 최소 Score를 floor별로 계산합니다.";
   calculatorTargetLabel.textContent = djPowerMode ? "원본 DJPower" : pointMode ? "POINT" : "LogPower";
   const floorLabel = logPowerCalculatorFloor.value;
@@ -7788,7 +7810,7 @@ function renderLogPowerCalculator() {
     return;
   }
   if (pointMode) {
-    renderPointCalculator(rawScore, score);
+    renderPointCalculator(rawScore, score, floorLabel);
     return;
   }
   const baseConstant = baseDifficultyConstantForFloor(floorLabel);
@@ -7845,16 +7867,16 @@ function buildTop10095Rows(records) {
   });
 }
 
-function renderPointCalculator(rawScore, score) {
-  const maxRating = Number(pointCalculatorMaxRating.value);
+function renderPointCalculator(rawScore, score, floorLabel) {
+  const maxRating = pointMaxRatingForFloor(floorLabel);
   const maxCombo = pointCalculatorMaxCombo.checked;
   const rating = rawScore === "" ? NaN : estimateTierRating(score, maxRating, maxCombo);
   const pointPercent = rawScore === "" ? NaN : tierPointPercentForScore(score);
   const maximumPoint = estimateTierRating(100, maxRating, maxCombo);
-  logPowerCalculatorContext.textContent = `maxRating ${Number.isFinite(maxRating) ? maxRating.toFixed(2) : "-"} · ${maxCombo ? "MAX COMBO" : "MAX COMBO 아님 (-2)"}`;
-  renderPointScoreTable(maxRating, maxCombo);
+  logPowerCalculatorContext.textContent = `floor ${floorLabel} · maxRating ${Number.isFinite(maxRating) ? maxRating.toFixed(2) : "-"} · ${maxCombo ? "MAX COMBO" : "MAX COMBO 아님 (-2)"}`;
+  renderPointScoreTable(maxCombo);
   if (!Number.isFinite(rating) || !Number.isFinite(pointPercent)) {
-    logPowerCalculatorResults.innerHTML = `<div class="achievementEmpty">maxRating과 score를 확인해 주세요.</div>`;
+    logPowerCalculatorResults.innerHTML = `<div class="achievementEmpty">floor와 score를 확인해 주세요.</div>`;
     logPowerCalculatorBreakdown.textContent = "";
     return;
   }
@@ -7863,7 +7885,7 @@ function renderPointCalculator(rawScore, score) {
     <strong>${rating.toFixed(2)}</strong>
     <small>최대 ${maximumPoint.toFixed(2)} · 점수 보정률 ${pointPercent.toFixed(4)}%</small>
   </article>`;
-  logPowerCalculatorBreakdown.innerHTML = `<span>maxRating <strong>${maxRating.toFixed(2)}</strong></span><span>MAX COMBO <strong>${maxCombo ? "적용" : "미적용 (-2.00)"}</strong></span><span>score ${score.toFixed(2)} 기준 POINT를 계산합니다.</span>`;
+  logPowerCalculatorBreakdown.innerHTML = `<span>floor ${floorLabel} · maxRating <strong>${maxRating.toFixed(2)}</strong></span><span>MAX COMBO <strong>${maxCombo ? "적용" : "미적용 (-2.00)"}</strong></span><span>score ${score.toFixed(2)} 기준 POINT를 계산합니다.</span>`;
 }
 
 function renderDjPowerCalculator(buttons, rawScore, score) {
@@ -7929,17 +7951,21 @@ function requiredScoreForDjPower(target, rawMax) {
   return Math.min(100, Math.ceil((high - 1e-9) * 100) / 100);
 }
 
-function renderPointScoreTable(maxRating, maxCombo) {
+function renderPointScoreTable(maxCombo) {
   const rawTarget = logPowerCalculatorTarget.value.trim();
   const target = Number(rawTarget);
-  if (rawTarget === "" || !Number.isFinite(target) || target < 0 || !Number.isFinite(maxRating) || maxRating <= 0) {
-    logPowerCalculatorScoreTable.innerHTML = `<tbody><tr><td class="empty">0 이상의 POINT와 올바른 maxRating을 입력해 주세요.</td></tr></tbody>`;
+  if (rawTarget === "" || !Number.isFinite(target) || target < 0) {
+    logPowerCalculatorScoreTable.innerHTML = `<tbody><tr><td class="empty">0 이상의 POINT를 입력해 주세요.</td></tr></tbody>`;
     return;
   }
-  const maximum = estimateTierRating(100, maxRating, maxCombo);
-  const score = requiredScoreForPoint(target, maxRating, maxCombo);
-  const scoreText = target === 0 ? "90.00 이하" : Number.isFinite(score) ? score.toFixed(2) : "도달 불가";
-  logPowerCalculatorScoreTable.innerHTML = `<thead><tr><th>목표 POINT</th><th>maxRating</th><th>MAX COMBO</th><th>최대 POINT</th><th>최소 Score</th></tr></thead><tbody><tr><td class="num">${target.toFixed(2)}</td><td class="num">${maxRating.toFixed(2)}</td><td>${maxCombo ? "적용" : "미적용 (-2)"}</td><td class="num">${maximum.toFixed(2)}</td><td class="num${Number.isFinite(score) || target === 0 ? "" : " calculatorImpossible"}">${scoreText}</td></tr></tbody>`;
+  const rows = floorLabels.map((floorLabel) => {
+    const maxRating = pointMaxRatingForFloor(floorLabel);
+    const maximum = estimateTierRating(100, maxRating, maxCombo);
+    const score = requiredScoreForPoint(target, maxRating, maxCombo);
+    const scoreText = target === 0 ? "90.00 이하" : Number.isFinite(score) ? score.toFixed(2) : "도달 불가";
+    return `<tr><td>${floorLabel}</td><td class="num">${maxRating.toFixed(2)}</td><td class="num">${maximum.toFixed(2)}</td><td class="num${Number.isFinite(score) || target === 0 ? "" : " calculatorImpossible"}">${scoreText}</td></tr>`;
+  }).join("");
+  logPowerCalculatorScoreTable.innerHTML = `<thead><tr><th>floor</th><th>maxRating</th><th>최대 POINT</th><th>목표 ${target.toFixed(2)} 최소 Score${maxCombo ? "" : " (MAX COMBO 아님)"}</th></tr></thead><tbody>${rows}</tbody>`;
 }
 
 function requiredScoreForPoint(target, maxRating, maxCombo) {
@@ -8875,6 +8901,11 @@ function renderCell(row, key) {
     return `<td class="${classes.join(" ")}">${escapeHtml(formatRecordRatio(scoreToPoint(Number(row.score)) * constant, 10 * constant))}</td>`;
   }
   return `<td class="${classes.join(" ")}">${escapeHtml(formatValue(value, key))}</td>`;
+}
+
+function pointMaxRatingForFloor(floorLabel) {
+  const value = Number(POINT_MAX_RATING_BY_FLOOR[String(floorLabel || "")]);
+  return Number.isFinite(value) ? value : NaN;
 }
 
 function formatRecordRatio(current, maximum) {
