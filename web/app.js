@@ -114,10 +114,10 @@ const HANGY_TRAIT_LABELS = Object.freeze({
 });
 const SCORE_BASE = Math.pow(30, 1 / 10);
 const SCORE95_BASE = Math.pow(50, 1 / 10);
-const LOGPOWER95_FLOOR_RELATION = -Math.log((100 - 99.86) / 5) / Math.log(SCORE95_BASE) / 10;
+const LOGPOWER95_FLOOR_RELATION = 0.918;
 const ANCHOR_FLOOR_LABEL = "15.2";
 const ANCHOR_DIFFICULTY_CONSTANT = 10;
-const FLOOR_STEP_RATIO = 1 / 0.918;
+const FLOOR_STEP_RATIO = 1 / 0.9;
 const TARGET_TOP50_MAX = 5000;
 const TOP50_SCALE_CACHE_KEY = "vArchiveTop50ScaleCache0900DjPowerV2";
 const TOP50_SCALE_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
