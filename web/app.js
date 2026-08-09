@@ -465,6 +465,7 @@ const achievementStatus = document.querySelector("#achievementStatus");
 const achievementSelectVisibleButton = document.querySelector("#achievementSelectVisibleButton");
 const achievementClearButton = document.querySelector("#achievementClearButton");
 const achievementImageButton = document.querySelector("#achievementImageButton");
+const achievementImageV2Button = document.querySelector("#achievementImageV2Button");
 const achievementColumnsInput = document.querySelector("#achievementColumnsInput");
 const achievementAutoLogPowerInput = document.querySelector("#achievementAutoLogPowerInput");
 const achievementAutoHoursInput = document.querySelector("#achievementAutoHoursInput");
@@ -521,10 +522,20 @@ const growthGuidePanel = document.querySelector("#growthGuidePanel");
 const growthGuideModeSelect = document.querySelector("#growthGuideModeSelect");
 const growthGuideSortSelect = document.querySelector("#growthGuideSortSelect");
 const growthGuideSummary = document.querySelector("#growthGuideSummary");
-const growthGuideTable = document.querySelector("#growthGuideTable");
+const growthGuideTop50Table = document.querySelector("#growthGuideTop50Table");
+const growthGuidePotentialTable = document.querySelector("#growthGuidePotentialTable");
 const growthGuideLogPowerChart = document.querySelector("#growthGuideLogPowerChart");
 const growthGuideScoreChart = document.querySelector("#growthGuideScoreChart");
 const growthGuideScorePointChart = document.querySelector("#growthGuideScorePointChart");
+const floorAnalysisPanel = document.querySelector("#floorAnalysisPanel");
+const floorAnalysisModeSelect = document.querySelector("#floorAnalysisModeSelect");
+const floorAnalysisButtonSelect = document.querySelector("#floorAnalysisButtonSelect");
+const floorAnalysisScopeSelect = document.querySelector("#floorAnalysisScopeSelect");
+const floorAnalysisSortSelect = document.querySelector("#floorAnalysisSortSelect");
+const floorAnalysisSummary = document.querySelector("#floorAnalysisSummary");
+const floorAnalysisChart = document.querySelector("#floorAnalysisChart");
+const floorAnalysisMissing = document.querySelector("#floorAnalysisMissing");
+const floorAnalysisTable = document.querySelector("#floorAnalysisTable");
 const logPowerCalculatorPanel = document.querySelector("#logPowerCalculatorPanel");
 const calculatorTitle = document.querySelector("#calculatorTitle");
 const logPowerCalculatorContext = document.querySelector("#logPowerCalculatorContext");
@@ -649,7 +660,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-rate-v13";
+const UI_SCHEMA_VERSION = "v-log-rate-v14";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -677,6 +688,7 @@ const REQUIRED_UI_IDS = [
   "historyXAxisModeSelect",
   "chartHeightInput",
   "achievementPanel",
+  "achievementImageV2Button",
   "achievementAutoLogPowerInput",
   "achievementAutoHoursInput",
   "achievementAutoSelectButton",
@@ -685,7 +697,14 @@ const REQUIRED_UI_IDS = [
   "growthGuidePanel",
   "growthGuideModeSelect",
   "growthGuideSortSelect",
-  "growthGuideTable",
+  "growthGuideTop50Table",
+  "growthGuidePotentialTable",
+  "floorAnalysisPanel",
+  "floorAnalysisModeSelect",
+  "floorAnalysisButtonSelect",
+  "floorAnalysisScopeSelect",
+  "floorAnalysisSortSelect",
+  "floorAnalysisTable",
   "logPowerCalculatorPanel",
   "calculatorMode",
   "calculatorButtonControl",
@@ -1034,6 +1053,9 @@ function wireEvents() {
   [growthGuideModeSelect, growthGuideSortSelect].forEach((control) => {
     control.addEventListener("input", () => renderGrowthGuide());
   });
+  [floorAnalysisModeSelect, floorAnalysisButtonSelect, floorAnalysisScopeSelect, floorAnalysisSortSelect].forEach((control) => {
+    control.addEventListener("input", () => renderFloorAnalysis());
+  });
   compareLoadButton.addEventListener("click", () => loadComparison(false));
   compareNicknameInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") loadComparison(false);
@@ -1198,7 +1220,8 @@ function wireEvents() {
     syncAchievementColumnsToSelection();
     renderAchievementList();
   });
-  achievementImageButton.addEventListener("click", exportAchievementImage);
+  achievementImageButton.addEventListener("click", () => exportAchievementImage(1));
+  achievementImageV2Button.addEventListener("click", () => exportAchievementImage(2));
   achievementList.addEventListener("change", (event) => {
     const checkbox = event.target.closest("[data-achievement-id]");
     if (!checkbox) return;
@@ -3417,6 +3440,7 @@ function renderActiveView() {
   const isHangyTags = viewSelect.value === "hangyTags";
   const isHangyRawTags = viewSelect.value === "hangyRawTags";
   const isGrowthGuide = viewSelect.value === "growthGuide";
+  const isFloorAnalysis = viewSelect.value === "floorMinScore";
   const isLogPowerCalculator = viewSelect.value === "logPowerCalculator";
   const isDebug = viewSelect.value === "debug";
   const isReadme = viewSelect.value === "readme";
@@ -3433,13 +3457,14 @@ function renderActiveView() {
     [hangyTagsPanel, !isHangyTags],
     [hangyRawTagsPanel, !isHangyRawTags],
     [growthGuidePanel, !isGrowthGuide],
+    [floorAnalysisPanel, !isFloorAnalysis],
     [logPowerCalculatorPanel, !isLogPowerCalculator],
     [debugPanel, !isDebug],
     [readmePanel, !isReadme],
     [nicknameManagerPanel, !isNicknameManager],
     [testNotesPanel, !isTestNotes],
     [overviewPanel, !isOverview],
-    [tableSection, isChart || isOverview || isDebug || isReadme || isNicknameManager || isTestNotes || isTags || isHangyTags || isHangyRawTags || isAchievements || isGrowthGuide || isLogPowerCalculator],
+    [tableSection, isChart || isOverview || isDebug || isReadme || isNicknameManager || isTestNotes || isTags || isHangyTags || isHangyRawTags || isAchievements || isGrowthGuide || isFloorAnalysis || isLogPowerCalculator],
   ].forEach(([element, hidden]) => {
     if (element) element.hidden = hidden;
   });
@@ -3466,6 +3491,7 @@ function renderActiveView() {
   }
   else if (isHangyRawTags) refreshHangyRawTagsView();
   else if (isGrowthGuide) renderGrowthGuide();
+  else if (isFloorAnalysis) renderFloorAnalysis();
   else if (isLogPowerCalculator) renderLogPowerCalculator();
   else if (isNicknameManager) renderNicknameManager();
   else if (isDebug) renderDebugView();
@@ -4322,6 +4348,8 @@ function buildAchievementRows(entries) {
         currentPoint,
         previousDjPower,
         currentDjPower,
+        previousRanks: achievementMetricRanks(entry.button, previousLogPower, previousPoint, previousDjPower),
+        currentRanks: achievementMetricRanks(entry.button, currentLogPower, currentPoint, currentDjPower),
         previousPointEstimated: Boolean(previous),
         currentPointEstimated,
         previousDjPowerEstimated: Boolean(previous),
@@ -4381,6 +4409,7 @@ function updateAchievementSelectionControls(visibleRows = getVisibleAchievementR
   const selectedCount = visibleRows.filter((row) => state.achievementSelected.has(row.id)).length;
   achievementSelectionSummary.textContent = `${selectedCount}개 선택 · 현재 표시 ${visibleRows.length}개`;
   achievementImageButton.disabled = selectedCount === 0;
+  achievementImageV2Button.disabled = selectedCount === 0;
   achievementSelectVisibleButton.disabled = visibleRows.length === 0;
   achievementClearButton.disabled = selectedCount === 0;
 }
@@ -5009,6 +5038,19 @@ function loadLegacyDjPowerHistorySeriesCache() {
   } catch {
     return {};
   }
+}
+
+function achievementMetricRanks(button, logPower, point, djPower) {
+  const records = (state.payload?.records || []).filter((record) => Number(record.button) === Number(button));
+  const values = {
+    lp: records.map((record) => scoreToPoint(Number(record.score)) * difficultyConstantForFloor(getFloorLabel(record), button)),
+    pt: records.map((record) => Number(record.rating)),
+    dp: records.map((record) => Number(record.djpower)),
+  };
+  const rank = (items, value) => Number.isFinite(Number(value))
+    ? 1 + items.filter((item) => Number.isFinite(item) && item > value + 1e-9).length
+    : null;
+  return { lp: rank(values.lp, logPower), pt: rank(values.pt, point), dp: rank(values.dp, djPower) };
 }
 
 async function collectUpdatedHistoriesAutomatically() {
@@ -6634,7 +6676,9 @@ function buildPackedChartOffsets(rows, { labelOf, yOf, plotWidth, labelCount }) 
     const clusters = [];
     for (const row of ordered) {
       const lastCluster = clusters.at(-1);
-      if (!lastCluster || yOf(row) - yOf(lastCluster.at(-1)) >= 11) clusters.push([row]);
+      // Hit area is deliberately smaller than the visible dot. Neighbouring tick
+      // values remain readable instead of forcing a misleading y displacement.
+      if (!lastCluster || yOf(row) - yOf(lastCluster.at(-1)) >= 6) clusters.push([row]);
       else lastCluster.push(row);
     }
     for (const cluster of clusters) {
@@ -6642,37 +6686,12 @@ function buildPackedChartOffsets(rows, { labelOf, yOf, plotWidth, labelCount }) 
         offsets.set(recordKey(cluster[0]), { x: 0, y: 0 });
         continue;
       }
-      // Keep the first dot as the diagonal head. Later collisions first occupy the
-      // slot directly below it, then use a centered '/' row only when that slot is full.
-      const occupied = [];
-      const placements = [];
-      const headY = yOf(cluster[0]);
-      const overlaps = (candidate) => occupied.some((point) => {
-        const dx = candidate.x - point.x;
-        const dy = candidate.y - point.y;
-        return dx * dx + dy * dy < 9 * 9;
-      });
+      // Only fan horizontally. The score value always owns the y coordinate.
       cluster.forEach((row, index) => {
-        let position = index === 0 ? { x: 0, y: headY } : { x: 0, y: headY + 9 };
-        let diagonal = index !== 0 && overlaps(position);
-        if (diagonal) {
-          const diagonalIndex = placements.filter((entry) => entry.diagonal).length;
-          const expectedDiagonalCount = cluster.length - placements.filter((entry) => !entry.diagonal).length;
-          const centeredIndex = diagonalIndex - Math.max(0, expectedDiagonalCount - 1) / 2;
-          position = { x: centeredIndex * 9, y: headY - centeredIndex * 9 };
-          while (overlaps(position)) {
-            const direction = centeredIndex >= 0 ? 1 : -1;
-            position.x += direction * 9;
-            position.y -= direction * 9;
-          }
-        }
-        occupied.push(position);
-        placements.push({ row, position, diagonal });
-      });
-      placements.forEach(({ row, position }) => {
+        const offsetPixels = (index - (cluster.length - 1) / 2) * 6;
         offsets.set(recordKey(row), {
-          x: position.x * denominator / Math.max(1, plotWidth),
-          y: position.y - yOf(row),
+          x: offsetPixels * denominator / Math.max(1, plotWidth),
+          y: 0,
         });
       });
     }
@@ -7121,7 +7140,7 @@ async function generatePointImage(button) {
   }
 }
 
-async function exportAchievementImage() {
+async function exportAchievementImage(version = 1) {
   if (!state.payload || !state.achievementSelected.size) return;
   const selectedIds = state.achievementSelected;
   const selectedButton = buttonFilter.value;
@@ -7133,20 +7152,23 @@ async function exportAchievementImage() {
   const columns = Math.min(rows.length, Math.min(MAX_ACHIEVEMENT_COLUMNS, Math.max(1, Number(achievementColumnsInput.value) || 1)));
   setBusy(true, `최근 성과 ${rows.length}개 이미지 생성 중`);
   achievementImageButton.disabled = true;
+  achievementImageV2Button.disabled = true;
   try {
-    const canvas = await drawAchievementImage({
+    const canvas = await (version === 2 ? drawAchievementImageV2 : drawAchievementImage)({
       nickname: state.payload.nickname || getCurrentNickname(),
       rows,
       columns,
       profile: buildAchievementProfileSummary(),
     });
-    const copied = await saveCanvasImage(canvas, `v-archive-${state.payload.nickname || "user"}-recent-achievements.png`);
+    const suffix = version === 2 ? "-v2" : "";
+    const copied = await saveCanvasImage(canvas, `v-archive-${state.payload.nickname || "user"}-recent-achievements${suffix}.png`);
     statusText.textContent = `최근 성과 ${rows.length}개 이미지를 다운로드했습니다.${copied ? " 클립보드에도 복사했습니다." : ""}`;
   } catch (error) {
     statusText.textContent = `최근 성과 이미지 생성 오류: ${error.message || error}`;
   } finally {
     setBusy(false);
     achievementImageButton.disabled = !getVisibleAchievementRows().some((row) => state.achievementSelected.has(row.id));
+    achievementImageV2Button.disabled = achievementImageButton.disabled;
   }
 }
 
@@ -7918,6 +7940,79 @@ function renderLogPowerCalculator() {
   logPowerCalculatorBreakdown.innerHTML = `<span>Score Point <strong>${point.toFixed(4)}</strong>${capLabel}</span><span>floor 기본 상수 <strong>${baseConstant.toFixed(4)}</strong></span><span>${hasLiveScale ? "최신 곡 목록" : "내장값"} 기준 버튼별 TOP50 5000 보정</span>`;
 }
 
+async function drawAchievementImageV2({ nickname, rows, columns, profile }) {
+  const margin = ACHIEVEMENT_IMAGE_MARGIN;
+  const gap = ACHIEVEMENT_IMAGE_GAP;
+  const cardW = 500;
+  const cardH = 460;
+  const width = margin * 2 + columns * cardW + Math.max(0, columns - 1) * gap;
+  const headerH = 150;
+  const rowCount = Math.ceil(rows.length / columns);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = margin * 2 + headerH + rowCount * cardH + Math.max(0, rowCount - 1) * gap;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#f4f6f8";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#151922";
+  ctx.font = "900 38px Segoe UI, Malgun Gothic, Arial";
+  ctx.fillText("V-LOG RECENT ACHIEVEMENTS", margin, 56);
+  ctx.fillStyle = "#1268b3";
+  ctx.font = "900 29px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, nickname, margin, 98, width - margin * 2);
+  ctx.fillStyle = "#586274";
+  ctx.font = "700 15px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, `${rows.length} achievements · ${profile.selectedButton ? `${profile.selectedButton}B` : "all buttons"} · ${formatDate(new Date().toISOString())}`, margin, 126, width - margin * 2);
+  const jackets = await Promise.all(rows.map((row) => loadImage(getJacketUrl(row))));
+  rows.forEach((row, index) => {
+    const x = margin + (index % columns) * (cardW + gap);
+    const y = margin + headerH + Math.floor(index / columns) * (cardH + gap);
+    drawAchievementImageV2Card(ctx, row, jackets[index], x, y, cardW, cardH);
+  });
+  return canvas;
+}
+
+function drawAchievementImageV2Card(ctx, row, jacket, x, y, w, h) {
+  drawRoundRect(ctx, x, y, w, h, 8, "#ffffff", "#d9dee7");
+  const jacketSize = 152;
+  const jacketX = x + 18;
+  const jacketY = y + 18;
+  if (jacket) {
+    ctx.save(); roundedClip(ctx, jacketX, jacketY, jacketSize, jacketSize, 7); ctx.drawImage(jacket, jacketX, jacketY, jacketSize, jacketSize); ctx.restore();
+  }
+  const textX = jacketX + jacketSize + 18;
+  ctx.fillStyle = "#171a1f"; ctx.font = "900 24px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, row.name, textX, y + 50, w - (textX - x) - 18);
+  ctx.fillStyle = "#586274"; ctx.font = "800 14px Segoe UI, Malgun Gothic, Arial";
+  drawTextFit(ctx, `${row.button}B · ${row.pattern} · Lv.${row.level} · floor ${row.floorName}`, textX, y + 78, w - (textX - x) - 18);
+  drawTextFit(ctx, formatAchievementElapsed(row.previousUpdatedAt, row.currentUpdatedAt), textX, y + 108, w - (textX - x) - 18);
+  const areaY = y + 190;
+  const cellGap = 8;
+  const cellW = (w - 36 - cellGap * 2) / 3;
+  drawAchievementV2Block(ctx, "기존", row.previousUpdatedAt, row.previousScore, row.previousLogPower, row.previousPoint, row.previousDjPower, row.previousRanks, x + 18, areaY, cellW, h - 208, false);
+  drawAchievementV2Delta(ctx, row, x + 18 + cellW + cellGap, areaY, cellW, h - 208);
+  drawAchievementV2Block(ctx, "성과", row.currentUpdatedAt, row.currentScore, row.currentLogPower, row.currentPoint, row.currentDjPower, row.currentRanks, x + 18 + (cellW + cellGap) * 2, areaY, cellW, h - 208, true);
+}
+
+function drawAchievementV2Block(ctx, label, updatedAt, score, lp, pt, dp, ranks, x, y, w, h, accent) {
+  drawRoundRect(ctx, x, y, w, h, 7, accent ? "#eef6fc" : "#f7f9fc", accent ? "#b9d7ee" : "#e2e7ef");
+  if (!updatedAt) { ctx.fillStyle = "#687282"; ctx.font = "900 44px Segoe UI, Malgun Gothic, Arial"; ctx.textAlign = "center"; ctx.fillText("NEW", x + w / 2, y + h / 2); ctx.textAlign = "left"; return; }
+  ctx.fillStyle = accent ? "#1268b3" : "#687282"; ctx.font = "900 18px Segoe UI, Malgun Gothic, Arial"; ctx.fillText(label, x + 12, y + 28);
+  ctx.fillStyle = "#586274"; ctx.font = "700 12px Segoe UI, Malgun Gothic, Arial"; drawTextFit(ctx, formatDate(updatedAt), x + 12, y + 48, w - 24);
+  ctx.fillStyle = accent ? "#1268b3" : "#171a1f"; ctx.font = "900 31px Segoe UI, Malgun Gothic, Arial"; ctx.fillText(formatValue(score, "score"), x + 12, y + 88);
+  ctx.fillStyle = "#586274"; ctx.font = "800 13px Segoe UI, Malgun Gothic, Arial";
+  [["LP", lp, ranks?.lp], ["PT", pt, ranks?.pt], ["DP", dp, ranks?.dp]].forEach(([key, value, rank], index) => drawTextFit(ctx, `${key} ${formatProfileNumber(value)} · TOP ${rank || "-"}`, x + 12, y + 121 + index * 23, w - 24));
+}
+
+function drawAchievementV2Delta(ctx, row, x, y, w, h) {
+  drawRoundRect(ctx, x, y, w, h, 7, "#f7f9fc", "#e2e7ef");
+  ctx.fillStyle = "#687282"; ctx.font = "900 18px Segoe UI, Malgun Gothic, Arial"; ctx.textAlign = "center"; ctx.fillText("변화", x + w / 2, y + 28);
+  ctx.font = "900 30px Segoe UI, Malgun Gothic, Arial"; ctx.fillText("→", x + w / 2, y + 80);
+  ctx.fillStyle = "#1268b3"; ctx.font = "800 14px Segoe UI, Malgun Gothic, Arial";
+  [["Score", row.scoreDiff, 2], ["LP", row.logPowerDiff, 2], ["PT", row.currentPoint - row.previousPoint, 2], ["DP", row.currentDjPower - row.previousDjPower, 2]].forEach(([label, value, digits], index) => ctx.fillText(`${label} ${formatSigned(value, digits)}`, x + w / 2, y + 119 + index * 27));
+  ctx.textAlign = "left";
+}
+
 function buildTop10095Rows(records) {
   const selectedButton = buttonFilter.value;
   const buttons = selectedButton ? [selectedButton] : ["4", "5", "6", "8"];
@@ -8282,7 +8377,6 @@ function renderGrowthGuide() {
   if (!state.payload || viewSelect.value !== "growthGuide") return;
   const allRows = buildGrowthGuideRows();
   const mode = growthGuideModeSelect.value;
-  const rows = allRows.filter((row) => mode === "all" || (mode === "top50" ? row.isTop50 : !row.isTop50 && row.maxLogPower >= row.cutoff));
   const sort = growthGuideSortSelect.value;
   const sortValue = (row) => {
     if (sort === "gapDesc") return row.potentialGap;
@@ -8291,9 +8385,12 @@ function renderGrowthGuide() {
     if (sort === "name") return row.name || "";
     return row.maxLogPower;
   };
-  rows.sort((a, b) => sort === "name"
+  const sortRowsForGuide = (rows) => rows.sort((a, b) => sort === "name"
     ? compare(sortValue(a), sortValue(b))
     : compareForSort(sortValue(b), sortValue(a)) || compare(a.name, b.name));
+  const top50Rows = sortRowsForGuide(allRows.filter((row) => row.isTop50));
+  const potentialRows = sortRowsForGuide(allRows.filter((row) => !row.isTop50 && row.maxLogPower >= row.cutoff));
+  const rows = mode === "top50" ? top50Rows : mode === "potential" ? potentialRows : [...top50Rows, ...potentialRows];
   const top50 = allRows.filter((row) => row.isTop50).length;
   const potential = allRows.filter((row) => !row.isTop50 && row.maxLogPower >= row.cutoff).length;
   growthGuideSummary.innerHTML = [
@@ -8302,9 +8399,13 @@ function renderGrowthGuide() {
     ["표시", rows.length],
   ].map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`).join("");
   const columns = [["guideStatus", "상태"], ["button", "button"], ["name", "name"], ["pattern", "pattern"], ["level", "level"], ["floorName", "floor"], ["score", "score"], ["logPower", "현재 LogPower"], ["cutoff", "Top50 진입선"], ["maxLogPower", "99.9 LogPower"], ["potentialGap", "진입 여유"]];
-  growthGuideTable.innerHTML = rows.length
-    ? `<thead><tr>${columns.map(([, label]) => `<th>${escapeHtml(label)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr class="${row.isTop50 ? "growthGuideTop50" : ""}">${columns.map(([key]) => renderGrowthGuideCell(row, key)).join("")}</tr>`).join("")}</tbody>`
-    : `<tbody><tr><td class="empty">현재 조건에 맞는 기록이 없습니다.</td></tr></tbody>`;
+  const renderRows = (target, rows) => {
+    target.innerHTML = rows.length
+      ? `<thead><tr>${columns.map(([, label]) => `<th>${escapeHtml(label)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr class="${row.isTop50 ? "growthGuideTop50" : ""}">${columns.map(([key]) => renderGrowthGuideCell(row, key)).join("")}</tr>`).join("")}</tbody>`
+      : `<tbody><tr><td class="empty">해당 기록이 없습니다.</td></tr></tbody>`;
+  };
+  renderRows(growthGuideTop50Table, top50Rows);
+  renderRows(growthGuidePotentialTable, potentialRows);
   renderGrowthGuideRangeChart(growthGuideLogPowerChart, allRows, "logPower", "maxLogPower", "LogPower");
   renderGrowthGuideRangeChart(growthGuideScoreChart, allRows, "score", null, "Score", 99.9);
   renderGrowthGuideRangeChart(growthGuideScorePointChart, allRows, "scorePoint", null, "scorePoint", 10);
@@ -8352,6 +8453,73 @@ function renderGrowthGuideRangeChart(element, rows, lowKey, highKey, label, fixe
   const grid = ticks.map((value) => `<line class="gridLine" x1="${pad.left}" x2="${pad.left + plotW}" y1="${yFor(value)}" y2="${yFor(value)}"></line><text class="axisLabel" x="${pad.left - 8}" y="${yFor(value) + 4}" text-anchor="end">${value.toFixed(2)}</text>`).join("");
   const xLabels = labels.map((floor, index) => index % Math.max(1, Math.ceil(labels.length / 10)) === 0 ? `<text class="axisLabel" x="${xFor(index)}" y="${height - 16}" text-anchor="middle">${escapeHtml(floor)}</text>` : "").join("");
   element.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="floor by ${escapeHtml(label)} guide range"><rect class="chartBg" x="0" y="0" width="${width}" height="${height}"></rect>${grid}${bands}${xLabels}<text class="axisTitle" x="12" y="18">${escapeHtml(label)}</text></svg>`;
+}
+
+function renderFloorAnalysis() {
+  if (!state.payload || viewSelect.value !== "floorMinScore") return;
+  const mode = floorAnalysisModeSelect.value;
+  const button = floorAnalysisButtonSelect.value;
+  const allRecords = (state.payload.records || []).filter((row) => !button || String(row.button) === button);
+  const scopeFor = (row) => mode === "floor"
+    ? getFloorLabel(row)
+    : `${String(row.pattern || "").toUpperCase() === "SC" ? "SC" : "nonSC"} ${Number(row.level) || "-"}`;
+  const scopes = [...new Set(allRecords.map(scopeFor).filter(Boolean))].sort((a, b) => {
+    if (mode === "floor") return floorIndex(a) - floorIndex(b);
+    const aSc = a.startsWith("SC") ? 0 : 1; const bSc = b.startsWith("SC") ? 0 : 1;
+    return aSc - bSc || Number(a.replace(/\D/g, "")) - Number(b.replace(/\D/g, ""));
+  });
+  const prior = floorAnalysisScopeSelect.value;
+  floorAnalysisScopeSelect.innerHTML = scopes.map((scope) => `<option value="${escapeHtml(scope)}">${escapeHtml(scope)}</option>`).join("");
+  floorAnalysisScopeSelect.value = scopes.includes(prior) ? prior : scopes[0] || "";
+  const scope = floorAnalysisScopeSelect.value;
+  const rows = allRecords.filter((row) => scopeFor(row) === scope);
+  const scores = rows.map((row) => Number(row.score)).filter(Number.isFinite);
+  const mean = scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : NaN;
+  const stddev = scores.length ? Math.sqrt(scores.reduce((sum, value) => sum + (value - mean) ** 2, 0) / scores.length) : NaN;
+  const total = floorAnalysisTotalPatterns(mode, scope, button);
+  const high = scores.length ? Math.max(...scores) : NaN;
+  const low = scores.length ? Math.min(...scores) : NaN;
+  floorAnalysisSummary.innerHTML = [["기록", `${rows.length}/${total ?? "-"}`], ["평균", formatValue(mean, "score")], ["표준편차", Number.isFinite(stddev) ? stddev.toFixed(3) : "-"], ["최고", formatValue(high, "score")], ["최저", formatValue(low, "score")]].map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`).join("");
+  renderFloorAnalysisChart(rows, mean, stddev);
+  renderFloorAnalysisMissing(mode, scope, button, rows);
+  const sorted = rows.slice().sort((a, b) => {
+    if (floorAnalysisSortSelect.value === "scoreAsc") return Number(a.score) - Number(b.score);
+    if (floorAnalysisSortSelect.value === "name") return compare(a.name, b.name);
+    if (floorAnalysisSortSelect.value === "updatedAt") return new Date(b.updatedAt) - new Date(a.updatedAt);
+    return Number(b.score) - Number(a.score);
+  });
+  const columns = [["button", "button"], ["name", "name"], ["pattern", "pattern"], ["level", "level"], ["floorName", "floor"], ["score", "score"], ["maxCombo", "max combo"], ["updatedAt", "updated"]];
+  floorAnalysisTable.innerHTML = sorted.length ? `<thead><tr>${columns.map(([, label]) => `<th>${label}</th>`).join("")}</tr></thead><tbody>${sorted.map((row) => `<tr>${columns.map(([key]) => renderCell(row, key)).join("")}</tr>`).join("")}</tbody>` : `<tbody><tr><td class="empty">기록이 없습니다.</td></tr></tbody>`;
+  if (!loadHangySongCatalog()) ensureHangySongCatalog(false).then(() => renderFloorAnalysis()).catch(() => {});
+}
+
+function floorAnalysisTotalPatterns(mode, scope, button) {
+  if (mode === "floor" && button) return Number(state.floorPatternCounts?.[button]?.SC?.[scope] || 0) + Number(state.floorPatternCounts?.[button]?.NM?.[scope] || 0) + Number(state.floorPatternCounts?.[button]?.HD?.[scope] || 0) + Number(state.floorPatternCounts?.[button]?.MX?.[scope] || 0) || null;
+  return null;
+}
+
+function renderFloorAnalysisMissing(mode, scope, button, rows) {
+  const catalog = loadHangySongCatalog()?.songs || [];
+  const recorded = new Set(rows.map(recordKey));
+  const buttons = button ? [Number(button)] : BUTTONS;
+  const missing = catalog.flatMap((song) => buttons.flatMap((currentButton) => Object.entries(song?.patterns?.[`${currentButton}B`] || {}).flatMap(([pattern, item]) => {
+    const matches = mode === "floor" ? getFloorLabel(item) === scope : `${String(pattern).toUpperCase() === "SC" ? "SC" : "nonSC"} ${Number(item.level) || "-"}` === scope;
+    const target = { title: Number(song.title), button: currentButton, pattern };
+    return matches && !recorded.has(recordKey(target)) ? [{ ...target, name: song.name || `#${song.title}`, level: item.level, floorName: getFloorLabel(item) }] : [];
+  })));
+  floorAnalysisMissing.innerHTML = missing.length
+    ? missing.map((row) => `<span>${escapeHtml(`${row.button}B · ${row.name} · ${row.pattern} · Lv.${row.level} · ${row.floorName || "-"}`)}</span>`).join("")
+    : `<span>${catalog.length ? "미기록 패턴이 없습니다." : "곡 목록을 불러오는 중입니다."}</span>`;
+}
+
+function renderFloorAnalysisChart(rows, mean, stddev) {
+  const width = Math.max(760, floorAnalysisChart.clientWidth || 900); const height = 220; setChartHeight(floorAnalysisChart, height);
+  const pad = { left: 50, right: 18, top: 16, bottom: 32 }; const scores = rows.map((row) => Number(row.score)).filter(Number.isFinite);
+  if (!scores.length) { floorAnalysisChart.innerHTML = `<div class="empty">시각화할 기록이 없습니다.</div>`; return; }
+  const min = Math.min(...scores) - 0.1; const max = Math.max(...scores) + 0.1; const yFor = (value) => pad.top + (max - value) / Math.max(0.01, max - min) * (height - pad.top - pad.bottom);
+  const xFor = (index) => pad.left + (scores.length === 1 ? (width - pad.left - pad.right) / 2 : index * (width - pad.left - pad.right) / (scores.length - 1));
+  const line = Number.isFinite(mean) ? `<line x1="${pad.left}" x2="${width - pad.right}" y1="${yFor(mean)}" y2="${yFor(mean)}" class="averageLine"/>` : "";
+  floorAnalysisChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img"><text x="8" y="${yFor(max)}">${max.toFixed(2)}</text><text x="8" y="${yFor(min)}">${min.toFixed(2)}</text>${line}${scores.map((score, index) => `<circle cx="${xFor(index)}" cy="${yFor(score)}" r="4" class="chartDot"/>`).join("")}${Number.isFinite(stddev) ? `<text x="${pad.left}" y="${height - 8}">mean ${mean.toFixed(2)} · σ ${stddev.toFixed(3)}</text>` : ""}</svg>`;
 }
 
 function scoreToPoint95(score) {

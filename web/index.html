@@ -421,6 +421,7 @@
           <button id="achievementSelectVisibleButton" class="secondaryButton" type="button">표시 항목 선택</button>
           <button id="achievementClearButton" class="secondaryButton" type="button">선택 해제</button>
           <button id="achievementImageButton" type="button">이미지 저장</button>
+          <button id="achievementImageV2Button" class="secondaryButton" type="button">이미지 버전 2</button>
         </div>
       </div>
       <div class="toolControls achievementControls">
@@ -540,7 +541,22 @@
         <section><h3>Floor × Score</h3><div id="growthGuideScoreChart" class="svgChart"></div></section>
         <section><h3>Floor × scorePoint</h3><div id="growthGuideScorePointChart" class="svgChart"></div></section>
       </div>
-      <div class="overviewTableWrap"><table id="growthGuideTable"></table></div>
+      <section class="growthGuideList"><h3>현재 TOP50</h3><div class="overviewTableWrap"><table id="growthGuideTop50Table"></table></div></section>
+      <section class="growthGuideList"><h3>99.9 기준 진입 가능</h3><div class="overviewTableWrap"><table id="growthGuidePotentialTable"></table></div></section>
+    </section>
+
+    <section class="toolPanel" id="floorAnalysisPanel" hidden>
+      <div class="toolHeader"><div><h2>Floor 분석</h2><p>선택한 floor 또는 레벨의 기록 분포와 미기록 패턴을 확인합니다.</p></div></div>
+      <div class="toolControls">
+        <label>모드 <select id="floorAnalysisModeSelect"><option value="floor">floor</option><option value="level">level</option></select></label>
+        <label>버튼 <select id="floorAnalysisButtonSelect"><option value="">전체</option><option value="4">4B</option><option value="5">5B</option><option value="6">6B</option><option value="8">8B</option></select></label>
+        <label>대상 <select id="floorAnalysisScopeSelect"></select></label>
+        <label>정렬 <select id="floorAnalysisSortSelect"><option value="scoreDesc">score 높은 순</option><option value="scoreAsc">score 낮은 순</option><option value="name">곡명</option><option value="updatedAt">최근 갱신</option></select></label>
+      </div>
+      <div id="floorAnalysisSummary" class="summary"></div>
+      <div id="floorAnalysisChart" class="svgChart"></div>
+      <section class="growthGuideList"><h3>미기록 패턴</h3><div id="floorAnalysisMissing" class="floorAnalysisMissing"></div></section>
+      <section class="growthGuideList"><h3>해당 기록</h3><div class="overviewTableWrap"><table id="floorAnalysisTable"></table></div></section>
     </section>
 
     <section class="toolPanel" id="logPowerCalculatorPanel" hidden>

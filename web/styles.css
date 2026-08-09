@@ -1460,6 +1460,27 @@ main {
   height: var(--chart-height, 430px);
 }
 
+.floorAnalysisMissing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 0;
+}
+
+.floorAnalysisMissing span {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--subtle);
+  font-size: 0.85rem;
+}
+
+.averageLine {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+}
+
 .growthGuideCharts {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
