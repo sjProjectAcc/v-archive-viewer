@@ -8606,13 +8606,15 @@ function renderFloorAnalysis() {
   const scope = floorAnalysisScopeSelect.value;
   const rows = allRecords.filter((row) => scopeFor(row) === scope);
   const scores = rows.map((row) => Number(row.score)).filter(Number.isFinite);
-  const mean = scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : NaN;
+  const rawMean = scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : NaN;
+  const mean = Number.isFinite(rawMean) ? Math.floor(rawMean * 100) / 100 : NaN;
   const stddev = scores.length ? Math.sqrt(scores.reduce((sum, value) => sum + (value - mean) ** 2, 0) / scores.length) : NaN;
   const total = floorAnalysisTotalPatterns(mode, scope, button);
   const high = scores.length ? Math.max(...scores) : NaN;
   const low = scores.length ? Math.min(...scores) : NaN;
   floorAnalysisSummary.innerHTML = [["기록", `${rows.length}/${total ?? "-"}`], ["평균", formatValue(mean, "score")], ["표준편차", Number.isFinite(stddev) ? stddev.toFixed(3) : "-"], ["최고", formatValue(high, "score")], ["최저", formatValue(low, "score")]].map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`).join("");
-  renderFloorAnalysisChart(rows, mean, stddev);
+  const adjacentMeans = mode === "floor" ? floorAnalysisAdjacentMeans(allRecords, scope) : [];
+  renderFloorAnalysisChart(rows, mean, stddev, adjacentMeans);
   renderFloorAnalysisMissing(mode, scope, button, rows);
   const sorted = rows.slice().sort((a, b) => {
     if (floorAnalysisSortSelect.value === "scoreAsc") return Number(a.score) - Number(b.score);
@@ -8628,7 +8630,7 @@ function renderFloorAnalysis() {
 function floorAnalysisTotalPatterns(mode, scope, button) {
   const songs = loadHangySongCatalog()?.songs;
   if (!songs) return null;
-  const buttons = button ? [Number(button)] : BUTTONS;
+  const buttons = button ? [Number(button)] : [];
   return songs.reduce((count, song) => count + buttons.reduce((buttonCount, currentButton) => buttonCount
     + Object.entries(song?.patterns?.[`${currentButton}B`] || {}).filter(([pattern, item]) => {
       if (mode === "floor") return getFloorLabel(item) === scope;
@@ -8645,19 +8647,30 @@ function renderFloorAnalysisMissing(mode, scope, button, rows) {
     const target = { title: Number(song.title), button: currentButton, pattern };
     return matches && !recorded.has(recordKey(target)) ? [{ ...target, name: song.name || `#${song.title}`, level: item.level, floorName: getFloorLabel(item) }] : [];
   })));
-  floorAnalysisMissing.innerHTML = missing.length
+  floorAnalysisMissing.innerHTML = !button
+    ? `<tbody><tr><td class="empty">버튼을 선택하면 해당 버튼의 미기록 패턴을 표시합니다.</td></tr></tbody>`
+    : missing.length
     ? `<thead><tr><th>button</th><th>name</th><th>pattern</th><th>level</th><th>floor</th></tr></thead><tbody>${missing.map((row) => `<tr><td>${row.button}B</td><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.pattern)}</td><td class="num">${escapeHtml(row.level)}</td><td class="num">${escapeHtml(row.floorName || "-")}</td></tr>`).join("")}</tbody>`
     : `<tbody><tr><td class="empty">${catalog.length ? "미기록 패턴이 없습니다." : "곡 목록을 불러오는 중입니다."}</td></tr></tbody>`;
 }
 
-function renderFloorAnalysisChart(rows, mean, stddev) {
+function floorAnalysisAdjacentMeans(records, scope) {
+  const index = floorIndex(scope);
+  return [floorLabels[index - 1], floorLabels[index + 1]].filter(Boolean).map((floor) => {
+    const scores = records.filter((row) => getFloorLabel(row) === floor).map((row) => Number(row.score)).filter(Number.isFinite);
+    return { floor, mean: scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : NaN };
+  }).filter((item) => Number.isFinite(item.mean));
+}
+
+function renderFloorAnalysisChart(rows, mean, stddev, adjacentMeans = []) {
   const width = Math.max(760, floorAnalysisChart.clientWidth || 900); const height = 220; setChartHeight(floorAnalysisChart, height);
   const pad = { left: 50, right: 18, top: 16, bottom: 32 }; const scores = rows.map((row) => Number(row.score)).filter(Number.isFinite);
   if (!scores.length) { floorAnalysisChart.innerHTML = `<div class="empty">시각화할 기록이 없습니다.</div>`; return; }
   const min = Math.min(...scores) - 0.1; const max = Math.max(...scores) + 0.1; const yFor = (value) => pad.top + (max - value) / Math.max(0.01, max - min) * (height - pad.top - pad.bottom);
   const xFor = (index) => pad.left + (scores.length === 1 ? (width - pad.left - pad.right) / 2 : index * (width - pad.left - pad.right) / (scores.length - 1));
   const line = Number.isFinite(mean) ? `<line x1="${pad.left}" x2="${width - pad.right}" y1="${yFor(mean)}" y2="${yFor(mean)}" class="averageLine"/>` : "";
-  floorAnalysisChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img"><rect class="chartBg" x="0" y="0" width="${width}" height="${height}"></rect><text class="axisLabel" x="8" y="${yFor(max)}">${max.toFixed(2)}</text><text class="axisLabel" x="8" y="${yFor(min)}">${min.toFixed(2)}</text>${line}${rows.map((row, index) => `<circle cx="${xFor(index)}" cy="${yFor(Number(row.score))}" r="4" class="chartDot"><title>${escapeHtml(`${row.name} · ${row.button}B ${row.pattern} · Lv.${row.level} · ${Number(row.score).toFixed(2)}`)}</title></circle>`).join("")}${Number.isFinite(stddev) ? `<text class="axisLabel" x="${pad.left}" y="${height - 8}">mean ${mean.toFixed(2)} · σ ${stddev.toFixed(3)}</text>` : ""}</svg>`;
+  const adjacentLines = adjacentMeans.map((item) => `<line x1="${pad.left}" x2="${width - pad.right}" y1="${yFor(item.mean)}" y2="${yFor(item.mean)}" class="floorAdjacentLine"/><text class="axisLabel" x="${width - pad.right}" y="${yFor(item.mean) - 4}" text-anchor="end">${item.floor} avg ${item.mean.toFixed(2)}</text>`).join("");
+  floorAnalysisChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img"><rect class="chartBg" x="0" y="0" width="${width}" height="${height}"></rect><text class="axisLabel" x="8" y="${yFor(max)}">${max.toFixed(2)}</text><text class="axisLabel" x="8" y="${yFor(min)}">${min.toFixed(2)}</text>${adjacentLines}${line}${rows.map((row, index) => `<circle cx="${xFor(index)}" cy="${yFor(Number(row.score))}" r="4" class="chartDot"><title>${escapeHtml(`${row.name} · ${row.button}B ${row.pattern} · Lv.${row.level} · ${Number(row.score).toFixed(2)}`)}</title></circle>`).join("")}${Number.isFinite(stddev) ? `<text class="axisLabel" x="${pad.left}" y="${height - 8}">mean ${mean.toFixed(2)} · σ ${stddev.toFixed(3)}</text>` : ""}</svg>`;
 }
 
 function scoreToPoint95(score) {

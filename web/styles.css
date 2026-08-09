@@ -1488,6 +1488,13 @@ main {
   stroke-dasharray: 5 4;
 }
 
+.floorAdjacentLine {
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 4;
+  opacity: 0.8;
+}
+
 .growthGuideCharts {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
