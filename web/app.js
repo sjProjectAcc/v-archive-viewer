@@ -2844,6 +2844,7 @@ async function serverRefreshLegacy(full) {
 }
 
 async function refresh(full) {
+  if (state.historyCollecting) state.historyStopRequested = true;
   const nickname = getCurrentNickname();
   if (!nickname) {
     statusText.textContent = "닉네임을 입력해 주세요.";
@@ -4103,7 +4104,8 @@ async function collectRecordHistories(options = {}) {
   if (!invoke || state.historyCollecting || !state.payload) return;
 
   const nickname = state.payload.nickname || getCurrentNickname();
-  if (state.historyAccountNickname !== cacheKey(nickname)) {
+  const accountNickname = cacheKey(nickname);
+  if (state.historyAccountNickname !== accountNickname) {
     historyStatus.textContent = `${nickname} 계정을 먼저 연결해주세요.`;
     return;
   }
@@ -4116,7 +4118,7 @@ async function collectRecordHistories(options = {}) {
   historyStopButton.disabled = false;
   let completed = 0;
   let failed = 0;
-  let requestDelay = HISTORY_REQUEST_DELAY_START;
+  let requestDelay = options.automatic ? 100 : HISTORY_REQUEST_DELAY_START;
 
   try {
     const existing = await loadRecordHistories(nickname);
@@ -4136,13 +4138,20 @@ async function collectRecordHistories(options = {}) {
 
     setHistoryProgress(0, queue.length);
     for (const record of queue) {
-      if (state.historyStopRequested) break;
+      if (state.historyStopRequested || cacheKey(state.payload?.nickname || "") !== accountNickname || state.historyAccountNickname !== accountNickname) {
+        state.historyStopRequested = true;
+        break;
+      }
       historyStatus.textContent = `수집 ${completed + 1}/${queue.length} · 캐시 ${cachedCount} · 실패 ${failed} · 간격 ${requestDelay}ms · ${record.button}B ${record.name || record.title} ${record.pattern}`;
       let succeeded = false;
       let rateLimited = false;
       const requestStartedAt = performance.now();
       try {
         const result = await fetchHistoryWithRetry(invoke, record);
+        if (state.historyStopRequested || cacheKey(state.payload?.nickname || "") !== accountNickname || state.historyAccountNickname !== accountNickname) {
+          state.historyStopRequested = true;
+          break;
+        }
         const response = result.response;
         const history = normalizeHistoryEvents(response, record);
         const entry = {
@@ -4348,8 +4357,8 @@ function buildAchievementRows(entries) {
         currentPoint,
         previousDjPower,
         currentDjPower,
-        previousRanks: achievementMetricRanks(entry.button, previousLogPower, previousPoint, previousDjPower),
-        currentRanks: achievementMetricRanks(entry.button, currentLogPower, currentPoint, currentDjPower),
+        previousRanks: achievementMetricRanks(entry.button, previousLogPower, previousPoint, previousDjPower, recordKey(entry)),
+        currentRanks: achievementMetricRanks(entry.button, currentLogPower, currentPoint, currentDjPower, recordKey(entry)),
         previousPointEstimated: Boolean(previous),
         currentPointEstimated,
         previousDjPowerEstimated: Boolean(previous),
@@ -5040,8 +5049,8 @@ function loadLegacyDjPowerHistorySeriesCache() {
   }
 }
 
-function achievementMetricRanks(button, logPower, point, djPower) {
-  const records = (state.payload?.records || []).filter((record) => Number(record.button) === Number(button));
+function achievementMetricRanks(button, logPower, point, djPower, excludedKey) {
+  const records = (state.payload?.records || []).filter((record) => Number(record.button) === Number(button) && recordKey(record) !== excludedKey);
   const values = {
     lp: records.map((record) => scoreToPoint(Number(record.score)) * difficultyConstantForFloor(getFloorLabel(record), button)),
     pt: records.map((record) => Number(record.rating)),
@@ -5057,7 +5066,7 @@ async function collectUpdatedHistoriesAutomatically() {
   const updatedRecords = Number(state.payload?.sync?.updatedRecords || 0);
   const nickname = cacheKey(state.payload?.nickname || getCurrentNickname());
   if (!updatedRecords || updatedRecords > 50 || state.historyAccountNickname !== nickname) return;
-  await collectRecordHistories();
+  await collectRecordHistories({ automatic: true });
 }
 
 function saveNicknameFromManager(loadAfterSave) {
@@ -7991,9 +8000,24 @@ function drawAchievementImageV2Card(ctx, row, jacket, x, y, w, h) {
   const areaY = y + 190;
   const cellGap = 8;
   const cellW = (w - 36 - cellGap * 2) / 3;
+  if (!row.previousUpdatedAt) {
+    const resultW = cellW * 2 + cellGap;
+    drawAchievementV2Block(ctx, "성과", row.currentUpdatedAt, row.currentScore, row.currentLogPower, row.currentPoint, row.currentDjPower, row.currentRanks, x + 18, areaY, resultW, h - 208, true);
+    drawAchievementV2NewBlock(ctx, x + 18 + resultW + cellGap, areaY, cellW, h - 208);
+    return;
+  }
   drawAchievementV2Block(ctx, "기존", row.previousUpdatedAt, row.previousScore, row.previousLogPower, row.previousPoint, row.previousDjPower, row.previousRanks, x + 18, areaY, cellW, h - 208, false);
   drawAchievementV2Delta(ctx, row, x + 18 + cellW + cellGap, areaY, cellW, h - 208);
   drawAchievementV2Block(ctx, "성과", row.currentUpdatedAt, row.currentScore, row.currentLogPower, row.currentPoint, row.currentDjPower, row.currentRanks, x + 18 + (cellW + cellGap) * 2, areaY, cellW, h - 208, true);
+}
+
+function drawAchievementV2NewBlock(ctx, x, y, w, h) {
+  drawRoundRect(ctx, x, y, w, h, 7, "#f7f9fc", "#e2e7ef");
+  ctx.fillStyle = "#687282";
+  ctx.font = "900 44px Segoe UI, Malgun Gothic, Arial";
+  ctx.textAlign = "center";
+  ctx.fillText("NEW", x + w / 2, y + h / 2);
+  ctx.textAlign = "left";
 }
 
 function drawAchievementV2Block(ctx, label, updatedAt, score, lp, pt, dp, ranks, x, y, w, h, accent) {
