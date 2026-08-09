@@ -6675,34 +6675,28 @@ function buildPackedChartOffsets(rows, { labelOf, yOf, plotWidth, labelCount }) 
     const ordered = group.slice().sort((a, b) => yOf(a) - yOf(b) || compare(recordKey(a), recordKey(b)));
     const hitHeight = 6;
     const spacing = 6;
-    const lastYByOffset = new Map();
-    let preferredSide = -1;
-    let sideGroupActive = false;
+    let collisionGroup = [];
+    let headY = NaN;
+    const flushGroup = () => {
+      if (!collisionGroup.length) return;
+      // Every group grows from its leftmost head toward the right. After that,
+      // center the completed block on the floor/level tick as one unit.
+      const centerOffset = (collisionGroup.length - 1) * spacing / 2;
+      collisionGroup.forEach((row, index) => offsets.set(recordKey(row), {
+        x: (index * spacing - centerOffset) * denominator / Math.max(1, plotWidth),
+        y: 0,
+      }));
+      collisionGroup = [];
+      headY = NaN;
+    };
     for (const row of ordered) {
       const y = yOf(row);
-      const centerLastY = lastYByOffset.get(0);
-      // A free center slot starts a new group below the previous head. Alternate
-      // the side used by the next collision group so neither side grows forever.
-      if (centerLastY === undefined || y - centerLastY >= hitHeight) {
-        if (sideGroupActive) preferredSide *= -1;
-        sideGroupActive = false;
-        lastYByOffset.set(0, y);
-        offsets.set(recordKey(row), { x: 0, y: 0 });
-        continue;
-      }
-      sideGroupActive = true;
-      let offsetPixels = preferredSide * spacing;
-      while (true) {
-        const lastY = lastYByOffset.get(offsetPixels);
-        if (lastY === undefined || y - lastY >= hitHeight) break;
-        offsetPixels += preferredSide * spacing;
-      }
-      lastYByOffset.set(offsetPixels, y);
-      offsets.set(recordKey(row), {
-        x: offsetPixels * denominator / Math.max(1, plotWidth),
-        y: 0,
-      });
+      // Once there is room directly below the current head, this is a new group.
+      if (collisionGroup.length && y - headY >= hitHeight) flushGroup();
+      if (!collisionGroup.length) headY = y;
+      collisionGroup.push(row);
     }
+    flushGroup();
   }
   return offsets;
 }
