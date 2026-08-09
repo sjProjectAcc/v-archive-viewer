@@ -8005,20 +8005,32 @@ function drawAchievementImageV2Card(ctx, row, jacket, x, y, w, h) {
 function drawAchievementV2Block(ctx, label, updatedAt, score, lp, pt, dp, ranks, x, y, w, h, accent) {
   drawRoundRect(ctx, x, y, w, h, 7, accent ? "#eef6fc" : "#f7f9fc", accent ? "#b9d7ee" : "#e2e7ef");
   if (!updatedAt) { ctx.fillStyle = "#687282"; ctx.font = "900 44px Segoe UI, Malgun Gothic, Arial"; ctx.textAlign = "center"; ctx.fillText("NEW", x + w / 2, y + h / 2); ctx.textAlign = "left"; return; }
-  ctx.fillStyle = accent ? "#1268b3" : "#687282"; ctx.font = "900 18px Segoe UI, Malgun Gothic, Arial"; ctx.fillText(label, x + 12, y + 28);
-  ctx.fillStyle = "#586274"; ctx.font = "700 12px Segoe UI, Malgun Gothic, Arial"; drawTextFit(ctx, formatDate(updatedAt), x + 12, y + 48, w - 24);
-  ctx.fillStyle = accent ? "#1268b3" : "#171a1f"; ctx.font = "900 31px Segoe UI, Malgun Gothic, Arial"; ctx.fillText(formatValue(score, "score"), x + 12, y + 88);
-  ctx.fillStyle = "#586274"; ctx.font = "800 13px Segoe UI, Malgun Gothic, Arial";
-  [["LP", lp, ranks?.lp], ["PT", pt, ranks?.pt], ["DP", dp, ranks?.dp]].forEach(([key, value, rank], index) => drawTextFit(ctx, `${key} ${formatProfileNumber(value)} · TOP ${rank || "-"}`, x + 12, y + 121 + index * 23, w - 24));
+  ctx.fillStyle = accent ? "#1268b3" : "#687282"; drawV2Text(ctx, label, x + 12, y + 28, w - 24, 900, 18);
+  ctx.fillStyle = "#586274"; drawV2Text(ctx, formatDate(updatedAt), x + 12, y + 48, w - 24, 700, 12);
+  ctx.fillStyle = accent ? "#1268b3" : "#171a1f"; drawV2Text(ctx, formatValue(score, "score"), x + 12, y + 88, w - 24, 900, 31);
+  ctx.fillStyle = "#586274";
+  [["LP", lp, ranks?.lp], ["PT", pt, ranks?.pt], ["DP", dp, ranks?.dp]].forEach(([key, value, rank], index) => drawV2Text(ctx, `${key} ${formatProfileNumber(value)} · TOP ${rank || "-"}`, x + 12, y + 121 + index * 23, w - 24, 800, 13));
 }
 
 function drawAchievementV2Delta(ctx, row, x, y, w, h) {
   drawRoundRect(ctx, x, y, w, h, 7, "#f7f9fc", "#e2e7ef");
-  ctx.fillStyle = "#687282"; ctx.font = "900 18px Segoe UI, Malgun Gothic, Arial"; ctx.textAlign = "center"; ctx.fillText("변화", x + w / 2, y + 28);
-  ctx.font = "900 30px Segoe UI, Malgun Gothic, Arial"; ctx.fillText("→", x + w / 2, y + 80);
-  ctx.fillStyle = "#1268b3"; ctx.font = "800 14px Segoe UI, Malgun Gothic, Arial";
-  [["Score", row.scoreDiff, 2], ["LP", row.logPowerDiff, 2], ["PT", row.currentPoint - row.previousPoint, 2], ["DP", row.currentDjPower - row.previousDjPower, 2]].forEach(([label, value, digits], index) => ctx.fillText(`${label} ${formatSigned(value, digits)}`, x + w / 2, y + 119 + index * 27));
+  ctx.fillStyle = "#687282"; ctx.font = "900 30px Segoe UI, Malgun Gothic, Arial"; ctx.textAlign = "center"; ctx.fillText("→", x + w / 2, y + 47);
+  ctx.fillStyle = "#1268b3";
+  drawV2Text(ctx, `Score ${formatSigned(row.scoreDiff, 2)}`, x + 12, y + 82, w - 24, 800, 14, "center");
+  [["LP", row.logPowerDiff, row.previousRanks?.lp, row.currentRanks?.lp], ["PT", row.currentPoint - row.previousPoint, row.previousRanks?.pt, row.currentRanks?.pt], ["DP", row.currentDjPower - row.previousDjPower, row.previousRanks?.dp, row.currentRanks?.dp]].forEach(([label, value, beforeRank, afterRank], index) => {
+    const lineY = y + 114 + index * 43;
+    drawV2Text(ctx, `${label} ${formatSigned(value, 2)}`, x + 12, lineY, w - 24, 800, 14, "center");
+    drawV2Text(ctx, `TOP ${beforeRank || "-"} → ${afterRank || "-"}`, x + 12, lineY + 18, w - 24, 700, 12, "center");
+  });
   ctx.textAlign = "left";
+}
+
+function drawV2Text(ctx, text, x, y, maxWidth, weight, preferredSize, align = "left") {
+  const previousAlign = ctx.textAlign;
+  ctx.textAlign = align;
+  setCanvasFontToFit(ctx, String(text || ""), weight, preferredSize, 8, maxWidth);
+  ctx.fillText(String(text || ""), align === "center" ? x + maxWidth / 2 : x, y);
+  ctx.textAlign = previousAlign;
 }
 
 function buildTop10095Rows(records) {
