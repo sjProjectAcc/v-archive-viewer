@@ -3703,7 +3703,7 @@ function getCompareChartRange(values, metricKey) {
   const rawMax = Math.max(...values);
   const baseSpan = rawMax - rawMin;
   const fallbackSpan = metricKey === "score" ? 0.1 : Math.max(Math.abs(rawMax) * 0.005, 0.02);
-  const padding = Math.max(baseSpan * 0.02, fallbackSpan);
+  const padding = Math.max(baseSpan * 0.01, fallbackSpan * 0.5);
   let min = rawMin - padding;
   let max = rawMax + padding;
   if (metricKey === "score") {
@@ -8458,8 +8458,9 @@ function renderGrowthGuide() {
   if (!state.payload || viewSelect.value !== "growthGuide") return;
   const allRows = buildGrowthGuideRows();
   const mode = growthGuideModeSelect.value;
-  const sortRowsForGuide = (rows) => rows.sort((a, b) => floorIndex(a.floorName) - floorIndex(b.floorName)
-    || compare(a.button, b.button) || compare(a.name, b.name) || compare(a.pattern, b.pattern));
+  const sortRowsForGuide = (rows) => rows.sort((a, b) => growthGuideSortSelect.value === "logPower"
+    ? Number(b.logPower) - Number(a.logPower) || floorIndex(a.floorName) - floorIndex(b.floorName) || compare(a.name, b.name)
+    : floorIndex(a.floorName) - floorIndex(b.floorName) || compare(a.button, b.button) || compare(a.name, b.name) || compare(a.pattern, b.pattern));
   const top50Rows = sortRowsForGuide(allRows.filter((row) => row.isTop50));
   const potentialRows = sortRowsForGuide(allRows.filter((row) => !row.isTop50 && row.maxLogPower >= row.cutoff));
   const rows = mode === "top50" ? top50Rows : mode === "potential" ? potentialRows : [...top50Rows, ...potentialRows];
