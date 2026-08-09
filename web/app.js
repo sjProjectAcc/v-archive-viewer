@@ -6673,26 +6673,34 @@ function buildPackedChartOffsets(rows, { labelOf, yOf, plotWidth, labelCount }) 
   }
   for (const group of groups.values()) {
     const ordered = group.slice().sort((a, b) => yOf(a) - yOf(b) || compare(recordKey(a), recordKey(b)));
-    const clusters = [];
+    const hitHeight = 6;
+    const spacing = 6;
+    const lastYByOffset = new Map();
+    let preferredSide = -1;
+    let sideGroupActive = false;
     for (const row of ordered) {
-      const lastCluster = clusters.at(-1);
-      // Hit area is deliberately smaller than the visible dot. Neighbouring tick
-      // values remain readable instead of forcing a misleading y displacement.
-      if (!lastCluster || yOf(row) - yOf(lastCluster.at(-1)) >= 6) clusters.push([row]);
-      else lastCluster.push(row);
-    }
-    for (const cluster of clusters) {
-      if (cluster.length === 1) {
-        offsets.set(recordKey(cluster[0]), { x: 0, y: 0 });
+      const y = yOf(row);
+      const centerLastY = lastYByOffset.get(0);
+      // A free center slot starts a new group below the previous head. Alternate
+      // the side used by the next collision group so neither side grows forever.
+      if (centerLastY === undefined || y - centerLastY >= hitHeight) {
+        if (sideGroupActive) preferredSide *= -1;
+        sideGroupActive = false;
+        lastYByOffset.set(0, y);
+        offsets.set(recordKey(row), { x: 0, y: 0 });
         continue;
       }
-      // Only fan horizontally. The score value always owns the y coordinate.
-      cluster.forEach((row, index) => {
-        const offsetPixels = (index - (cluster.length - 1) / 2) * 6;
-        offsets.set(recordKey(row), {
-          x: offsetPixels * denominator / Math.max(1, plotWidth),
-          y: 0,
-        });
+      sideGroupActive = true;
+      let offsetPixels = preferredSide * spacing;
+      while (true) {
+        const lastY = lastYByOffset.get(offsetPixels);
+        if (lastY === undefined || y - lastY >= hitHeight) break;
+        offsetPixels += preferredSide * spacing;
+      }
+      lastYByOffset.set(offsetPixels, y);
+      offsets.set(recordKey(row), {
+        x: offsetPixels * denominator / Math.max(1, plotWidth),
+        y: 0,
       });
     }
   }
