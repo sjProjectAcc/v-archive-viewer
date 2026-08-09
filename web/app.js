@@ -6070,7 +6070,7 @@ function renderChart() {
     ? `<line class="highlightMinimumLine" x1="${pad.left}" y1="${yFor(highlightMinimum).toFixed(2)}" x2="${(pad.left + plotW).toFixed(2)}" y2="${yFor(highlightMinimum).toFixed(2)}"><title>selected minimum ${escapeHtml(formatChartMetric(highlightMinimum, metric.key))}</title></line>`
     : "";
   const dots = records.map((row) => {
-    const packed = packedOffsets.get(recordKey(row)) || { x: 0, y: 0 };
+    const packed = packedOffsets.get(recordKey(row)) || { x: 0, y: 0, scale: 1 };
     const cx = clampChartDotX(xFor(row.xLabel, packed.x), pad.left, plotW).toFixed(2);
     const cy = Math.min(pad.top + plotH - CHART_DOT_EDGE_INSET, Math.max(pad.top + CHART_DOT_EDGE_INSET, yFor(row.metricValue) + packed.y)).toFixed(2);
     const isBelowNextFloorMin = metric.xMode !== "maxDjpower" && belowNextFloorMin(row, minByFloor);
@@ -6105,7 +6105,8 @@ function renderChart() {
       updatedAt: row.updatedAt || "",
       key: recordKey(row),
     }));
-    return `<circle class="${className}" cx="${cx}" cy="${cy}" r="${row.maxCombo === true ? 4.8 : 3.9}" data-info="${info}" tabindex="0"></circle>`;
+    const radius = (row.maxCombo === true ? 4.8 : 3.9) * (packed.scale || 1);
+    return `<circle class="${className}" cx="${cx}" cy="${cy}" r="${radius.toFixed(2)}" data-info="${info}" tabindex="0"></circle>`;
   }).join("");
 
   chartEl.innerHTML = `
@@ -6690,10 +6691,17 @@ function buildPackedChartOffsets(rows, { labelOf, yOf, plotWidth, labelCount }) 
       if (!collisionGroup.length) return;
       // Every group grows from its leftmost head toward the right. After that,
       // center the completed block on the floor/level tick as one unit.
-      const centerOffset = (collisionGroup.length - 1) * spacing / 2;
+      const halfTick = Math.max(1, plotWidth / denominator / 2 - 1);
+      const requestedHalfWidth = (collisionGroup.length - 1) * spacing / 2;
+      // A collision block owns only its tick's half-interval in either direction.
+      // When it would spill into a neighbour, shrink its spacing and dot size together.
+      const scale = requestedHalfWidth > halfTick ? halfTick / requestedHalfWidth : 1;
+      const fittedSpacing = spacing * scale;
+      const centerOffset = (collisionGroup.length - 1) * fittedSpacing / 2;
       collisionGroup.forEach((row, index) => offsets.set(recordKey(row), {
-        x: (index * spacing - centerOffset) * denominator / Math.max(1, plotWidth),
+        x: (index * fittedSpacing - centerOffset) * denominator / Math.max(1, plotWidth),
         y: 0,
+        scale,
       }));
       collisionGroup = [];
       headY = NaN;
