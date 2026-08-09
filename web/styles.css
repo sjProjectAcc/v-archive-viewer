@@ -1460,6 +1460,13 @@ main {
   height: var(--chart-height, 430px);
 }
 
+.historyProgressEstimate {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
 .floorAnalysisMissing {
   display: flex;
   flex-wrap: wrap;

@@ -434,6 +434,7 @@ const historyResetButton = document.querySelector("#historyResetButton");
 const historyStopButton = document.querySelector("#historyStopButton");
 const historyProgress = document.querySelector("#historyProgress");
 const historyProgressBar = document.querySelector("#historyProgressBar");
+const historyProgressEstimate = document.querySelector("#historyProgressEstimate");
 const historyLogPowerChart = document.querySelector("#historyLogPowerChart");
 const historyTooltip = document.querySelector("#historyTooltip");
 const historyLegend = document.querySelector("#historyLegend");
@@ -682,6 +683,7 @@ const REQUIRED_UI_IDS = [
   "nicknameManagerLoadButton",
   "historyLineStyleSelect",
   "historyChartHeightInput",
+  "historyProgressEstimate",
   "historyYMinInput",
   "historyYMaxInput",
   "historyYRangeResetButton",
@@ -4093,10 +4095,20 @@ function jitteredHistoryDelay(delayMs) {
   return Math.round(delayMs * (0.9 + Math.random() * 0.2));
 }
 
-function setHistoryProgress(done, total) {
+function setHistoryProgress(done, total, estimateMs = null) {
   const ratio = total > 0 ? Math.min(1, done / total) : 0;
   historyProgress.hidden = total === 0;
   historyProgressBar.style.width = `${(ratio * 100).toFixed(2)}%`;
+  historyProgressEstimate.hidden = total === 0;
+  historyProgressEstimate.textContent = total === 0 ? "" : `진행 ${done}/${total} (${(ratio * 100).toFixed(1)}%) · ${Number.isFinite(estimateMs) ? `예상 ${formatHistoryEstimate(estimateMs)} 남음` : "예상 시간 계산 중"}`;
+}
+
+function formatHistoryEstimate(milliseconds) {
+  const seconds = Math.max(0, Math.round(milliseconds / 1000));
+  if (seconds < 60) return `${seconds}초`;
+  const minutes = Math.floor(seconds / 60);
+  const remainSeconds = seconds % 60;
+  return minutes >= 60 ? `${Math.floor(minutes / 60)}시간 ${minutes % 60}분` : `${minutes}분 ${remainSeconds}초`;
 }
 
 async function collectRecordHistories(options = {}) {
@@ -4119,6 +4131,7 @@ async function collectRecordHistories(options = {}) {
   let completed = 0;
   let failed = 0;
   let requestDelay = options.automatic ? 100 : HISTORY_REQUEST_DELAY_START;
+  let totalResponseMs = 0;
 
   try {
     const existing = await loadRecordHistories(nickname);
@@ -4136,13 +4149,15 @@ async function collectRecordHistories(options = {}) {
       return;
     }
 
-    setHistoryProgress(0, queue.length);
+    setHistoryProgress(0, queue.length, queue.length * (requestDelay + 250));
     for (const record of queue) {
       if (state.historyStopRequested || cacheKey(state.payload?.nickname || "") !== accountNickname || state.historyAccountNickname !== accountNickname) {
         state.historyStopRequested = true;
         break;
       }
-      historyStatus.textContent = `수집 ${completed + 1}/${queue.length} · 캐시 ${cachedCount} · 실패 ${failed} · 간격 ${requestDelay}ms · ${record.button}B ${record.name || record.title} ${record.pattern}`;
+      const averageCycleMs = completed ? totalResponseMs / completed + requestDelay : requestDelay + 250;
+      const estimateMs = Math.max(0, queue.length - completed) * averageCycleMs;
+      historyStatus.textContent = `수집 ${completed + 1}/${queue.length} · 캐시 ${cachedCount} · 실패 ${failed} · 간격 ${requestDelay}ms · 예상 ${formatHistoryEstimate(estimateMs)} · ${record.button}B ${record.name || record.title} ${record.pattern}`;
       let succeeded = false;
       let rateLimited = false;
       const requestStartedAt = performance.now();
@@ -4176,9 +4191,11 @@ async function collectRecordHistories(options = {}) {
         console.error("History collection failed", recordKey(record), error);
       }
       const responseMs = Math.max(0, performance.now() - requestStartedAt);
+      totalResponseMs += responseMs;
       requestDelay = adjustHistoryRequestDelay(requestDelay, responseMs, { succeeded, rateLimited });
       completed += 1;
-      setHistoryProgress(completed, queue.length);
+      const averageCycleMs = totalResponseMs / completed + requestDelay;
+      setHistoryProgress(completed, queue.length, Math.max(0, queue.length - completed) * averageCycleMs);
       if (completed % 10 === 0 && viewSelect.value === "history") await renderHistoryView();
       if (!state.historyStopRequested && completed < queue.length) await delay(jitteredHistoryDelay(requestDelay));
     }
