@@ -525,9 +525,8 @@ const growthGuideSortSelect = document.querySelector("#growthGuideSortSelect");
 const growthGuideSummary = document.querySelector("#growthGuideSummary");
 const growthGuideTop50Table = document.querySelector("#growthGuideTop50Table");
 const growthGuidePotentialTable = document.querySelector("#growthGuidePotentialTable");
-const growthGuideLogPowerChart = document.querySelector("#growthGuideLogPowerChart");
-const growthGuideScoreChart = document.querySelector("#growthGuideScoreChart");
-const growthGuideScorePointChart = document.querySelector("#growthGuideScorePointChart");
+const growthGuideMetricSelect = document.querySelector("#growthGuideMetricSelect");
+const growthGuideChart = document.querySelector("#growthGuideChart");
 const floorAnalysisPanel = document.querySelector("#floorAnalysisPanel");
 const floorAnalysisModeSelect = document.querySelector("#floorAnalysisModeSelect");
 const floorAnalysisButtonSelect = document.querySelector("#floorAnalysisButtonSelect");
@@ -701,6 +700,8 @@ const REQUIRED_UI_IDS = [
   "growthGuideSortSelect",
   "growthGuideTop50Table",
   "growthGuidePotentialTable",
+  "growthGuideMetricSelect",
+  "growthGuideChart",
   "floorAnalysisPanel",
   "floorAnalysisModeSelect",
   "floorAnalysisButtonSelect",
@@ -1052,7 +1053,7 @@ function wireEvents() {
     saveSettings();
     render();
   });
-  [growthGuideModeSelect, growthGuideSortSelect].forEach((control) => {
+  [growthGuideModeSelect, growthGuideSortSelect, growthGuideMetricSelect].forEach((control) => {
     control.addEventListener("input", () => renderGrowthGuide());
   });
   [floorAnalysisModeSelect, floorAnalysisButtonSelect, floorAnalysisScopeSelect, floorAnalysisSortSelect].forEach((control) => {
@@ -8477,9 +8478,30 @@ function renderGrowthGuide() {
   };
   renderRows(growthGuideTop50Table, top50Rows);
   renderRows(growthGuidePotentialTable, potentialRows);
-  renderGrowthGuideRangeChart(growthGuideLogPowerChart, potentialRows, "cutoff", "maxLogPower", "LogPower");
-  renderGrowthGuideRangeChart(growthGuideScoreChart, potentialRows, "entryScore", null, "Score", 99.9);
-  renderGrowthGuideRangeChart(growthGuideScorePointChart, potentialRows, "entryScorePoint", null, "scorePoint", 10);
+  renderGrowthGuideScatter(allRows, potentialRows);
+}
+
+function renderGrowthGuideScatter(allRows, potentialRows) {
+  const metric = growthGuideMetricSelect.value;
+  const config = metric === "score" ? { low: "entryScore", high: null, fixedHigh: 99.9, value: (row) => Number(row.score), label: "Score" }
+    : metric === "scorePoint" ? { low: "entryScorePoint", high: null, fixedHigh: 10, value: (row) => scoreToPoint(Number(row.score)), label: "scorePoint" }
+      : { low: "cutoff", high: "maxLogPower", fixedHigh: null, value: (row) => Number(row.logPower), label: "LogPower" };
+  const recordedKeys = new Set(allRows.map(recordKey));
+  const cutoffByButton = new Map(allRows.map((row) => [String(row.button), row.cutoff]));
+  const unrecorded = (loadHangySongCatalog()?.songs || []).flatMap((song) => BUTTONS.flatMap((button) => Object.entries(song?.patterns?.[`${button}B`] || {}).flatMap(([pattern, item]) => {
+    if (buttonFilter.value && String(button) !== buttonFilter.value) return [];
+    if (patternFilter.value && pattern !== patternFilter.value) return [];
+    const base = { title: Number(song.title), button, pattern, name: song.name || `#${song.title}`, level: item.level, floorName: getFloorLabel(item), score: 0 };
+    if (recordedKeys.has(recordKey(base))) return [];
+    const constant = difficultyConstantForFloor(base.floorName, button);
+    const cutoff = cutoffByButton.get(String(button)) || 0;
+    const maxLogPower = 10 * constant;
+    if (!Number.isFinite(constant) || maxLogPower < cutoff) return [];
+    return [{ ...base, logPower: 0, cutoff, maxLogPower, entryScore: requiredScoreForLogPower(cutoff, constant), entryScorePoint: cutoff / constant, virtual: true }];
+  })));
+  const potential = [...potentialRows, ...unrecorded];
+  renderGrowthGuideRangeChart(growthGuideChart, potential, config.low, config.high, config.label, config.fixedHigh, allRows.filter((row) => row.isTop50), config.value);
+  if (!loadHangySongCatalog()) ensureHangySongCatalog(false).then(() => renderGrowthGuideScatter(allRows, potentialRows)).catch(() => {});
 }
 
 function renderGrowthGuideCell(row, key) {
@@ -8488,14 +8510,14 @@ function renderGrowthGuideCell(row, key) {
   return renderCell(row, key);
 }
 
-function renderGrowthGuideRangeChart(element, rows, lowKey, highKey, label, fixedHigh) {
+function renderGrowthGuideRangeChart(element, rows, lowKey, highKey, label, fixedHigh, top50Rows = [], valueForRow = () => NaN) {
   const height = 270;
   setChartHeight(element, height);
   const width = Math.max(760, element.clientWidth || 900);
   const pad = { left: 54, right: 18, top: 18, bottom: 42 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
-  const labels = [...new Set(rows.map((row) => row.floorName).filter(Boolean))].sort((a, b) => floorIndex(a) - floorIndex(b));
+  const labels = [...new Set([...rows, ...top50Rows].map((row) => row.floorName).filter(Boolean))].sort((a, b) => floorIndex(a) - floorIndex(b));
   if (!labels.length) {
     element.innerHTML = `<div class="empty">표시할 기록이 없습니다.</div>`;
     return;
@@ -8507,8 +8529,11 @@ function renderGrowthGuideRangeChart(element, rows, lowKey, highKey, label, fixe
     if (Number.isFinite(low) && Number.isFinite(high)) ranges.get(row.floorName).push([Math.min(low, high), Math.max(low, high)]);
   }
   const values = [...ranges.values()].flat();
-  const min = Math.max(0, Math.min(...values.map(([low]) => low)) - 0.05);
-  const max = Math.max(min + 0.1, (fixedHigh ?? Math.max(...values.map(([, high]) => high))) + (fixedHigh ? 0 : 0.05));
+  const pointValues = [...rows.map((row) => row.virtual ? 0 : valueForRow(row)), ...top50Rows.map(valueForRow)].filter(Number.isFinite);
+  const lows = values.map(([low]) => low);
+  const highs = values.map(([, high]) => high);
+  const min = Math.max(0, Math.min(...lows, ...pointValues) - 0.05);
+  const max = Math.max(min + 0.1, (fixedHigh ?? Math.max(...highs, ...pointValues)) + (fixedHigh ? 0 : 0.05));
   const xFor = (index) => pad.left + (labels.length === 1 ? plotW / 2 : index * plotW / (labels.length - 1));
   const yFor = (value) => pad.top + (1 - (value - min) / (max - min)) * plotH;
   const bandWidth = Math.max(5, Math.min(16, plotW / Math.max(1, labels.length) * 0.55));
@@ -8520,10 +8545,19 @@ function renderGrowthGuideRangeChart(element, rows, lowKey, highKey, label, fixe
     const y = yFor(high);
     return `<rect class="growthGuideBand" x="${(xFor(index) - bandWidth / 2).toFixed(2)}" y="${y.toFixed(2)}" width="${bandWidth.toFixed(2)}" height="${Math.max(1, yFor(low) - y).toFixed(2)}"><title>${escapeHtml(floor)} · ${low.toFixed(2)} - ${high.toFixed(2)}</title></rect>`;
   }).join("");
+  const points = [
+    ...rows.map((row) => ({ ...row, kind: "potential", value: row.virtual ? 0 : valueForRow(row) })),
+    ...top50Rows.map((row) => ({ ...row, kind: "top50", value: valueForRow(row) })),
+  ].filter((row) => Number.isFinite(row.value)).map((row) => {
+    const index = labels.indexOf(row.floorName);
+    if (index < 0) return "";
+    const radius = row.kind === "top50" ? 4.4 : 3.5;
+    return `<circle class="chartDot ${row.kind === "top50" ? "top50Dot" : "growthGuidePotentialDot"}" cx="${xFor(index).toFixed(2)}" cy="${yFor(row.value).toFixed(2)}" r="${radius}"><title>${escapeHtml(`${row.kind === "top50" ? "TOP50" : "진입 가능"} · ${row.name} · ${row.button}B ${row.pattern} · ${row.virtual ? "미기록 0" : row.value.toFixed(2)}`)}</title></circle>`;
+  }).join("");
   const ticks = Array.from({ length: 5 }, (_, index) => min + (max - min) * index / 4);
   const grid = ticks.map((value) => `<line class="gridLine" x1="${pad.left}" x2="${pad.left + plotW}" y1="${yFor(value)}" y2="${yFor(value)}"></line><text class="axisLabel" x="${pad.left - 8}" y="${yFor(value) + 4}" text-anchor="end">${value.toFixed(2)}</text>`).join("");
   const xLabels = labels.map((floor, index) => index % Math.max(1, Math.ceil(labels.length / 10)) === 0 ? `<text class="axisLabel" x="${xFor(index)}" y="${height - 16}" text-anchor="middle">${escapeHtml(floor)}</text>` : "").join("");
-  element.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="floor by ${escapeHtml(label)} guide range"><rect class="chartBg" x="0" y="0" width="${width}" height="${height}"></rect>${grid}${bands}${xLabels}<text class="axisTitle" x="12" y="18">${escapeHtml(label)}</text></svg>`;
+  element.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="floor by ${escapeHtml(label)} guide range"><rect class="chartBg" x="0" y="0" width="${width}" height="${height}"></rect>${grid}${bands}${points}${xLabels}<text class="axisTitle" x="12" y="18">${escapeHtml(label)} · band: 진입선~99.9 · blue: TOP50 · dot: 진입 가능</text></svg>`;
 }
 
 function renderFloorAnalysis() {
