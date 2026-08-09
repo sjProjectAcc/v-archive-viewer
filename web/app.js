@@ -6719,36 +6719,31 @@ function buildPackedChartOffsets(rows, { labelOf, yOf, plotWidth, labelCount }) 
       if (chunk.length) chunks.push(chunk);
       return chunks;
     };
-    const fitGroups = (items, verticalHit, horizontalSpacing) => {
-      if (items.length < 2) return [{ items, horizontalSpacing }];
-      const requestedHalfWidth = (items.length - 1) * horizontalSpacing / 2;
+    const splitDenseGroup = (items) => {
+      if (items.length < 2) return [{ items, verticalScale: 1 }];
+      const requestedHalfWidth = (items.length - 1) * spacing / 2;
       const requiredScale = requestedHalfWidth > halfTick ? halfTick / requestedHalfWidth : 1;
-      if (requiredScale >= 0.999) return [{ items, horizontalSpacing }];
-      // Reduce both axes by the same sqrt factor. The smaller vertical hit area
-      // then creates additional head groups, which in turn reduces horizontal pressure.
-      const factor = Math.sqrt(requiredScale);
-      const reducedHit = verticalHit * factor;
-      const reducedSpacing = horizontalSpacing * factor;
-      const split = splitByHead(items, reducedHit);
-      if (split.length > 1) return split.flatMap((chunk) => fitGroups(chunk, reducedHit, reducedSpacing));
-      return fitGroups(items, reducedHit, reducedSpacing);
+      const verticalScale = Math.sqrt(requiredScale);
+      // First reduce only vertical hit spacing. That may split the original group;
+      // its remaining width is fitted independently afterwards.
+      return splitByHead(items, hitHeight * verticalScale).map((chunk) => ({ items: chunk, verticalScale }));
     };
-    const drawGroup = ({ items: collisionGroup, horizontalSpacing }) => {
+    const drawGroup = ({ items: collisionGroup, verticalScale }) => {
       // Every group grows from its leftmost head toward the right. After that,
       // center the completed block on the floor/level tick as one unit.
-      const requestedHalfWidth = (collisionGroup.length - 1) * horizontalSpacing / 2;
+      const requestedHalfWidth = (collisionGroup.length - 1) * spacing / 2;
       // A collision block owns only its tick's half-interval in either direction.
       // When it would spill into a neighbour, shrink its spacing and dot size together.
       const scale = requestedHalfWidth > halfTick ? halfTick / requestedHalfWidth : 1;
-      const fittedSpacing = horizontalSpacing * scale;
+      const fittedSpacing = spacing * scale;
       const centerOffset = (collisionGroup.length - 1) * fittedSpacing / 2;
       collisionGroup.forEach((row, index) => offsets.set(recordKey(row), {
         x: (index * fittedSpacing - centerOffset) * denominator / Math.max(1, plotWidth),
         y: 0,
-        scale,
+        scale: Math.min(verticalScale, scale),
       }));
     };
-    splitByHead(ordered, hitHeight).flatMap((chunk) => fitGroups(chunk, hitHeight, spacing)).forEach(drawGroup);
+    splitByHead(ordered, hitHeight).flatMap(splitDenseGroup).forEach(drawGroup);
   }
   return offsets;
 }
