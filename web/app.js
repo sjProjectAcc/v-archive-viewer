@@ -8434,6 +8434,8 @@ function buildGrowthGuideRows() {
     const logPower = scoreToPoint(Number(row.score)) * constant;
     const maxLogPower = 10 * constant;
     const cutoff = top50ByButton.get(String(row.button)) || 0;
+    const entryScore = requiredScoreForLogPower(cutoff, constant);
+    const entryScorePoint = cutoff / constant;
     const isTop50 = topKeys.has(recordKey(row));
     return {
       ...row,
@@ -8441,6 +8443,8 @@ function buildGrowthGuideRows() {
       logPower,
       maxLogPower,
       cutoff,
+      entryScore,
+      entryScorePoint,
       gapToCutoff: logPower - cutoff,
       potentialGap: maxLogPower - cutoff,
       isTop50,
@@ -8453,17 +8457,8 @@ function renderGrowthGuide() {
   if (!state.payload || viewSelect.value !== "growthGuide") return;
   const allRows = buildGrowthGuideRows();
   const mode = growthGuideModeSelect.value;
-  const sort = growthGuideSortSelect.value;
-  const sortValue = (row) => {
-    if (sort === "gapDesc") return row.potentialGap;
-    if (sort === "currentDesc") return row.logPower;
-    if (sort === "floorDesc") return floorIndex(row.floorName);
-    if (sort === "name") return row.name || "";
-    return row.maxLogPower;
-  };
-  const sortRowsForGuide = (rows) => rows.sort((a, b) => sort === "name"
-    ? compare(sortValue(a), sortValue(b))
-    : compareForSort(sortValue(b), sortValue(a)) || compare(a.name, b.name));
+  const sortRowsForGuide = (rows) => rows.sort((a, b) => floorIndex(a.floorName) - floorIndex(b.floorName)
+    || compare(a.button, b.button) || compare(a.name, b.name) || compare(a.pattern, b.pattern));
   const top50Rows = sortRowsForGuide(allRows.filter((row) => row.isTop50));
   const potentialRows = sortRowsForGuide(allRows.filter((row) => !row.isTop50 && row.maxLogPower >= row.cutoff));
   const rows = mode === "top50" ? top50Rows : mode === "potential" ? potentialRows : [...top50Rows, ...potentialRows];
@@ -8482,9 +8477,9 @@ function renderGrowthGuide() {
   };
   renderRows(growthGuideTop50Table, top50Rows);
   renderRows(growthGuidePotentialTable, potentialRows);
-  renderGrowthGuideRangeChart(growthGuideLogPowerChart, allRows, "logPower", "maxLogPower", "LogPower");
-  renderGrowthGuideRangeChart(growthGuideScoreChart, allRows, "score", null, "Score", 99.9);
-  renderGrowthGuideRangeChart(growthGuideScorePointChart, allRows, "scorePoint", null, "scorePoint", 10);
+  renderGrowthGuideRangeChart(growthGuideLogPowerChart, potentialRows, "cutoff", "maxLogPower", "LogPower");
+  renderGrowthGuideRangeChart(growthGuideScoreChart, potentialRows, "entryScore", null, "Score", 99.9);
+  renderGrowthGuideRangeChart(growthGuideScorePointChart, potentialRows, "entryScorePoint", null, "scorePoint", 10);
 }
 
 function renderGrowthGuideCell(row, key) {
@@ -8570,8 +8565,14 @@ function renderFloorAnalysis() {
 }
 
 function floorAnalysisTotalPatterns(mode, scope, button) {
-  if (mode === "floor" && button) return Number(state.floorPatternCounts?.[button]?.SC?.[scope] || 0) + Number(state.floorPatternCounts?.[button]?.NM?.[scope] || 0) + Number(state.floorPatternCounts?.[button]?.HD?.[scope] || 0) + Number(state.floorPatternCounts?.[button]?.MX?.[scope] || 0) || null;
-  return null;
+  const songs = loadHangySongCatalog()?.songs;
+  if (!songs) return null;
+  const buttons = button ? [Number(button)] : BUTTONS;
+  return songs.reduce((count, song) => count + buttons.reduce((buttonCount, currentButton) => buttonCount
+    + Object.entries(song?.patterns?.[`${currentButton}B`] || {}).filter(([pattern, item]) => {
+      if (mode === "floor") return getFloorLabel(item) === scope;
+      return `${String(pattern).toUpperCase() === "SC" ? "SC" : "nonSC"} ${Number(item.level) || "-"}` === scope;
+    }).length, 0), 0);
 }
 
 function renderFloorAnalysisMissing(mode, scope, button, rows) {
@@ -8584,8 +8585,8 @@ function renderFloorAnalysisMissing(mode, scope, button, rows) {
     return matches && !recorded.has(recordKey(target)) ? [{ ...target, name: song.name || `#${song.title}`, level: item.level, floorName: getFloorLabel(item) }] : [];
   })));
   floorAnalysisMissing.innerHTML = missing.length
-    ? missing.map((row) => `<span>${escapeHtml(`${row.button}B · ${row.name} · ${row.pattern} · Lv.${row.level} · ${row.floorName || "-"}`)}</span>`).join("")
-    : `<span>${catalog.length ? "미기록 패턴이 없습니다." : "곡 목록을 불러오는 중입니다."}</span>`;
+    ? `<thead><tr><th>button</th><th>name</th><th>pattern</th><th>level</th><th>floor</th></tr></thead><tbody>${missing.map((row) => `<tr><td>${row.button}B</td><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.pattern)}</td><td class="num">${escapeHtml(row.level)}</td><td class="num">${escapeHtml(row.floorName || "-")}</td></tr>`).join("")}</tbody>`
+    : `<tbody><tr><td class="empty">${catalog.length ? "미기록 패턴이 없습니다." : "곡 목록을 불러오는 중입니다."}</td></tr></tbody>`;
 }
 
 function renderFloorAnalysisChart(rows, mean, stddev) {
@@ -8595,7 +8596,7 @@ function renderFloorAnalysisChart(rows, mean, stddev) {
   const min = Math.min(...scores) - 0.1; const max = Math.max(...scores) + 0.1; const yFor = (value) => pad.top + (max - value) / Math.max(0.01, max - min) * (height - pad.top - pad.bottom);
   const xFor = (index) => pad.left + (scores.length === 1 ? (width - pad.left - pad.right) / 2 : index * (width - pad.left - pad.right) / (scores.length - 1));
   const line = Number.isFinite(mean) ? `<line x1="${pad.left}" x2="${width - pad.right}" y1="${yFor(mean)}" y2="${yFor(mean)}" class="averageLine"/>` : "";
-  floorAnalysisChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img"><text x="8" y="${yFor(max)}">${max.toFixed(2)}</text><text x="8" y="${yFor(min)}">${min.toFixed(2)}</text>${line}${scores.map((score, index) => `<circle cx="${xFor(index)}" cy="${yFor(score)}" r="4" class="chartDot"/>`).join("")}${Number.isFinite(stddev) ? `<text x="${pad.left}" y="${height - 8}">mean ${mean.toFixed(2)} · σ ${stddev.toFixed(3)}</text>` : ""}</svg>`;
+  floorAnalysisChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img"><rect class="chartBg" x="0" y="0" width="${width}" height="${height}"></rect><text class="axisLabel" x="8" y="${yFor(max)}">${max.toFixed(2)}</text><text class="axisLabel" x="8" y="${yFor(min)}">${min.toFixed(2)}</text>${line}${rows.map((row, index) => `<circle cx="${xFor(index)}" cy="${yFor(Number(row.score))}" r="4" class="chartDot"><title>${escapeHtml(`${row.name} · ${row.button}B ${row.pattern} · Lv.${row.level} · ${Number(row.score).toFixed(2)}`)}</title></circle>`).join("")}${Number.isFinite(stddev) ? `<text class="axisLabel" x="${pad.left}" y="${height - 8}">mean ${mean.toFixed(2)} · σ ${stddev.toFixed(3)}</text>` : ""}</svg>`;
 }
 
 function scoreToPoint95(score) {
