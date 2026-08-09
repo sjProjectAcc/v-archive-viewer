@@ -6702,13 +6702,39 @@ function buildPackedChartOffsets(rows, { labelOf, yOf, plotWidth, labelCount }) 
     const ordered = group.slice().sort((a, b) => yOf(a) - yOf(b) || compare(recordKey(a), recordKey(b)));
     const hitHeight = 6;
     const spacing = 6;
-    let collisionGroup = [];
-    let headY = NaN;
-    const flushGroup = () => {
-      if (!collisionGroup.length) return;
+    const halfTick = Math.max(1, plotWidth / denominator / 2 - 1);
+    const splitByHead = (items, verticalHit) => {
+      const chunks = [];
+      let chunk = [];
+      let headY = NaN;
+      for (const row of items) {
+        const y = yOf(row);
+        if (chunk.length && y - headY >= verticalHit) {
+          chunks.push(chunk);
+          chunk = [];
+        }
+        if (!chunk.length) headY = y;
+        chunk.push(row);
+      }
+      if (chunk.length) chunks.push(chunk);
+      return chunks;
+    };
+    const fitGroups = (items, verticalHit) => {
+      if (items.length < 2) return [items];
+      const requestedHalfWidth = (items.length - 1) * spacing / 2;
+      const scale = requestedHalfWidth > halfTick ? halfTick / requestedHalfWidth : 1;
+      // Horizontal pressure drops quadratically enough for this visual packing when
+      // we reduce the vertical hit area by sqrt(scale), then split from each head again.
+      const reducedHit = verticalHit * Math.sqrt(scale);
+      if (scale < 0.999 && reducedHit < verticalHit - 0.01) {
+        const split = splitByHead(items, reducedHit);
+        if (split.length > 1) return split.flatMap((chunk) => fitGroups(chunk, reducedHit));
+      }
+      return [items];
+    };
+    const drawGroup = (collisionGroup) => {
       // Every group grows from its leftmost head toward the right. After that,
       // center the completed block on the floor/level tick as one unit.
-      const halfTick = Math.max(1, plotWidth / denominator / 2 - 1);
       const requestedHalfWidth = (collisionGroup.length - 1) * spacing / 2;
       // A collision block owns only its tick's half-interval in either direction.
       // When it would spill into a neighbour, shrink its spacing and dot size together.
@@ -6720,17 +6746,8 @@ function buildPackedChartOffsets(rows, { labelOf, yOf, plotWidth, labelCount }) 
         y: 0,
         scale,
       }));
-      collisionGroup = [];
-      headY = NaN;
     };
-    for (const row of ordered) {
-      const y = yOf(row);
-      // Once there is room directly below the current head, this is a new group.
-      if (collisionGroup.length && y - headY >= hitHeight) flushGroup();
-      if (!collisionGroup.length) headY = y;
-      collisionGroup.push(row);
-    }
-    flushGroup();
+    splitByHead(ordered, hitHeight).flatMap((chunk) => fitGroups(chunk, hitHeight)).forEach(drawGroup);
   }
   return offsets;
 }
