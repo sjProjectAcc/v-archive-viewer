@@ -4194,8 +4194,8 @@ async function collectRecordHistories(options = {}) {
       totalResponseMs += responseMs;
       requestDelay = adjustHistoryRequestDelay(requestDelay, responseMs, { succeeded, rateLimited });
       completed += 1;
-      const averageCycleMs = totalResponseMs / completed + requestDelay;
-      setHistoryProgress(completed, queue.length, Math.max(0, queue.length - completed) * averageCycleMs);
+      const updatedAverageCycleMs = totalResponseMs / completed + requestDelay;
+      setHistoryProgress(completed, queue.length, Math.max(0, queue.length - completed) * updatedAverageCycleMs);
       if (completed % 10 === 0 && viewSelect.value === "history") await renderHistoryView();
       if (!state.historyStopRequested && completed < queue.length) await delay(jitteredHistoryDelay(requestDelay));
     }
