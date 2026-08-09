@@ -537,8 +537,9 @@
         <label>정렬 <select id="growthGuideSortSelect"><option value="floor">floor순</option><option value="logPower">LogPower순</option></select></label>
       </div>
       <div id="growthGuideSummary" class="summary"></div>
-      <div class="toolControls"><label>산포도 <select id="growthGuideMetricSelect"><option value="logPower">LogPower</option><option value="score">Score</option><option value="scorePoint">scorePoint</option></select></label></div>
+      <div class="toolControls"><label>산포도 <select id="growthGuideMetricSelect"><option value="logPower">LogPower</option><option value="score">Score</option><option value="scorePoint">scorePoint</option></select></label><label>그래프 높이 <input id="growthGuideChartHeightInput" type="number" min="240" max="900" step="20" value="430"></label></div>
       <div id="growthGuideChart" class="svgChart"></div>
+      <div id="growthGuideTooltip" class="chartTooltip" hidden></div>
       <section class="growthGuideList"><h3>현재 TOP50</h3><div class="overviewTableWrap"><table id="growthGuideTop50Table"></table></div></section>
       <section class="growthGuideList"><h3>99.9 기준 진입 가능</h3><div class="overviewTableWrap"><table id="growthGuidePotentialTable"></table></div></section>
     </section>
