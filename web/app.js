@@ -8465,7 +8465,7 @@ function renderGrowthGuide() {
   const mode = growthGuideModeSelect.value;
   const sortRowsForGuide = (rows) => rows.sort((a, b) => growthGuideSortSelect.value === "logPower"
     ? Number(b.logPower) - Number(a.logPower) || floorIndex(a.floorName) - floorIndex(b.floorName) || compare(a.name, b.name)
-    : floorIndex(a.floorName) - floorIndex(b.floorName) || compare(a.button, b.button) || compare(a.name, b.name) || compare(a.pattern, b.pattern));
+    : floorIndex(b.floorName) - floorIndex(a.floorName) || compare(a.button, b.button) || compare(a.name, b.name) || compare(a.pattern, b.pattern));
   const top50Rows = sortRowsForGuide(allRows.filter((row) => row.isTop50));
   const potentialRows = sortRowsForGuide(allRows.filter((row) => !row.isTop50 && row.maxLogPower >= row.cutoff));
   const rows = mode === "top50" ? top50Rows : mode === "potential" ? potentialRows : [...top50Rows, ...potentialRows];
@@ -8497,7 +8497,8 @@ function renderGrowthGuideScatter(allRows, potentialRows) {
   const unrecorded = (loadHangySongCatalog()?.songs || []).flatMap((song) => BUTTONS.flatMap((button) => Object.entries(song?.patterns?.[`${button}B`] || {}).flatMap(([pattern, item]) => {
     if (buttonFilter.value && String(button) !== buttonFilter.value) return [];
     if (patternFilter.value && pattern !== patternFilter.value) return [];
-    const base = { title: Number(song.title), button, pattern, name: song.name || `#${song.title}`, level: item.level, floorName: getFloorLabel(item), score: 0 };
+    const floorName = getFloorLabel(item) || (Number.isFinite(Number(item.floor)) ? `${Math.floor(Number(item.floor) / 10)}.${Number(item.floor) % 10}` : "");
+    const base = { title: Number(song.title), button, pattern, name: song.name || `#${song.title}`, level: item.level, floorName, score: 0 };
     if (recordedKeys.has(recordKey(base))) return [];
     const constant = difficultyConstantForFloor(base.floorName, button);
     const cutoff = cutoffByButton.get(String(button)) || 0;
@@ -8596,7 +8597,7 @@ function renderFloorAnalysis() {
     : `${String(row.pattern || "").toUpperCase() === "SC" ? "SC" : "nonSC"} ${Number(row.level) || "-"}`;
   const scopes = [...new Set(allRecords.map(scopeFor).filter(Boolean))].sort((a, b) => {
     if (mode === "floor") return floorIndex(a) - floorIndex(b);
-    const aSc = a.startsWith("SC") ? 0 : 1; const bSc = b.startsWith("SC") ? 0 : 1;
+    const aSc = a.startsWith("SC") ? 1 : 0; const bSc = b.startsWith("SC") ? 1 : 0;
     return aSc - bSc || Number(a.replace(/\D/g, "")) - Number(b.replace(/\D/g, ""));
   });
   const prior = floorAnalysisScopeSelect.value;
