@@ -27,6 +27,9 @@ const state = {
   compareChartMetric: "score",
   compareChartRanges: {},
   compareChartExcludedByScope: {},
+  compareHistoryMineEntries: [],
+  compareHistoryOtherEntries: [],
+  compareHistoryStatus: "",
   pendingSharedComparison: false,
   historyEntries: [],
   historyRows: [],
@@ -630,6 +633,8 @@ const recordsOnlyEls = document.querySelectorAll(".recordsOnly");
 const compareNicknameInput = document.querySelector("#compareNicknameInput");
 const compareNicknameOptions = document.querySelector("#compareNicknameOptions");
 const compareLoadButton = document.querySelector("#compareLoadButton");
+const compareHistoryTime = document.querySelector("#compareHistoryTime");
+const compareHistoryNowButton = document.querySelector("#compareHistoryNowButton");
 const compareModeSelect = document.querySelector("#compareModeSelect");
 const compareSortSelect = document.querySelector("#compareSortSelect");
 const compareFloorMinSelect = document.querySelector("#compareFloorMinSelect");
@@ -662,7 +667,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-rate-v14";
+const UI_SCHEMA_VERSION = "v-log-rate-v15";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -670,6 +675,8 @@ const REQUIRED_UI_IDS = [
   "chartPanel",
   "compareChartPanel",
   "compareProfileSummary",
+  "compareHistoryTime",
+  "compareHistoryNowButton",
   "compareChartScaleModeSelect",
   "compareFloorTrendInput",
   "compareChartHeightInput",
@@ -746,13 +753,14 @@ window.addEventListener("load", async () => {
   await loadPendingSharedComparison();
 });
 
-const SHARED_COMPARE_PARAMS = ["view", "user", "against", "metric", "button", "pattern", "filter", "sort", "floorMin", "floorMax", "scale", "auto", "mineMin", "mineMax", "otherMin", "otherMax", "trend", "exclude"];
+const SHARED_COMPARE_PARAMS = ["view", "user", "against", "at", "metric", "button", "pattern", "filter", "sort", "floorMin", "floorMax", "scale", "auto", "mineMin", "mineMax", "otherMin", "otherMax", "trend", "exclude"];
 
 function applySharedCompareLinkState() {
   const params = new URLSearchParams(location.search);
   if (params.get("view") !== "compare" || !params.get("user") || !params.get("against")) return;
   nicknameInput.value = params.get("user").trim();
   compareNicknameInput.value = params.get("against").trim();
+  compareHistoryTime.value = params.get("at") || "";
   setIfOptionExists(viewSelect, "compare");
   setIfOptionExists(buttonFilter, params.get("button") || "");
   setIfOptionExists(patternFilter, params.get("pattern") || "");
@@ -1067,6 +1075,16 @@ function wireEvents() {
   compareLoadButton.addEventListener("click", () => loadComparison(false));
   compareNicknameInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") loadComparison(false);
+  });
+  compareHistoryTime.addEventListener("change", async () => {
+    saveSettings();
+    await refreshCompareHistoricalState();
+    render();
+  });
+  compareHistoryNowButton.addEventListener("click", () => {
+    compareHistoryTime.value = "";
+    saveSettings();
+    void refreshCompareHistoricalState().then(render);
   });
   [viewSelect, buttonFilter, patternFilter, searchInput, limitSelect, nameWidthInput, recordsFloorMinSelect, recordsFloorMaxSelect, compareNicknameInput, compareModeSelect, compareSortSelect, compareFloorMinSelect, compareFloorMaxSelect].forEach((el) => {
     el.addEventListener("input", () => {
@@ -1427,6 +1445,7 @@ function applySavedSettings() {
   searchInput.value = settings.search || "";
   nameWidthInput.value = settings.nameWidth || "320";
   compareNicknameInput.value = settings.compareNickname || "";
+  compareHistoryTime.value = settings.compareHistoryTime || "";
   setIfOptionExists(compareModeSelect, settings.compareMode || "");
   setIfOptionExists(compareSortSelect, settings.compareSort || "absScoreDiff");
   setIfOptionExists(compareFloorMinSelect, settings.compareFloorMin || "1.1");
@@ -1521,6 +1540,7 @@ function saveSettings() {
     search: searchInput.value,
     nickname: getCurrentNickname(),
     compareNickname: compareNicknameInput.value.trim(),
+    compareHistoryTime: compareHistoryTime.value,
     compareMode: compareModeSelect.value,
     compareSort: compareSortSelect.value,
     compareFloorMin: compareFloorMinSelect.value,
@@ -2870,6 +2890,7 @@ async function refresh(full) {
   try {
     state.payload = await fetchArchive(nickname, full);
     await refreshTop50ScaleCache(full);
+    await refreshCompareHistoricalState();
     render();
     await completePendingHistoryAccount();
     await reconnectConfiguredHistoryAccount();
@@ -2878,6 +2899,7 @@ async function refresh(full) {
     statusText.textContent = `오류: ${error.message}`;
     try {
       state.payload = await loadCachedPayload(nickname);
+      await refreshCompareHistoricalState();
       render();
       await completePendingHistoryAccount();
       await reconnectConfiguredHistoryAccount();
@@ -2901,6 +2923,7 @@ async function loadComparison(full = false) {
   setBusy(true, `비교 기록 불러오는 중: ${compareNickname}`);
   try {
     state.comparePayload = await fetchArchive(compareNickname, full);
+    await refreshCompareHistoricalState();
     applyPendingSharedCompareExclusions();
     viewSelect.value = "compare";
     state.view = "compare";
@@ -2910,6 +2933,7 @@ async function loadComparison(full = false) {
     statusText.textContent = `비교 오류: ${error.message}`;
     try {
       state.comparePayload = await loadCachedPayload(compareNickname);
+      await refreshCompareHistoricalState();
       applyPendingSharedCompareExclusions();
       viewSelect.value = "compare";
       state.view = "compare";
@@ -3791,6 +3815,7 @@ function buildCompareShareUrl() {
   url.searchParams.set("view", "compare");
   url.searchParams.set("user", state.payload.nickname);
   url.searchParams.set("against", state.comparePayload.nickname);
+  set("at", compareHistoryTime.value);
   set("metric", compareChartMetricSelect.value, "score");
   set("button", buttonFilter.value);
   set("pattern", patternFilter.value);
@@ -4622,6 +4647,78 @@ function latestHistoryEventAt(entry, time) {
   return (entry.history || [])
     .filter((event) => new Date(event.ymdt).getTime() <= time)
     .at(-1) || null;
+}
+
+function getCompareHistoryTime() {
+  if (!compareHistoryTime.value) return null;
+  const value = new Date(compareHistoryTime.value).getTime();
+  return Number.isFinite(value) ? value : null;
+}
+
+function buildHistoricalSnapshotRecords(payload, entries, time) {
+  const currentByKey = new Map((payload?.records || []).map((record) => [recordKey(record), record]));
+  return entries.flatMap((entry) => {
+    const event = latestHistoryEventAt(entry, time);
+    if (!event || !Number.isFinite(Number(event.score))) return [];
+    const current = currentByKey.get(recordKey(entry));
+    const source = current || entry;
+    return [{
+      ...source,
+      button: Number(entry.button ?? source.button),
+      title: entry.title ?? source.title,
+      name: source.name || entry.name || "",
+      pattern: entry.pattern || source.pattern || "",
+      level: source.level ?? entry.level ?? "",
+      floor: source.floor ?? entry.floor,
+      floorName: getFloorLabel(source) || entry.floorName || "",
+      score: Number(event.score),
+      maxCombo: event.maxCombo === true,
+      updatedAt: event.ymdt,
+      historicalSnapshot: true,
+    }];
+  });
+}
+
+function compareHistoryBounds(entries) {
+  const times = entries
+    .flatMap((entry) => (entry.history || []).map((event) => new Date(event.ymdt).getTime()))
+    .filter(Number.isFinite);
+  return times.length ? { min: Math.min(...times), max: Math.max(...times) } : null;
+}
+
+async function refreshCompareHistoricalState() {
+  const time = getCompareHistoryTime();
+  state.compareHistoryMineEntries = [];
+  state.compareHistoryOtherEntries = [];
+  state.compareHistoryStatus = "";
+  if (!time || !state.payload || !state.comparePayload) return;
+
+  const [mineEntries, otherEntries] = await Promise.all([
+    loadRecordHistories(state.payload.nickname || getCurrentNickname()),
+    loadRecordHistories(state.comparePayload.nickname || compareNicknameInput.value.trim()),
+  ]);
+  const mineBounds = compareHistoryBounds(mineEntries);
+  const otherBounds = compareHistoryBounds(otherEntries);
+  if (!mineBounds || !otherBounds) {
+    state.compareHistoryStatus = "과거 비교는 두 계정의 로컬 History가 모두 있어야 합니다.";
+    return;
+  }
+
+  const min = Math.max(mineBounds.min, otherBounds.min);
+  const max = Math.min(mineBounds.max, otherBounds.max);
+  if (min <= max) {
+    compareHistoryTime.min = formatDateTimeInput(min, "ceil");
+    compareHistoryTime.max = formatDateTimeInput(max, "floor");
+  }
+  const mineSnapshot = buildHistoricalSnapshotRecords(state.payload, mineEntries, time);
+  const otherSnapshot = buildHistoricalSnapshotRecords(state.comparePayload, otherEntries, time);
+  if (!mineSnapshot.length || !otherSnapshot.length) {
+    state.compareHistoryStatus = "선택 시점 이전의 기록이 두 계정에 모두 필요합니다.";
+    return;
+  }
+  state.compareHistoryMineEntries = mineSnapshot;
+  state.compareHistoryOtherEntries = otherSnapshot;
+  state.compareHistoryStatus = `${formatDate(new Date(time).toISOString())} 기준 History 스냅샷`;
 }
 
 function buildSelfCompareRows(entries, range) {
@@ -6998,6 +7095,7 @@ function renderCompareSummary(rows) {
   const pointMine = pointBoth.filter((row) => row.pointDiff > 0).length;
   const pointOther = pointBoth.filter((row) => row.pointDiff < 0).length;
   const cards = [
+    ["비교 시점", state.compareHistoryStatus || "현재 기록"],
     ["비교 대상", state.comparePayload?.nickname || "-"],
     ["공통 기록", both.length],
     ["score 내가 우위", scoreMine],
@@ -7021,6 +7119,9 @@ function renderCompareProfileSummary() {
   }
   const selectedButton = buttonFilter.value;
   const buttons = selectedButton ? [Number(selectedButton)] : BUTTONS;
+  const historical = Boolean(getCompareHistoryTime() && state.compareHistoryMineEntries.length && state.compareHistoryOtherEntries.length);
+  const mineRecords = historical ? state.compareHistoryMineEntries : (state.payload.records || []);
+  const otherRecords = historical ? state.compareHistoryOtherEntries : (state.comparePayload.records || []);
   const mineClasses = new Map((state.payload.djClasses || []).map((row) => [Number(row.button), row]));
   const otherClasses = new Map((state.comparePayload.djClasses || []).map((row) => [Number(row.button), row]));
   const mineTiers = new Map((state.payload.tiers || []).map((row) => [Number(row.button), row]));
@@ -7032,15 +7133,15 @@ function renderCompareProfileSummary() {
     const otherClass = otherClasses.get(button);
     const mineTier = mineTiers.get(button);
     const otherTier = otherTiers.get(button);
-    const mineLogPower = calculateTop50LogPowerSum(state.payload.records || [], button);
-    const otherLogPower = calculateTop50LogPowerSum(state.comparePayload.records || [], button);
+    const mineLogPower = calculateTop50LogPowerSum(mineRecords, button);
+    const otherLogPower = calculateTop50LogPowerSum(otherRecords, button);
     return `<article class="compareProfileCard">
       <h3>${button}B</h3>
       <div class="compareProfileNames"><span></span><strong title="${escapeHtml(mineName)}">${escapeHtml(mineName)}</strong><strong title="${escapeHtml(otherName)}">${escapeHtml(otherName)}</strong></div>
-      ${renderCompareProfileRow("LogPower", mineLogPower.toFixed(2), otherLogPower.toFixed(2))}
+      ${renderCompareProfileRow(historical ? "LogPower (과거)" : "LogPower", mineLogPower.toFixed(2), otherLogPower.toFixed(2))}
       ${renderCompareLogPowerRatio(mineLogPower, otherLogPower)}
-      ${renderCompareProfileRow("DJClass", formatDjClassLabel(mineClass), formatDjClassLabel(otherClass))}
-      ${renderCompareProfileRow("Tier", formatTierLabel(mineTier), formatTierLabel(otherTier))}
+      ${renderCompareProfileRow(historical ? "DJClass (현재)" : "DJClass", formatDjClassLabel(mineClass), formatDjClassLabel(otherClass))}
+      ${renderCompareProfileRow(historical ? "Tier (현재)" : "Tier", formatTierLabel(mineTier), formatTierLabel(otherTier))}
     </article>`;
   }).join("");
   compareProfileSummary.hidden = false;
@@ -7887,8 +7988,9 @@ function setCanvasFontToFit(ctx, text, weight, preferredSize, minimumSize, maxWi
 
 function buildCompareRows() {
   if (!state.payload || !state.comparePayload) return [];
-  const mineRecords = state.payload.records || [];
-  const otherRecords = state.comparePayload.records || [];
+  const historical = Boolean(getCompareHistoryTime() && state.compareHistoryMineEntries.length && state.compareHistoryOtherEntries.length);
+  const mineRecords = historical ? state.compareHistoryMineEntries : (state.payload.records || []);
+  const otherRecords = historical ? state.compareHistoryOtherEntries : (state.comparePayload.records || []);
   const mineMap = new Map(mineRecords.map((record) => [recordKey(record), record]));
   const otherMap = new Map(otherRecords.map((record) => [recordKey(record), record]));
   const keys = [...mineMap.keys()].filter((key) => otherMap.has(key));
@@ -7906,8 +8008,12 @@ function buildCompareRows() {
     const mineLogPower = mineScore === null ? null : scoreToPoint(mineScore) * difficultyConstantForFloor(mineFloor, button);
     const otherLogPower = otherScore === null ? null : scoreToPoint(otherScore) * difficultyConstantForFloor(otherFloor, button);
     const logPowerDiff = Number.isFinite(mineLogPower) && Number.isFinite(otherLogPower) ? mineLogPower - otherLogPower : null;
-    const minePoint = mine && Number.isFinite(Number(mine.rating)) ? Number(mine.rating) : null;
-    const otherPoint = other && Number.isFinite(Number(other.rating)) ? Number(other.rating) : null;
+    const minePoint = historical
+      ? estimateTierRating(mineScore, mine?.maxRating, mine?.maxCombo)
+      : mine && Number.isFinite(Number(mine.rating)) ? Number(mine.rating) : null;
+    const otherPoint = historical
+      ? estimateTierRating(otherScore, other?.maxRating, other?.maxCombo)
+      : other && Number.isFinite(Number(other.rating)) ? Number(other.rating) : null;
     const pointDiff = minePoint === null || otherPoint === null ? null : minePoint - otherPoint;
     const floorName = getFloorLabel(base) || mineFloor || otherFloor;
     return {
@@ -7934,6 +8040,7 @@ function buildCompareRows() {
       otherMaxCombo: other?.maxCombo === true,
       mineUpdatedAt: mine?.updatedAt || "",
       otherUpdatedAt: other?.updatedAt || "",
+      historical,
     };
   }).filter((row) => floorIndex(row.floorName) >= 0);
 }
