@@ -14,6 +14,9 @@ const state = {
   djPowerHistorySeriesCache: new Map(),
   djPowerHistorySeriesStore: null,
   djPowerHistorySeriesStoreHydrating: null,
+  djPowerHistoryPeriodCache: null,
+  djPowerHistoryPeriodCacheHydrating: null,
+  djPowerHistoryPeriodCacheSaveTimer: null,
   floorPatternCounts: null,
   view: "chart",
   chartMetric: "score",
@@ -129,6 +132,7 @@ const DJPOWER_HISTORY_DLC_CACHE_KEY = "vArchiveDjPowerHistoryDlcsV1";
 const DJPOWER_HISTORY_RELEASE_CACHE_KEY = "vArchiveDjPowerHistoryReleaseV1";
 const DJPOWER_HISTORY_SERIES_LEGACY_CACHE_KEY = "vArchiveDjPowerHistorySeriesV1";
 const DJPOWER_HISTORY_SERIES_CACHE_KEY = "vArchiveDjPowerHistorySeriesV2";
+const DJPOWER_HISTORY_PERIOD_CACHE_KEY = "vArchiveDjPowerHistoryPeriodsV1";
 const DJPOWER_HISTORY_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 const DJPOWER_NEW_RULE_CHANGED_AT = Date.parse("2025-09-11T00:00:00.000Z");
 const DJPOWER_BASE_DLC_CODES = new Set(["R", "RV", "P1", "P2"]);
@@ -5062,6 +5066,7 @@ async function ensureDjPowerHistoryMetadata() {
     );
     state.djPowerHistoryReleaseAtByTitle = metadata.releaseAtByTitle;
     state.djPowerHistoryUpdateTimes = metadata.updateTimes;
+    await hydrateDjPowerHistoryPeriodCache();
     return metadata;
   })();
   try {
@@ -5084,35 +5089,17 @@ function latestDjPowerUpdateAt(time) {
 function isDjPowerNewAt(entry, time) {
   const song = state.djPowerHistoryCatalog?.[String(entry.title)];
   if (!song) return isNewTabRecord(entry);
-  if (DJPOWER_INITIAL_RV_TITLES.has(String(song.title)) || djPowerDlcGroup(song) === "excluded") return false;
-  const releaseAt = Number(state.djPowerHistoryReleaseAtByTitle[String(song.title)]);
-  if (!Number.isFinite(releaseAt) || time < releaseAt) return false;
-  if (time >= DJPOWER_NEW_RULE_CHANGED_AT) {
-    const updateAt = latestDjPowerUpdateAt(time);
-    return Number.isFinite(updateAt) && updateAt >= releaseAt && updateAt < addSixMonths(releaseAt);
-  }
-  const group = djPowerDlcGroup(song);
-  if (group === "free") {
-    const latestByGroup = ["regular", "collaboration", "pli"].map((targetGroup) => {
-      const releases = Object.values(state.djPowerHistoryCatalog || {})
-        .filter((candidate) => djPowerDlcGroup(candidate) === targetGroup)
-        .map((candidate) => Number(state.djPowerHistoryReleaseAtByTitle[String(candidate.title)]))
-        .filter((candidateReleaseAt) => Number.isFinite(candidateReleaseAt) && candidateReleaseAt <= time);
-      return Math.max(...releases);
-    });
-    const periodStart = Math.min(...latestByGroup.filter(Number.isFinite));
-    return Number.isFinite(periodStart) && releaseAt >= periodStart;
-  }
-  const candidates = Object.values(state.djPowerHistoryCatalog || {}).filter((candidate) => djPowerDlcGroup(candidate) === group);
-  const latestRelease = Math.max(...candidates
-    .map((candidate) => Number(state.djPowerHistoryReleaseAtByTitle[String(candidate.title)]))
-    .filter((candidateReleaseAt) => Number.isFinite(candidateReleaseAt) && candidateReleaseAt <= time));
-  return releaseAt === latestRelease;
+  const period = getDjPowerHistoryPeriod(time);
+  return period ? period.newTitleSet.has(String(song.title)) : isNewTabRecord(entry);
 }
 
 function getHistoricalDjPowerTop100Scale(button, time) {
   const updateAt = latestDjPowerUpdateAt(time);
   if (!Number.isFinite(updateAt) || !state.djPowerHistoryCatalog) return getDjPowerTop100Scale(button);
+  const period = getDjPowerHistoryPeriod(time);
+  if (!period) return getDjPowerTop100Scale(button);
+  const cachedScale = period.scales[String(button)];
+  if (cachedScale) return cachedScale;
   const basicMaxes = [];
   const newMaxes = [];
   for (const song of Object.values(state.djPowerHistoryCatalog)) {
@@ -5120,19 +5107,113 @@ function getHistoricalDjPowerTop100Scale(button, time) {
     if (!Number.isFinite(releaseAt) || releaseAt > updateAt) continue;
     const patterns = song.patterns?.[`${button}B`];
     if (!patterns || typeof patterns !== "object") continue;
-    const isNew = isDjPowerNewAt(song, time);
+    const isNew = period.newTitleSet.has(String(song.title));
     for (const [pattern, details] of Object.entries(patterns)) {
       const max = maxDjPowerForPattern(pattern, details?.level);
       if (Number.isFinite(max)) (isNew ? newMaxes : basicMaxes).push(max);
     }
   }
-  if (basicMaxes.length < 70 || newMaxes.length < 30) return getDjPowerTop100Scale(button);
+  if (basicMaxes.length < 70 || newMaxes.length < 30) {
+    const fallback = getDjPowerTop100Scale(button);
+    period.scales[String(button)] = fallback;
+    scheduleDjPowerHistoryPeriodCacheSave();
+    return fallback;
+  }
   basicMaxes.sort((a, b) => b - a);
   newMaxes.sort((a, b) => b - a);
   const rawMax = basicMaxes.slice(0, 70).reduce((sum, value) => sum + value, 0)
     + newMaxes.slice(0, 30).reduce((sum, value) => sum + value, 0);
   if (!Number.isFinite(rawMax) || rawMax <= 0) return getDjPowerTop100Scale(button);
-  return { rawMax, multiplier: DJPOWER_TARGET_TOP100_MAX / rawMax };
+  const scale = { rawMax, multiplier: DJPOWER_TARGET_TOP100_MAX / rawMax };
+  period.scales[String(button)] = scale;
+  scheduleDjPowerHistoryPeriodCacheSave();
+  return scale;
+}
+
+function getDjPowerHistoryPeriodCacheSignature() {
+  const releases = Object.entries(state.djPowerHistoryReleaseAtByTitle)
+    .sort(([a], [b]) => compare(a, b))
+    .map(([title, time]) => `${title}:${time}`)
+    .join(",");
+  return hashDjPowerHistoryCacheKey([
+    "v1",
+    state.djPowerHistoryCatalogUpdatedAt,
+    state.djPowerHistoryUpdateTimes.join(","),
+    releases,
+  ].join("|"));
+}
+
+async function hydrateDjPowerHistoryPeriodCache() {
+  const signature = getDjPowerHistoryPeriodCacheSignature();
+  if (state.djPowerHistoryPeriodCache?.signature === signature) return state.djPowerHistoryPeriodCache;
+  if (state.djPowerHistoryPeriodCacheHydrating) return state.djPowerHistoryPeriodCacheHydrating;
+  state.djPowerHistoryPeriodCacheHydrating = (async () => {
+    const stored = await loadSharedData(DJPOWER_HISTORY_PERIOD_CACHE_KEY).catch(() => null);
+    state.djPowerHistoryPeriodCache = stored?.signature === signature && stored?.periods && typeof stored.periods === "object"
+      ? stored
+      : { signature, periods: {} };
+    return state.djPowerHistoryPeriodCache;
+  })();
+  try {
+    return await state.djPowerHistoryPeriodCacheHydrating;
+  } finally {
+    state.djPowerHistoryPeriodCacheHydrating = null;
+  }
+}
+
+function scheduleDjPowerHistoryPeriodCacheSave() {
+  if (state.djPowerHistoryPeriodCacheSaveTimer) return;
+  state.djPowerHistoryPeriodCacheSaveTimer = setTimeout(() => {
+    state.djPowerHistoryPeriodCacheSaveTimer = null;
+    if (state.djPowerHistoryPeriodCache) {
+      void saveSharedData(DJPOWER_HISTORY_PERIOD_CACHE_KEY, state.djPowerHistoryPeriodCache).catch(() => {});
+    }
+  }, 250);
+}
+
+function getDjPowerHistoryPeriod(time) {
+  const updateAt = latestDjPowerUpdateAt(time);
+  const cache = state.djPowerHistoryPeriodCache;
+  if (!Number.isFinite(updateAt) || !cache || !state.djPowerHistoryCatalog) return null;
+  const key = String(updateAt);
+  const cached = cache.periods[key];
+  if (cached) {
+    return { ...cached, newTitleSet: new Set(cached.newTitles || []) };
+  }
+
+  const catalog = Object.values(state.djPowerHistoryCatalog);
+  const latestByGroup = new Map();
+  for (const song of catalog) {
+    const group = djPowerDlcGroup(song);
+    const releaseAt = Number(state.djPowerHistoryReleaseAtByTitle[String(song.title)]);
+    if (!Number.isFinite(releaseAt) || releaseAt > updateAt) continue;
+    const prior = latestByGroup.get(group);
+    if (!Number.isFinite(prior) || releaseAt > prior) latestByGroup.set(group, releaseAt);
+  }
+  const legacyFreeStart = Math.min(...["regular", "collaboration", "pli"]
+    .map((group) => latestByGroup.get(group))
+    .filter(Number.isFinite));
+  const newTitles = [];
+  for (const song of catalog) {
+    const title = String(song.title);
+    const group = djPowerDlcGroup(song);
+    const releaseAt = Number(state.djPowerHistoryReleaseAtByTitle[title]);
+    if (!Number.isFinite(releaseAt) || releaseAt > updateAt) continue;
+    if (DJPOWER_INITIAL_RV_TITLES.has(title) || group === "excluded") continue;
+    let isNew = false;
+    if (updateAt >= DJPOWER_NEW_RULE_CHANGED_AT) {
+      isNew = updateAt >= releaseAt && updateAt < addSixMonths(releaseAt);
+    } else if (group === "free") {
+      isNew = Number.isFinite(legacyFreeStart) && releaseAt >= legacyFreeStart;
+    } else {
+      isNew = releaseAt === latestByGroup.get(group);
+    }
+    if (isNew) newTitles.push(title);
+  }
+  const period = { newTitles, scales: {} };
+  cache.periods[key] = period;
+  scheduleDjPowerHistoryPeriodCacheSave();
+  return { ...period, newTitleSet: new Set(newTitles) };
 }
 
 function hashDjPowerHistoryCacheKey(value) {
