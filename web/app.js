@@ -47,6 +47,7 @@ const state = {
   selfCompareRenderToken: 0,
   historyCollecting: false,
   historyStopRequested: false,
+  pendingAutomaticHistoryNickname: "",
   historyRenderToken: 0,
   historyAccountNickname: "",
   historyPendingAccount: null,
@@ -4069,6 +4070,18 @@ function historyCacheId(nickname, record) {
   return `${cacheKey(nickname)}|${recordKey(record)}`;
 }
 
+function historyLatestScoreDiffers(cached, record) {
+  const currentScore = Number(record?.score);
+  if (!cached || !Number.isFinite(currentScore)) return false;
+  const latest = (cached.history || []).reduce((newest, event) => {
+    const time = new Date(event?.ymdt).getTime();
+    return Number.isFinite(time) && (!newest || time >= newest.time)
+      ? { time, score: Number(event.score) }
+      : newest;
+  }, null);
+  return Number.isFinite(latest?.score) && Math.abs(currentScore - latest.score) > 0.000001;
+}
+
 function getHistoryTargets() {
   const records = state.payload?.records || [];
   const unique = new Map();
@@ -4173,7 +4186,9 @@ async function collectRecordHistories(options = {}) {
     const existingById = new Map(existing.map((entry) => [entry.id, entry]));
     const queue = options.force ? targets : targets.filter((record) => {
       const cached = existingById.get(historyCacheId(nickname, record));
-      return !cached || (record.updatedAt && cached.sourceUpdatedAt !== record.updatedAt);
+      const sourceChanged = record.updatedAt && cached?.sourceUpdatedAt !== record.updatedAt;
+      const scoreChangedSinceHistory = !options.automatic && historyLatestScoreDiffers(cached, record);
+      return !cached || sourceChanged || scoreChangedSinceHistory;
     });
     const cachedCount = options.force ? 0 : targets.length - queue.length;
 
@@ -4247,6 +4262,13 @@ async function collectRecordHistories(options = {}) {
     historyFullCollectButton.disabled = false;
     historyResetButton.disabled = false;
     historyStopButton.disabled = true;
+    const pendingNickname = state.pendingAutomaticHistoryNickname;
+    state.pendingAutomaticHistoryNickname = "";
+    if (pendingNickname
+      && pendingNickname === cacheKey(state.payload?.nickname || "")
+      && pendingNickname === state.historyAccountNickname) {
+      void collectRecordHistories({ automatic: true });
+    }
   }
 }
 
@@ -5267,6 +5289,10 @@ async function collectUpdatedHistoriesAutomatically() {
   const updatedRecords = Number(state.payload?.sync?.updatedRecords || 0);
   const nickname = cacheKey(state.payload?.nickname || getCurrentNickname());
   if (!updatedRecords || updatedRecords > 50 || state.historyAccountNickname !== nickname) return;
+  if (state.historyCollecting) {
+    state.pendingAutomaticHistoryNickname = nickname;
+    return;
+  }
   await collectRecordHistories({ automatic: true });
 }
 
