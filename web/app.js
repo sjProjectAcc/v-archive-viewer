@@ -682,7 +682,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-rate-v19";
+const UI_SCHEMA_VERSION = "v-log-rate-v20";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -6232,13 +6232,14 @@ function updateContextualControls() {
   const limitViews = new Set(["compare", "rate", "records", "history", "selfCompare", "floorMinScore"]);
   const nameWidthViews = new Set(["compare", "rate", "records", "history", "selfCompare", "floorMinScore"]);
   const showCommonFilters = filterViews.has(view);
+  const showButtonOnlyFilter = view === "staleRecommendations";
   rateMetricControl.hidden = view !== "rate";
-  buttonFilterControl.hidden = !showCommonFilters;
+  buttonFilterControl.hidden = !showCommonFilters && !showButtonOnlyFilter;
   patternFilterControl.hidden = !showCommonFilters;
   searchFilterControl.hidden = !showCommonFilters;
   limitControl.hidden = !limitViews.has(view);
   nameWidthControl.hidden = !nameWidthViews.has(view);
-  globalFilters.hidden = !showCommonFilters && view !== "compare" && view !== "records";
+  globalFilters.hidden = !showCommonFilters && !showButtonOnlyFilter && view !== "compare" && view !== "records";
 }
 
 function renderSummary() {
@@ -8967,6 +8968,7 @@ async function renderStaleRecommendations() {
       const currentFloor = floorIndex(floorName);
       const score = Number(record.score);
       const updatedAt = new Date(record.updatedAt).getTime();
+      if (buttonFilter.value && String(record.button) !== buttonFilter.value) return [];
       if (currentFloor < floorMin || currentFloor > floorMax || score < scoreMin || score > scoreMax || !Number.isFinite(updatedAt)) return [];
       const entry = historyByKey.get(recordKey(record));
       const manualFailures = getManualRefreshFailures(entry);
