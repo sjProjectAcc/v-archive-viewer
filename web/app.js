@@ -682,7 +682,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-rate-v17";
+const UI_SCHEMA_VERSION = "v-log-rate-v19";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -1104,6 +1104,11 @@ function wireEvents() {
       saveSettings();
       renderStaleRecommendations();
     });
+  });
+  staleRecommendationsTable.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-stale-failure-key]");
+    if (!button) return;
+    void markStaleRecommendationFailure(button.dataset.staleFailureKey || "");
   });
   compareLoadButton.addEventListener("click", () => loadComparison(false));
   compareNicknameInput.addEventListener("keydown", (event) => {
@@ -4118,6 +4123,31 @@ function historyCacheId(nickname, record) {
   return `${cacheKey(nickname)}|${recordKey(record)}`;
 }
 
+function getManualRefreshFailures(entry) {
+  return (Array.isArray(entry?.manualRefreshFailures) ? entry.manualRefreshFailures : [])
+    .map((value) => new Date(value).getTime())
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+}
+
+function buildRecordHistoryEntry(nickname, record, history = [], previous = {}) {
+  return {
+    id: historyCacheId(nickname, record),
+    nickname: cacheKey(nickname),
+    button: Number(record.button),
+    title: record.title,
+    name: record.name || "",
+    pattern: record.pattern || "",
+    level: record.level,
+    floor: record.floor,
+    floorName: getFloorLabel(record),
+    sourceUpdatedAt: record.updatedAt || "",
+    fetchedAt: utcNowIso(),
+    history,
+    manualRefreshFailures: getManualRefreshFailures(previous).map((time) => new Date(time).toISOString()),
+  };
+}
+
 function historyLatestScoreDiffers(cached, record) {
   const currentScore = Number(record?.score);
   if (!cached || !Number.isFinite(currentScore)) return true;
@@ -4269,20 +4299,7 @@ async function collectRecordHistories(options = {}) {
         }
         const response = result.response;
         const history = normalizeHistoryEvents(response, record);
-        const entry = {
-          id: historyCacheId(nickname, record),
-          nickname: cacheKey(nickname),
-          button: Number(record.button),
-          title: record.title,
-          name: record.name || "",
-          pattern: record.pattern || "",
-          level: record.level,
-          floor: record.floor,
-          floorName: getFloorLabel(record),
-          sourceUpdatedAt: record.updatedAt || "",
-          fetchedAt: utcNowIso(),
-          history,
-        };
+        const entry = buildRecordHistoryEntry(nickname, record, history, existingById.get(historyCacheId(nickname, record)));
         await saveRecordHistory(entry);
         succeeded = true;
       } catch (error) {
@@ -6187,7 +6204,7 @@ function updateConditionalTabs() {
     element.disabled = !state.isTestMode;
   });
 
-  const unavailable = ["debug", "testNotes", "tags", "growthGuide", "floorMinScore"].includes(viewSelect.value) && !state.isTestMode;
+  const unavailable = ["debug", "testNotes", "tags", "growthGuide", "floorMinScore", "hangyRawTags"].includes(viewSelect.value) && !state.isTestMode;
   if (unavailable) {
     viewSelect.value = "chart";
     state.view = "chart";
@@ -8951,10 +8968,14 @@ async function renderStaleRecommendations() {
       const score = Number(record.score);
       const updatedAt = new Date(record.updatedAt).getTime();
       if (currentFloor < floorMin || currentFloor > floorMax || score < scoreMin || score > scoreMax || !Number.isFinite(updatedAt)) return [];
-      const historyCount = historyByKey.get(recordKey(record))?.history?.length || 0;
-      const elapsedDays = Math.max(0, (now - updatedAt) / 86400000);
+      const entry = historyByKey.get(recordKey(record));
+      const manualFailures = getManualRefreshFailures(entry);
+      const latestFailureAt = manualFailures.at(-1) || 0;
+      const lastAttemptAt = Math.max(updatedAt, latestFailureAt);
+      const historyCount = (entry?.history?.length || 0) + manualFailures.length;
+      const elapsedDays = Math.max(0, (now - lastAttemptAt) / 86400000);
       const recommendationWeight = Math.log1p(elapsedDays) / Math.sqrt(Math.max(1, historyCount));
-      return [{ ...record, floorName, score, updatedAtTime: updatedAt, elapsedDays, historyCount, recommendationWeight }];
+      return [{ ...record, floorName, score, updatedAtTime: updatedAt, lastAttemptAt, elapsedDays, historyCount, manualFailureCount: manualFailures.length, recommendationWeight }];
     }).sort((a, b) => b.recommendationWeight - a.recommendationWeight
       || b.elapsedDays - a.elapsedDays
       || floorIndex(b.floorName) - floorIndex(a.floorName)
@@ -8967,12 +8988,32 @@ async function renderStaleRecommendations() {
       ["계산식", "ln(1 + 경과일) / √히스토리 횟수"],
     ].map(([label, value]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("");
     staleRecommendationsTable.innerHTML = rows.length
-      ? `<thead><tr><th>순위</th><th>button</th><th>name</th><th>pattern</th><th>level</th><th>floor</th><th>score</th><th>마지막 갱신</th><th>경과일</th><th>히스토리</th><th>추천 가중치</th></tr></thead><tbody>${rows.map((row, index) => `<tr><td class="num">${index + 1}</td><td>${row.button}B</td><td class="nameCell">${escapeHtml(row.name)}</td><td>${escapeHtml(row.pattern)}</td><td class="num">${escapeHtml(row.level)}</td><td class="num">${escapeHtml(row.floorName)}</td><td class="num${row.maxCombo === true ? " comboScore" : ""}">${formatValue(row.score, "score")}</td><td>${escapeHtml(formatDate(new Date(row.updatedAtTime).toISOString()))}</td><td class="num">${row.elapsedDays.toFixed(1)}</td><td class="num">${row.historyCount}</td><td class="num"><strong>${row.recommendationWeight.toFixed(4)}</strong></td></tr>`).join("")}</tbody>`
+      ? `<thead><tr><th>순위</th><th>button</th><th>name</th><th>pattern</th><th>level</th><th>floor</th><th>score</th><th>마지막 시도</th><th>경과일</th><th>히스토리</th><th>추천 가중치</th><th></th></tr></thead><tbody>${rows.map((row, index) => `<tr><td class="num">${index + 1}</td><td>${row.button}B</td><td class="nameCell">${escapeHtml(row.name)}</td><td>${escapeHtml(row.pattern)}</td><td class="num">${escapeHtml(row.level)}</td><td class="num">${escapeHtml(row.floorName)}</td><td class="num${row.maxCombo === true ? " comboScore" : ""}">${formatValue(row.score, "score")}</td><td>${escapeHtml(formatDate(new Date(row.lastAttemptAt).toISOString()))}</td><td class="num">${row.elapsedDays.toFixed(1)}</td><td class="num">${row.historyCount}${row.manualFailureCount ? ` <small>(실패 ${row.manualFailureCount})</small>` : ""}</td><td class="num"><strong>${row.recommendationWeight.toFixed(4)}</strong></td><td><button type="button" class="compactButton" data-stale-failure-key="${encodeURIComponent(recordKey(row))}">갱신 실패</button></td></tr>`).join("")}</tbody>`
       : `<tbody><tr><td class="empty">선택한 범위에 해당하는 기록이 없습니다.</td></tr></tbody>`;
   } catch (error) {
     if (renderToken !== state.staleRecommendationRenderToken) return;
     staleRecommendationsSummary.innerHTML = "";
     staleRecommendationsTable.innerHTML = `<tbody><tr><td class="empty">추천 계산 오류: ${escapeHtml(error.message || error)}</td></tr></tbody>`;
+  }
+}
+
+async function markStaleRecommendationFailure(encodedKey) {
+  if (!state.payload) return;
+  const key = decodeURIComponent(encodedKey);
+  const record = (state.payload.records || []).find((item) => recordKey(item) === key);
+  if (!record) return;
+  const nickname = state.payload.nickname || getCurrentNickname();
+  try {
+    const entries = await loadRecordHistories(nickname);
+    const existing = entries.find((entry) => recordKey(entry) === key);
+    const entry = buildRecordHistoryEntry(nickname, record, existing?.history || [], existing);
+    entry.manualRefreshFailures = [...getManualRefreshFailures(existing), Date.now()]
+      .map((time) => new Date(time).toISOString());
+    await saveRecordHistory(entry);
+    statusText.textContent = `${record.button}B ${record.name || record.title} ${record.pattern} 갱신 실패를 기록했습니다.`;
+    await renderStaleRecommendations();
+  } catch (error) {
+    statusText.textContent = `갱신 실패 기록 오류: ${error.message || error}`;
   }
 }
 

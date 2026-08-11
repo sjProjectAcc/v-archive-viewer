@@ -47,19 +47,19 @@
       <button class="viewTab" type="button" role="tab" data-view="records">기록</button>
       <button class="viewTab" type="button" role="tab" data-view="chart">산포도</button>
       <button class="viewTab" type="button" role="tab" data-view="rate">RATE</button>
-      <button class="viewTab desktopOnly" type="button" role="tab" data-view="staleRecommendations">오래된 기록 갱신 추천</button>
+      <button class="viewTab desktopOnly" type="button" role="tab" data-view="staleRecommendations">추천 기록 갱신</button>
       <button class="viewTab" type="button" role="tab" data-view="compare">사용자 비교</button>
       <button class="viewTab desktopOnly" type="button" role="tab" data-view="selfCompare">시점 비교</button>
       <button class="viewTab desktopOnly" type="button" role="tab" data-view="history">성장 기록</button>
       <button class="viewTab desktopOnly" type="button" role="tab" data-view="achievements">성과 카드</button>
       <button class="viewTab desktopOnly" type="button" role="tab" data-view="hangyTags">행이봇_traits</button>
-      <button class="viewTab desktopOnly" type="button" role="tab" data-view="hangyRawTags">행이봇_tags</button>
       <button class="viewTab viewTabUtility" type="button" role="tab" data-view="nicknameManager">닉네임 관리</button>
       <button class="viewTab viewTabUtility" type="button" role="tab" data-view="logPowerCalculator">계산기</button>
       <button class="viewTab viewTabUtility" type="button" role="tab" data-view="readme">도움말</button>
       <span class="viewTabTestDivider testOnly" role="presentation" aria-hidden="true" hidden></span>
       <button class="viewTab testOnly" type="button" role="tab" data-view="growthGuide" hidden>성장 가이드</button>
       <button class="viewTab testOnly" type="button" role="tab" data-view="floorMinScore" hidden>Floor 분석</button>
+      <button class="viewTab desktopOnly testOnly" type="button" role="tab" data-view="hangyRawTags" hidden>행이봇_tags</button>
       <button class="viewTab testOnly" type="button" role="tab" data-view="tags" hidden>태그*로페봇</button>
       <button class="viewTab viewTabUtility testOnly" type="button" role="tab" data-view="debug" hidden>실험실</button>
       <button class="viewTab viewTabUtility testOnly" type="button" role="tab" data-view="testNotes" hidden>TEST</button>
@@ -72,13 +72,13 @@
           <option value="chart">산포도</option>
           <option value="compare">사용자 비교</option>
           <option value="rate">RATE</option>
-          <option value="staleRecommendations" class="desktopOnly">오래된 기록 갱신 추천</option>
+          <option value="staleRecommendations" class="desktopOnly">추천 기록 갱신</option>
           <option value="growthGuide" class="testOnly" hidden>LogPower 성장 가이드</option>
           <option value="logPowerCalculator">계산기</option>
           <option value="records">기록</option>
           <option value="tags" class="testOnly" hidden>태그*로페봇</option>
           <option value="hangyTags" class="desktopOnly">행이봇_traits</option>
-          <option value="hangyRawTags" class="desktopOnly">행이봇_tags</option>
+          <option value="hangyRawTags" class="desktopOnly testOnly" hidden>행이봇_tags</option>
           <option value="nicknameManager">닉네임 관리</option>
           <option value="history" class="desktopOnly">성장 기록</option>
           <option value="achievements" class="desktopOnly">성과 카드</option>
@@ -518,7 +518,7 @@
       <p class="tagsSource">태그 데이터: V-ARCHIVE pattern-tag (행이봇) · SC 데이터는 V-LOG 공용 스냅샷에서 받고 기기에 캐시합니다.</p>
     </section>
 
-    <section class="tagsPanel desktopOnly" id="hangyRawTagsPanel" hidden>
+    <section class="tagsPanel desktopOnly testOnly" id="hangyRawTagsPanel" hidden>
       <div class="toolHeader tagsHeader">
         <div>
           <h2>행이봇_tags</h2>
@@ -567,7 +567,7 @@
 
     <section class="toolPanel desktopOnly" id="staleRecommendationsPanel" hidden>
       <div class="toolHeader">
-        <div><h2>오래된 기록 갱신 추천</h2><p>오래된 기록을 우선하되, 갱신 이력이 많은 패턴의 가중치를 낮춰 표시합니다.</p></div>
+        <div><h2>추천 기록 갱신</h2><p>오래된 기록을 우선하되, 갱신 이력이 많은 패턴의 가중치를 낮춰 표시합니다.</p></div>
       </div>
       <div class="toolControls">
         <label>floor 시작 <select id="staleFloorMinSelect"></select></label>
