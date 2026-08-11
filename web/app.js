@@ -37,6 +37,7 @@ const state = {
   historyEntries: [],
   historyRows: [],
   historyMetric: "logPower",
+  historyFullRange: true,
   historyYRanges: {},
   historyCompareEntries: [],
   historyComparePayload: null,
@@ -45,6 +46,7 @@ const state = {
   achievementRenderToken: 0,
   selfCompareRows: [],
   selfCompareRenderToken: 0,
+  staleRecommendationRenderToken: 0,
   historyCollecting: false,
   historyStopRequested: false,
   pendingAutomaticHistoryNickname: "",
@@ -544,8 +546,16 @@ const floorAnalysisScopeSelect = document.querySelector("#floorAnalysisScopeSele
 const floorAnalysisSortSelect = document.querySelector("#floorAnalysisSortSelect");
 const floorAnalysisSummary = document.querySelector("#floorAnalysisSummary");
 const floorAnalysisChart = document.querySelector("#floorAnalysisChart");
+const floorAnalysisImageButton = document.querySelector("#floorAnalysisImageButton");
 const floorAnalysisMissing = document.querySelector("#floorAnalysisMissing");
 const floorAnalysisTable = document.querySelector("#floorAnalysisTable");
+const staleRecommendationsPanel = document.querySelector("#staleRecommendationsPanel");
+const staleFloorMinSelect = document.querySelector("#staleFloorMinSelect");
+const staleFloorMaxSelect = document.querySelector("#staleFloorMaxSelect");
+const staleScoreMinInput = document.querySelector("#staleScoreMinInput");
+const staleScoreMaxInput = document.querySelector("#staleScoreMaxInput");
+const staleRecommendationsSummary = document.querySelector("#staleRecommendationsSummary");
+const staleRecommendationsTable = document.querySelector("#staleRecommendationsTable");
 const logPowerCalculatorPanel = document.querySelector("#logPowerCalculatorPanel");
 const calculatorTitle = document.querySelector("#calculatorTitle");
 const logPowerCalculatorContext = document.querySelector("#logPowerCalculatorContext");
@@ -672,7 +682,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-rate-v15";
+const UI_SCHEMA_VERSION = "v-log-rate-v17";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -723,7 +733,14 @@ const REQUIRED_UI_IDS = [
   "floorAnalysisButtonSelect",
   "floorAnalysisScopeSelect",
   "floorAnalysisSortSelect",
+  "floorAnalysisImageButton",
   "floorAnalysisTable",
+  "staleRecommendationsPanel",
+  "staleFloorMinSelect",
+  "staleFloorMaxSelect",
+  "staleScoreMinInput",
+  "staleScoreMaxInput",
+  "staleRecommendationsTable",
   "logPowerCalculatorPanel",
   "calculatorMode",
   "calculatorButtonControl",
@@ -1034,12 +1051,16 @@ function initFloorSelectors() {
   compareFloorMaxSelect.innerHTML = options;
   recordsFloorMinSelect.innerHTML = options;
   recordsFloorMaxSelect.innerHTML = options;
+  staleFloorMinSelect.innerHTML = options;
+  staleFloorMaxSelect.innerHTML = options;
   xMinSelect.value = "1.1";
   xMaxSelect.value = "17.3";
   compareFloorMinSelect.value = "1.1";
   compareFloorMaxSelect.value = "17.3";
   recordsFloorMinSelect.value = "1.1";
   recordsFloorMaxSelect.value = "17.3";
+  staleFloorMinSelect.value = "1.1";
+  staleFloorMaxSelect.value = "17.3";
   logPowerCalculatorFloor.innerHTML = options;
   logPowerCalculatorFloor.value = "16.1";
   viewSelect.value = "chart";
@@ -1076,6 +1097,13 @@ function wireEvents() {
   wireChartHeightControl(growthGuideChartHeightInput, 430, renderGrowthGuide);
   [floorAnalysisModeSelect, floorAnalysisButtonSelect, floorAnalysisScopeSelect, floorAnalysisSortSelect].forEach((control) => {
     control.addEventListener("input", () => renderFloorAnalysis());
+  });
+  floorAnalysisImageButton.addEventListener("click", exportFloorAnalysisImage);
+  [staleFloorMinSelect, staleFloorMaxSelect, staleScoreMinInput, staleScoreMaxInput].forEach((control) => {
+    control.addEventListener("input", () => {
+      saveSettings();
+      renderStaleRecommendations();
+    });
   });
   compareLoadButton.addEventListener("click", () => loadComparison(false));
   compareNicknameInput.addEventListener("keydown", (event) => {
@@ -1227,11 +1255,13 @@ function wireEvents() {
   wireChartHeightControl(debugChartHeightInput, 430, renderDebugView);
   [historyStartDate, historyEndDate].forEach((input) => {
     input.addEventListener("input", () => {
+      state.historyFullRange = !historyStartDate.value && !historyEndDate.value;
       saveSettings();
       renderHistoryView();
     });
   });
   historyRangeResetButton.addEventListener("click", () => {
+    state.historyFullRange = true;
     historyStartDate.value = "";
     historyEndDate.value = "";
     saveSettings();
@@ -1457,6 +1487,10 @@ function applySavedSettings() {
   setIfOptionExists(compareFloorMaxSelect, settings.compareFloorMax || "17.3");
   setIfOptionExists(recordsFloorMinSelect, settings.recordsFloorMin || "1.1");
   setIfOptionExists(recordsFloorMaxSelect, settings.recordsFloorMax || "17.3");
+  setIfOptionExists(staleFloorMinSelect, settings.staleFloorMin || "1.1");
+  setIfOptionExists(staleFloorMaxSelect, settings.staleFloorMax || "17.3");
+  staleScoreMinInput.value = settings.staleScoreMin ?? "0";
+  staleScoreMaxInput.value = settings.staleScoreMax ?? "100";
   setIfOptionExists(compareChartMetricSelect, settings.compareChartMetric || "score");
   setIfOptionExists(compareChartScaleModeSelect, settings.compareChartScaleMode || (settings.compareChartIndividualScale === true ? "individual" : "same"));
   compareFloorTrendInput.checked = settings.compareFloorTrend !== false;
@@ -1469,6 +1503,8 @@ function applySavedSettings() {
   state.compareChartExcludedByScope = settings.compareChartExcludedByScope || {};
   historyStartDate.value = settings.historyStartDate || "";
   historyEndDate.value = settings.historyEndDate || "";
+  state.historyFullRange = settings.historyFullRange === true
+    || (settings.historyFullRange === undefined && !historyStartDate.value && !historyEndDate.value);
   setIfOptionExists(historyMetricSelect, settings.historyMetric || "logPower");
   state.historyMetric = historyMetricSelect.value;
   setIfOptionExists(historyLineStyleSelect, settings.historyLineStyle || "step");
@@ -1552,6 +1588,10 @@ function saveSettings() {
     compareFloorMax: compareFloorMaxSelect.value,
     recordsFloorMin: recordsFloorMinSelect.value,
     recordsFloorMax: recordsFloorMaxSelect.value,
+    staleFloorMin: staleFloorMinSelect.value,
+    staleFloorMax: staleFloorMaxSelect.value,
+    staleScoreMin: staleScoreMinInput.value,
+    staleScoreMax: staleScoreMaxInput.value,
     compareChartMetric: compareChartMetricSelect.value,
     compareChartScaleMode: compareChartScaleModeSelect.value,
     compareFloorTrend: compareFloorTrendInput.checked,
@@ -1575,6 +1615,7 @@ function saveSettings() {
     chartExcludedByScope: state.chartExcludedByScope,
     historyStartDate: historyStartDate.value,
     historyEndDate: historyEndDate.value,
+    historyFullRange: state.historyFullRange,
     historyMetric: historyMetricSelect.value,
     historyLineStyle: historyLineStyleSelect.value,
     historyCompareNickname: historyCompareNicknameSelect.value,
@@ -2737,6 +2778,7 @@ function renderHangyRawTagsView() {
   const button = hangyRawTagsButtonSelect.value;
   const query = hangyRawTagsSearchInput.value.trim().toLocaleLowerCase("ko");
   const rows = getHangyRowsForScope(button, "SC")
+    .filter((row) => Array.isArray(row.hangyTags) && row.hangyTags.length > 0)
     .filter((row) => !query || `${row.title} ${row.name} ${(row.hangyTags || []).map((tag) => `${tag.tagGroup} ${tag.tagCode} ${tag.memo || ""}`).join(" ")}`.toLocaleLowerCase("ko").includes(query))
     .sort((a, b) => compare(a.name, b.name) || compare(a.title, b.title));
   hangyRawTagsStatus.textContent = state.hangyRawTagsStatus || `${button}B SC 데이터를 확인하고 있습니다.`;
@@ -2927,7 +2969,9 @@ async function loadComparison(full = false) {
   saveSettings();
   setBusy(true, `비교 기록 불러오는 중: ${compareNickname}`);
   try {
-    state.comparePayload = await fetchArchive(compareNickname, full);
+    state.comparePayload = full
+      ? await fetchArchive(compareNickname, true)
+      : await loadCachedPayload(compareNickname).catch(() => fetchArchive(compareNickname, false));
     await refreshCompareHistoricalState();
     applyPendingSharedCompareExclusions();
     viewSelect.value = "compare";
@@ -3296,9 +3340,10 @@ async function listCachedProfileNicknames() {
 async function refreshCompareNicknameOptions() {
   try {
     const currentKey = cacheKey(state.payload?.nickname || getCurrentNickname());
+    const hiddenKeys = new Set(getNicknameGroups().hidden.map(cacheKey));
     const nicknames = await listCachedProfileNicknames();
     compareNicknameOptions.innerHTML = nicknames
-      .filter((nickname) => cacheKey(nickname) !== currentKey)
+      .filter((nickname) => cacheKey(nickname) !== currentKey && !hiddenKeys.has(cacheKey(nickname)))
       .map((nickname) => `<option value="${escapeHtml(nickname)}"></option>`)
       .join("");
   } catch {
@@ -3479,6 +3524,7 @@ function renderActiveView() {
   const isHangyRawTags = viewSelect.value === "hangyRawTags";
   const isGrowthGuide = viewSelect.value === "growthGuide";
   const isFloorAnalysis = viewSelect.value === "floorMinScore";
+  const isStaleRecommendations = viewSelect.value === "staleRecommendations";
   const isLogPowerCalculator = viewSelect.value === "logPowerCalculator";
   const isDebug = viewSelect.value === "debug";
   const isReadme = viewSelect.value === "readme";
@@ -3496,13 +3542,14 @@ function renderActiveView() {
     [hangyRawTagsPanel, !isHangyRawTags],
     [growthGuidePanel, !isGrowthGuide],
     [floorAnalysisPanel, !isFloorAnalysis],
+    [staleRecommendationsPanel, !isStaleRecommendations],
     [logPowerCalculatorPanel, !isLogPowerCalculator],
     [debugPanel, !isDebug],
     [readmePanel, !isReadme],
     [nicknameManagerPanel, !isNicknameManager],
     [testNotesPanel, !isTestNotes],
     [overviewPanel, !isOverview],
-    [tableSection, isChart || isOverview || isDebug || isReadme || isNicknameManager || isTestNotes || isTags || isHangyTags || isHangyRawTags || isAchievements || isGrowthGuide || isFloorAnalysis || isLogPowerCalculator],
+    [tableSection, isChart || isOverview || isDebug || isReadme || isNicknameManager || isTestNotes || isTags || isHangyTags || isHangyRawTags || isAchievements || isGrowthGuide || isFloorAnalysis || isStaleRecommendations || isLogPowerCalculator],
   ].forEach(([element, hidden]) => {
     if (element) element.hidden = hidden;
   });
@@ -3530,6 +3577,7 @@ function renderActiveView() {
   else if (isHangyRawTags) refreshHangyRawTagsView();
   else if (isGrowthGuide) renderGrowthGuide();
   else if (isFloorAnalysis) renderFloorAnalysis();
+  else if (isStaleRecommendations) renderStaleRecommendations();
   else if (isLogPowerCalculator) renderLogPowerCalculator();
   else if (isNicknameManager) renderNicknameManager();
   else if (isDebug) renderDebugView();
@@ -4285,6 +4333,7 @@ async function resetRecordHistories() {
     state.historyRows = [];
     state.achievementRows = [];
     state.achievementSelected.clear();
+    state.historyFullRange = true;
     historyStartDate.value = "";
     historyEndDate.value = "";
     saveSettings();
@@ -4814,11 +4863,16 @@ function updateHistoryRangeBounds(entries) {
     return;
   }
   const min = formatDateInput(Math.min(...times));
-  const max = formatDateInput(Math.max(...times));
+  const max = formatDateInput(Math.max(Date.now(), ...times));
   historyStartDate.min = min;
   historyStartDate.max = max;
   historyEndDate.min = min;
   historyEndDate.max = max;
+  if (state.historyFullRange && (historyStartDate.value !== min || historyEndDate.value !== max)) {
+    historyStartDate.value = min;
+    historyEndDate.value = max;
+    saveSettings();
+  }
 }
 
 function buildHistoryRows(entries, range = getHistoryTimeRange()) {
@@ -5423,12 +5477,14 @@ async function renderNicknameManager() {
         saveNicknameGroups(nextGroups);
         renderRecentNicknames();
         renderNicknameManager();
+        void refreshCompareNicknameOptions();
         return;
       }
       if (button.dataset.nicknameAction === "remove") {
         if (!confirm(`${nickname}을(를) 최근 닉네임 목록에서 지울까요? 기록 캐시는 유지됩니다.`)) return;
         removeNicknameFromHistory(nickname);
         renderNicknameManager();
+        void refreshCompareNicknameOptions();
         return;
       }
       const deleteAll = button.dataset.nicknameAction === "delete-all";
@@ -5667,7 +5723,7 @@ function mergeAdjacentHistoryPoints(points) {
   const merged = [];
   for (const point of points) {
     const previous = merged[merged.length - 1];
-    if (previous && point.time - previous.time <= interval) {
+    if (previous && !previous.current && !point.current && point.time - previous.time <= interval) {
       merged[merged.length - 1] = point;
     } else {
       merged.push(point);
@@ -6131,7 +6187,7 @@ function updateConditionalTabs() {
     element.disabled = !state.isTestMode;
   });
 
-  const unavailable = (viewSelect.value === "debug" || viewSelect.value === "testNotes" || viewSelect.value === "tags") && !state.isTestMode;
+  const unavailable = ["debug", "testNotes", "tags", "growthGuide", "floorMinScore"].includes(viewSelect.value) && !state.isTestMode;
   if (unavailable) {
     viewSelect.value = "chart";
     state.view = "chart";
@@ -7503,7 +7559,7 @@ async function drawAchievementImage({ nickname, rows, columns, profile }) {
   ctx.fillRect(0, 0, width, height);
 
   ctx.fillStyle = "#151922";
-  setCanvasFontToFit(ctx, "V-LOG RECENT ACHIEVEMENTS", 900, 42, 26, width - margin * 2);
+  setCanvasFontToFit(ctx, "V-LOG RECENT ACHIEVEMENTS", 900, 42, 16, width - margin * 2);
   ctx.fillText("V-LOG RECENT ACHIEVEMENTS", margin, 56);
   ctx.fillStyle = "#1268b3";
   ctx.font = "900 32px Segoe UI, Malgun Gothic, Arial";
@@ -8243,7 +8299,7 @@ async function drawAchievementImageV2({ nickname, rows, columns, profile }) {
   ctx.fillStyle = "#f4f6f8";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#151922";
-  ctx.font = "900 38px Segoe UI, Malgun Gothic, Arial";
+  setCanvasFontToFit(ctx, "V-LOG RECENT ACHIEVEMENTS", 900, 38, 16, width - margin * 2);
   ctx.fillText("V-LOG RECENT ACHIEVEMENTS", margin, 56);
   ctx.fillStyle = "#1268b3";
   ctx.font = "900 29px Segoe UI, Malgun Gothic, Arial";
@@ -8837,6 +8893,7 @@ function renderFloorAnalysis() {
   floorAnalysisScopeSelect.innerHTML = scopes.map((scope) => `<option value="${escapeHtml(scope)}">${escapeHtml(scope)}</option>`).join("");
   floorAnalysisScopeSelect.value = scopes.includes(prior) ? prior : scopes[0] || "";
   const scope = floorAnalysisScopeSelect.value;
+  floorAnalysisImageButton.disabled = mode !== "floor" || !scope;
   const rows = allRecords.filter((row) => scopeFor(row) === scope);
   const scores = rows.map((row) => Number(row.score)).filter(Number.isFinite);
   const rawMean = scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : NaN;
@@ -8858,6 +8915,65 @@ function renderFloorAnalysis() {
   const columns = [["button", "button"], ["name", "name"], ["pattern", "pattern"], ["level", "level"], ["floorName", "floor"], ["score", "score"], ["maxCombo", "max combo"], ["updatedAt", "updated"]];
   floorAnalysisTable.innerHTML = sorted.length ? `<thead><tr>${columns.map(([, label]) => `<th>${label}</th>`).join("")}</tr></thead><tbody>${sorted.map((row) => `<tr>${columns.map(([key]) => renderCell(row, key)).join("")}</tr>`).join("")}</tbody>` : `<tbody><tr><td class="empty">기록이 없습니다.</td></tr></tbody>`;
   if (!loadHangySongCatalog()) ensureHangySongCatalog(false).then(() => renderFloorAnalysis()).catch(() => {});
+}
+
+function exportFloorAnalysisImage() {
+  if (!state.payload || floorAnalysisModeSelect.value !== "floor") return;
+  const scope = floorAnalysisScopeSelect.value;
+  if (!scope || floorIndex(scope) < 0) return;
+  const button = floorAnalysisButtonSelect.value;
+  state.floorMinImageRecords = (state.payload.records || [])
+    .filter((record) => getFloorLabel(record) && (!button || String(record.button) === button));
+  generateFloorMinScoreImage(scope, scope);
+}
+
+async function renderStaleRecommendations() {
+  if (!state.payload || viewSelect.value !== "staleRecommendations") return;
+  const renderToken = ++state.staleRecommendationRenderToken;
+  const nickname = state.payload.nickname || getCurrentNickname();
+  staleRecommendationsSummary.innerHTML = `<div class="metric"><span>상태</span><strong>계산 중</strong></div>`;
+  try {
+    const entries = await loadRecordHistories(nickname);
+    if (renderToken !== state.staleRecommendationRenderToken || viewSelect.value !== "staleRecommendations") return;
+    const historyByKey = new Map(entries.map((entry) => [recordKey(entry), entry]));
+    let floorMin = floorIndex(staleFloorMinSelect.value);
+    let floorMax = floorIndex(staleFloorMaxSelect.value);
+    if (floorMin > floorMax) [floorMin, floorMax] = [floorMax, floorMin];
+    let scoreMin = Number(staleScoreMinInput.value);
+    let scoreMax = Number(staleScoreMaxInput.value);
+    if (!Number.isFinite(scoreMin)) scoreMin = 0;
+    if (!Number.isFinite(scoreMax)) scoreMax = 100;
+    if (scoreMin > scoreMax) [scoreMin, scoreMax] = [scoreMax, scoreMin];
+    const now = Date.now();
+    const rows = (state.payload.records || []).flatMap((record) => {
+      const floorName = getFloorLabel(record);
+      const currentFloor = floorIndex(floorName);
+      const score = Number(record.score);
+      const updatedAt = new Date(record.updatedAt).getTime();
+      if (currentFloor < floorMin || currentFloor > floorMax || score < scoreMin || score > scoreMax || !Number.isFinite(updatedAt)) return [];
+      const historyCount = historyByKey.get(recordKey(record))?.history?.length || 0;
+      const elapsedDays = Math.max(0, (now - updatedAt) / 86400000);
+      const recommendationWeight = Math.log1p(elapsedDays) / Math.sqrt(Math.max(1, historyCount));
+      return [{ ...record, floorName, score, updatedAtTime: updatedAt, elapsedDays, historyCount, recommendationWeight }];
+    }).sort((a, b) => b.recommendationWeight - a.recommendationWeight
+      || b.elapsedDays - a.elapsedDays
+      || floorIndex(b.floorName) - floorIndex(a.floorName)
+      || compare(a.name, b.name));
+    const averageDays = rows.length ? rows.reduce((sum, row) => sum + row.elapsedDays, 0) / rows.length : 0;
+    staleRecommendationsSummary.innerHTML = [
+      ["추천 대상", `${rows.length}개`],
+      ["평균 경과", `${averageDays.toFixed(1)}일`],
+      ["최대 가중치", rows.length ? rows[0].recommendationWeight.toFixed(4) : "-"],
+      ["계산식", "ln(1 + 경과일) / √히스토리 횟수"],
+    ].map(([label, value]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("");
+    staleRecommendationsTable.innerHTML = rows.length
+      ? `<thead><tr><th>순위</th><th>button</th><th>name</th><th>pattern</th><th>level</th><th>floor</th><th>score</th><th>마지막 갱신</th><th>경과일</th><th>히스토리</th><th>추천 가중치</th></tr></thead><tbody>${rows.map((row, index) => `<tr><td class="num">${index + 1}</td><td>${row.button}B</td><td class="nameCell">${escapeHtml(row.name)}</td><td>${escapeHtml(row.pattern)}</td><td class="num">${escapeHtml(row.level)}</td><td class="num">${escapeHtml(row.floorName)}</td><td class="num${row.maxCombo === true ? " comboScore" : ""}">${formatValue(row.score, "score")}</td><td>${escapeHtml(formatDate(new Date(row.updatedAtTime).toISOString()))}</td><td class="num">${row.elapsedDays.toFixed(1)}</td><td class="num">${row.historyCount}</td><td class="num"><strong>${row.recommendationWeight.toFixed(4)}</strong></td></tr>`).join("")}</tbody>`
+      : `<tbody><tr><td class="empty">선택한 범위에 해당하는 기록이 없습니다.</td></tr></tbody>`;
+  } catch (error) {
+    if (renderToken !== state.staleRecommendationRenderToken) return;
+    staleRecommendationsSummary.innerHTML = "";
+    staleRecommendationsTable.innerHTML = `<tbody><tr><td class="empty">추천 계산 오류: ${escapeHtml(error.message || error)}</td></tr></tbody>`;
+  }
 }
 
 function floorAnalysisTotalPatterns(mode, scope, button) {
@@ -9542,7 +9658,7 @@ function pointMaxRatingForFloor(floorLabel) {
 function formatRecordRatio(current, maximum) {
   const currentText = Number.isFinite(Number(current)) ? Number(current).toFixed(2) : "-";
   const maximumText = Number.isFinite(Number(maximum)) ? Number(maximum).toFixed(2) : "-";
-  return `${currentText}/${maximumText}`;
+  return `${currentText} / ${maximumText}`;
 }
 
 function compare(a, b) {

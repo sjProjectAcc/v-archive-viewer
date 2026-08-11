@@ -47,8 +47,7 @@
       <button class="viewTab" type="button" role="tab" data-view="records">기록</button>
       <button class="viewTab" type="button" role="tab" data-view="chart">산포도</button>
       <button class="viewTab" type="button" role="tab" data-view="rate">RATE</button>
-      <button class="viewTab" type="button" role="tab" data-view="growthGuide">성장 가이드</button>
-      <button class="viewTab" type="button" role="tab" data-view="floorMinScore">Floor 분석</button>
+      <button class="viewTab desktopOnly" type="button" role="tab" data-view="staleRecommendations">오래된 기록 갱신 추천</button>
       <button class="viewTab" type="button" role="tab" data-view="compare">사용자 비교</button>
       <button class="viewTab desktopOnly" type="button" role="tab" data-view="selfCompare">시점 비교</button>
       <button class="viewTab desktopOnly" type="button" role="tab" data-view="history">성장 기록</button>
@@ -59,6 +58,8 @@
       <button class="viewTab viewTabUtility" type="button" role="tab" data-view="logPowerCalculator">계산기</button>
       <button class="viewTab viewTabUtility" type="button" role="tab" data-view="readme">도움말</button>
       <span class="viewTabTestDivider testOnly" role="presentation" aria-hidden="true" hidden></span>
+      <button class="viewTab testOnly" type="button" role="tab" data-view="growthGuide" hidden>성장 가이드</button>
+      <button class="viewTab testOnly" type="button" role="tab" data-view="floorMinScore" hidden>Floor 분석</button>
       <button class="viewTab testOnly" type="button" role="tab" data-view="tags" hidden>태그*로페봇</button>
       <button class="viewTab viewTabUtility testOnly" type="button" role="tab" data-view="debug" hidden>실험실</button>
       <button class="viewTab viewTabUtility testOnly" type="button" role="tab" data-view="testNotes" hidden>TEST</button>
@@ -71,7 +72,8 @@
           <option value="chart">산포도</option>
           <option value="compare">사용자 비교</option>
           <option value="rate">RATE</option>
-          <option value="growthGuide">LogPower 성장 가이드</option>
+          <option value="staleRecommendations" class="desktopOnly">오래된 기록 갱신 추천</option>
+          <option value="growthGuide" class="testOnly" hidden>LogPower 성장 가이드</option>
           <option value="logPowerCalculator">계산기</option>
           <option value="records">기록</option>
           <option value="tags" class="testOnly" hidden>태그*로페봇</option>
@@ -81,7 +83,7 @@
           <option value="history" class="desktopOnly">성장 기록</option>
           <option value="achievements" class="desktopOnly">성과 카드</option>
           <option value="selfCompare" class="desktopOnly">시점 비교</option>
-          <option value="floorMinScore">Floor 분석</option>
+          <option value="floorMinScore" class="testOnly" hidden>Floor 분석</option>
           <option value="summaryInfo">종합</option>
           <option value="debug" class="testOnly" hidden>실험실</option>
           <option value="testNotes" class="testOnly" hidden>TEST</option>
@@ -550,7 +552,7 @@
     </section>
 
     <section class="toolPanel" id="floorAnalysisPanel" hidden>
-      <div class="toolHeader"><div><h2>Floor 분석</h2><p>선택한 floor 또는 레벨의 기록 분포와 미기록 패턴을 확인합니다.</p></div></div>
+      <div class="toolHeader"><div><h2>Floor 분석</h2><p>선택한 floor 또는 레벨의 기록 분포와 미기록 패턴을 확인합니다.</p></div><button id="floorAnalysisImageButton" type="button">이미지 저장</button></div>
       <div class="toolControls">
         <label>모드 <select id="floorAnalysisModeSelect"><option value="floor">floor</option><option value="level">level</option></select></label>
         <label>버튼 <select id="floorAnalysisButtonSelect"><option value="">전체</option><option value="4">4B</option><option value="5">5B</option><option value="6">6B</option><option value="8">8B</option></select></label>
@@ -561,6 +563,20 @@
       <div id="floorAnalysisChart" class="svgChart"></div>
       <section class="growthGuideList"><h3>해당 기록</h3><div class="overviewTableWrap"><table id="floorAnalysisTable"></table></div></section>
       <section class="growthGuideList"><h3>미기록 패턴</h3><div class="overviewTableWrap"><table id="floorAnalysisMissing"></table></div></section>
+    </section>
+
+    <section class="toolPanel desktopOnly" id="staleRecommendationsPanel" hidden>
+      <div class="toolHeader">
+        <div><h2>오래된 기록 갱신 추천</h2><p>오래된 기록을 우선하되, 갱신 이력이 많은 패턴의 가중치를 낮춰 표시합니다.</p></div>
+      </div>
+      <div class="toolControls">
+        <label>floor 시작 <select id="staleFloorMinSelect"></select></label>
+        <label>floor 끝 <select id="staleFloorMaxSelect"></select></label>
+        <label>score 최소 <input id="staleScoreMinInput" type="number" min="0" max="100" step="0.01" value="0"></label>
+        <label>score 최대 <input id="staleScoreMaxInput" type="number" min="0" max="100" step="0.01" value="100"></label>
+      </div>
+      <div id="staleRecommendationsSummary" class="summary"></div>
+      <div class="overviewTableWrap"><table id="staleRecommendationsTable"></table></div>
     </section>
 
     <section class="toolPanel" id="logPowerCalculatorPanel" hidden>
