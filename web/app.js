@@ -4072,14 +4072,16 @@ function historyCacheId(nickname, record) {
 
 function historyLatestScoreDiffers(cached, record) {
   const currentScore = Number(record?.score);
-  if (!cached || !Number.isFinite(currentScore)) return false;
+  if (!cached || !Number.isFinite(currentScore)) return true;
   const latest = (cached.history || []).reduce((newest, event) => {
     const time = new Date(event?.ymdt).getTime();
     return Number.isFinite(time) && (!newest || time >= newest.time)
-      ? { time, score: Number(event.score) }
+      ? { time, score: Number(event.score), maxCombo: event.maxCombo === true }
       : newest;
   }, null);
-  return Number.isFinite(latest?.score) && Math.abs(currentScore - latest.score) > 0.000001;
+  if (!Number.isFinite(latest?.score)) return true;
+  return Math.abs(currentScore - latest.score) > 0.000001
+    || (latest.maxCombo === true) !== (record?.maxCombo === true);
 }
 
 function getHistoryTargets() {
@@ -4187,8 +4189,8 @@ async function collectRecordHistories(options = {}) {
     const queue = options.force ? targets : targets.filter((record) => {
       const cached = existingById.get(historyCacheId(nickname, record));
       const sourceChanged = record.updatedAt && cached?.sourceUpdatedAt !== record.updatedAt;
-      const scoreChangedSinceHistory = !options.automatic && historyLatestScoreDiffers(cached, record);
-      return !cached || sourceChanged || scoreChangedSinceHistory;
+      const historyDiffersFromCurrent = historyLatestScoreDiffers(cached, record);
+      return !cached || sourceChanged || historyDiffersFromCurrent;
     });
     const cachedCount = options.force ? 0 : targets.length - queue.length;
 
@@ -5286,9 +5288,26 @@ function achievementMetricRanks(button, logPower, point, djPower, excludedKey) {
 }
 
 async function collectUpdatedHistoriesAutomatically() {
-  const updatedRecords = Number(state.payload?.sync?.updatedRecords || 0);
   const nickname = cacheKey(state.payload?.nickname || getCurrentNickname());
-  if (!updatedRecords || updatedRecords > 50 || state.historyAccountNickname !== nickname) return;
+  if (!nickname || !state.payload) return;
+  const targets = getHistoryTargets();
+  const existing = await loadRecordHistories(nickname);
+  const existingById = new Map(existing.map((entry) => [entry.id, entry]));
+  const outdatedCount = targets.filter((record) => {
+    const cached = existingById.get(historyCacheId(nickname, record));
+    return !cached
+      || cached.sourceUpdatedAt !== (record.updatedAt || "")
+      || historyLatestScoreDiffers(cached, record);
+  }).length;
+  if (!outdatedCount || outdatedCount > 50) return;
+  if (state.historyAccountNickname !== nickname) {
+    await reconnectConfiguredHistoryAccount();
+    await completePendingHistoryAccount();
+  }
+  if (state.historyAccountNickname !== nickname) {
+    historyStatus.textContent = `자동 히스토리 수집 대기 · 갱신 ${outdatedCount}건 · ${state.payload.nickname} account.txt 연결 필요`;
+    return;
+  }
   if (state.historyCollecting) {
     state.pendingAutomaticHistoryNickname = nickname;
     return;
