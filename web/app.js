@@ -682,7 +682,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-rate-v20";
+const UI_SCHEMA_VERSION = "v-log-rate-v21";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -1506,8 +1506,8 @@ function applySavedSettings() {
   debugChartHeightInput.value = String(clampChartHeight(settings.debugChartHeight, 430));
   state.compareChartRanges = settings.compareChartRanges || {};
   state.compareChartExcludedByScope = settings.compareChartExcludedByScope || {};
-  historyStartDate.value = settings.historyStartDate || "";
-  historyEndDate.value = settings.historyEndDate || "";
+  historyStartDate.value = normalizeHistoryDateTimeInput(settings.historyStartDate, false);
+  historyEndDate.value = normalizeHistoryDateTimeInput(settings.historyEndDate, true);
   state.historyFullRange = settings.historyFullRange === true
     || (settings.historyFullRange === undefined && !historyStartDate.value && !historyEndDate.value);
   setIfOptionExists(historyMetricSelect, settings.historyMetric || "logPower");
@@ -1719,7 +1719,7 @@ function applyTheme(theme) {
 }
 
 function handleWheelControl(event) {
-  const control = event.target.closest("select, input[type='number'], input[type='range'], input[type='date']");
+  const control = event.target.closest("select, input[type='number'], input[type='range'], input[type='date'], input[type='datetime-local']");
   if (!control || control.disabled || control.readOnly || event.deltaY === 0) return;
   event.preventDefault();
   const direction = event.deltaY > 0 ? 1 : -1;
@@ -1729,7 +1729,18 @@ function handleWheelControl(event) {
     if (nextIndex < 0 || nextIndex >= control.options.length) return;
     control.selectedIndex = nextIndex;
   } else {
-    if (!control.value && control.type === "date") return;
+    if (!control.value && (control.type === "date" || control.type === "datetime-local")) return;
+    if (control.type === "datetime-local") {
+      const value = new Date(control.value).getTime();
+      if (!Number.isFinite(value)) return;
+      const min = control.min ? new Date(control.min).getTime() : -Infinity;
+      const max = control.max ? new Date(control.max).getTime() : Infinity;
+      const next = Math.max(min, Math.min(max, value + direction * 86400000));
+      control.value = formatDateTimeInput(next);
+      control.dispatchEvent(new Event("input", { bubbles: true }));
+      control.dispatchEvent(new Event("change", { bubbles: true }));
+      return;
+    }
     const singleStepControl = control === achievementColumnsInput || control === djPowerCalculatorLevel
       || control === historyChartHeightInput || control === chartHeightInput
       || control === compareChartHeightInput || control === debugChartHeightInput;
@@ -4856,10 +4867,28 @@ function buildSelfCompareRows(entries, range) {
 }
 
 function getHistoryTimeRange() {
-  let start = historyStartDate.value ? new Date(`${historyStartDate.value}T00:00:00`).getTime() : -Infinity;
-  let end = historyEndDate.value ? new Date(`${historyEndDate.value}T23:59:59.999`).getTime() : Infinity;
+  let start = historyStartDate.value ? new Date(historyStartDate.value).getTime() : -Infinity;
+  let end = historyEndDate.value ? new Date(historyEndDate.value).getTime() + 59999 : Infinity;
   if (start > end) [start, end] = [end, start];
   return { start, end };
+}
+
+function formatDateTimeInput(time, round = "floor") {
+  const rounded = round === "ceil" ? Math.ceil(time / 60000) * 60000 : Math.floor(time / 60000) * 60000;
+  const date = new Date(rounded);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+
+function normalizeHistoryDateTimeInput(value, isEnd = false) {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return `${value}T${isEnd ? "23:59" : "00:00"}`;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? formatDateTimeInput(time, isEnd ? "ceil" : "floor") : "";
 }
 
 function formatDateInput(time) {
@@ -4879,8 +4908,8 @@ function updateHistoryRangeBounds(entries) {
     historyEndDate.removeAttribute("max");
     return;
   }
-  const min = formatDateInput(Math.min(...times));
-  const max = formatDateInput(Math.max(Date.now(), ...times));
+  const min = formatDateTimeInput(Math.min(...times), "floor");
+  const max = formatDateTimeInput(Math.max(Date.now(), ...times), "ceil");
   historyStartDate.min = min;
   historyStartDate.max = max;
   historyEndDate.min = min;
