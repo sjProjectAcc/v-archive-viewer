@@ -550,6 +550,7 @@ const floorAnalysisImageButton = document.querySelector("#floorAnalysisImageButt
 const floorAnalysisMissing = document.querySelector("#floorAnalysisMissing");
 const floorAnalysisTable = document.querySelector("#floorAnalysisTable");
 const staleRecommendationsPanel = document.querySelector("#staleRecommendationsPanel");
+const staleRecommendationModeSelect = document.querySelector("#staleRecommendationModeSelect");
 const staleFloorMinSelect = document.querySelector("#staleFloorMinSelect");
 const staleFloorMaxSelect = document.querySelector("#staleFloorMaxSelect");
 const staleScoreMinInput = document.querySelector("#staleScoreMinInput");
@@ -682,7 +683,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-rate-v21";
+const UI_SCHEMA_VERSION = "v-log-rate-v22";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -736,6 +737,7 @@ const REQUIRED_UI_IDS = [
   "floorAnalysisImageButton",
   "floorAnalysisTable",
   "staleRecommendationsPanel",
+  "staleRecommendationModeSelect",
   "staleFloorMinSelect",
   "staleFloorMaxSelect",
   "staleScoreMinInput",
@@ -1099,7 +1101,7 @@ function wireEvents() {
     control.addEventListener("input", () => renderFloorAnalysis());
   });
   floorAnalysisImageButton.addEventListener("click", exportFloorAnalysisImage);
-  [staleFloorMinSelect, staleFloorMaxSelect, staleScoreMinInput, staleScoreMaxInput].forEach((control) => {
+  [staleRecommendationModeSelect, staleFloorMinSelect, staleFloorMaxSelect, staleScoreMinInput, staleScoreMaxInput].forEach((control) => {
     control.addEventListener("input", () => {
       saveSettings();
       renderStaleRecommendations();
@@ -1494,6 +1496,7 @@ function applySavedSettings() {
   setIfOptionExists(recordsFloorMaxSelect, settings.recordsFloorMax || "17.3");
   setIfOptionExists(staleFloorMinSelect, settings.staleFloorMin || "1.1");
   setIfOptionExists(staleFloorMaxSelect, settings.staleFloorMax || "17.3");
+  setIfOptionExists(staleRecommendationModeSelect, settings.staleRecommendationMode || "stale");
   staleScoreMinInput.value = settings.staleScoreMin ?? "0";
   staleScoreMaxInput.value = settings.staleScoreMax ?? "100";
   setIfOptionExists(compareChartMetricSelect, settings.compareChartMetric || "score");
@@ -1595,6 +1598,7 @@ function saveSettings() {
     recordsFloorMax: recordsFloorMaxSelect.value,
     staleFloorMin: staleFloorMinSelect.value,
     staleFloorMax: staleFloorMaxSelect.value,
+    staleRecommendationMode: staleRecommendationModeSelect.value,
     staleScoreMin: staleScoreMinInput.value,
     staleScoreMax: staleScoreMaxInput.value,
     compareChartMetric: compareChartMetricSelect.value,
@@ -8992,21 +8996,43 @@ async function renderStaleRecommendations() {
     if (!Number.isFinite(scoreMax)) scoreMax = 100;
     if (scoreMin > scoreMax) [scoreMin, scoreMax] = [scoreMax, scoreMin];
     const now = Date.now();
-    const rows = (state.payload.records || []).flatMap((record) => {
+    const mode = staleRecommendationModeSelect.value;
+    const records = (state.payload.records || []).filter((record) => {
+      const score = Number(record.score);
+      return (!buttonFilter.value || String(record.button) === buttonFilter.value)
+        && floorIndex(getFloorLabel(record)) >= 0
+        && Number.isFinite(score);
+    });
+    const floorStats = new Map();
+    for (const record of records) {
+      const key = `${record.button}|${getFloorLabel(record)}`;
+      const values = floorStats.get(key) || [];
+      values.push(Number(record.score));
+      floorStats.set(key, values);
+    }
+    for (const [key, values] of floorStats) {
+      const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+      const deviation = Math.sqrt(values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length);
+      floorStats.set(key, { mean, deviation, count: values.length });
+    }
+    const rows = records.flatMap((record) => {
       const floorName = getFloorLabel(record);
       const currentFloor = floorIndex(floorName);
       const score = Number(record.score);
       const updatedAt = new Date(record.updatedAt).getTime();
-      if (buttonFilter.value && String(record.button) !== buttonFilter.value) return [];
       if (currentFloor < floorMin || currentFloor > floorMax || score < scoreMin || score > scoreMax || !Number.isFinite(updatedAt)) return [];
+      const stats = floorStats.get(`${record.button}|${floorName}`);
+      const deficitZ = stats?.deviation > 0 ? Math.max(0, (stats.mean - score) / stats.deviation) : 0;
+      if (mode === "belowFloorAverage" && !(score < stats?.mean && deficitZ > 0)) return [];
       const entry = historyByKey.get(recordKey(record));
       const manualFailures = getManualRefreshFailures(entry);
       const latestFailureAt = manualFailures.at(-1) || 0;
       const lastAttemptAt = Math.max(updatedAt, latestFailureAt);
       const historyCount = (entry?.history?.length || 0) + manualFailures.length;
       const elapsedDays = Math.max(0, (now - lastAttemptAt) / 86400000);
-      const recommendationWeight = Math.log1p(elapsedDays) / Math.sqrt(Math.max(1, historyCount));
-      return [{ ...record, floorName, score, updatedAtTime: updatedAt, lastAttemptAt, elapsedDays, historyCount, manualFailureCount: manualFailures.length, recommendationWeight }];
+      const staleWeight = Math.log1p(elapsedDays) / Math.sqrt(Math.max(1, historyCount));
+      const recommendationWeight = mode === "belowFloorAverage" ? staleWeight * deficitZ : staleWeight;
+      return [{ ...record, floorName, score, updatedAtTime: updatedAt, lastAttemptAt, elapsedDays, historyCount, manualFailureCount: manualFailures.length, floorMean: stats?.mean, floorDeviation: stats?.deviation, deficitZ, recommendationWeight }];
     }).sort((a, b) => b.recommendationWeight - a.recommendationWeight
       || b.elapsedDays - a.elapsedDays
       || floorIndex(b.floorName) - floorIndex(a.floorName)
@@ -9016,10 +9042,10 @@ async function renderStaleRecommendations() {
       ["추천 대상", `${rows.length}개`],
       ["평균 경과", `${averageDays.toFixed(1)}일`],
       ["최대 가중치", rows.length ? rows[0].recommendationWeight.toFixed(4) : "-"],
-      ["계산식", "ln(1 + 경과일) / √히스토리 횟수"],
+      ["계산식", mode === "belowFloorAverage" ? "기본 가중치 × (floor 평균 - score) / 표준편차" : "ln(1 + 경과일) / √히스토리 횟수"],
     ].map(([label, value]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("");
     staleRecommendationsTable.innerHTML = rows.length
-      ? `<thead><tr><th>순위</th><th>button</th><th>name</th><th>pattern</th><th>level</th><th>floor</th><th>score</th><th>마지막 시도</th><th>경과일</th><th>히스토리</th><th>추천 가중치</th><th></th></tr></thead><tbody>${rows.map((row, index) => `<tr><td class="num">${index + 1}</td><td>${row.button}B</td><td class="nameCell">${escapeHtml(row.name)}</td><td>${escapeHtml(row.pattern)}</td><td class="num">${escapeHtml(row.level)}</td><td class="num">${escapeHtml(row.floorName)}</td><td class="num${row.maxCombo === true ? " comboScore" : ""}">${formatValue(row.score, "score")}</td><td>${escapeHtml(formatDate(new Date(row.lastAttemptAt).toISOString()))}</td><td class="num">${row.elapsedDays.toFixed(1)}</td><td class="num">${row.historyCount}${row.manualFailureCount ? ` <small>(실패 ${row.manualFailureCount})</small>` : ""}</td><td class="num"><strong>${row.recommendationWeight.toFixed(4)}</strong></td><td><button type="button" class="compactButton" data-stale-failure-key="${encodeURIComponent(recordKey(row))}">갱신 실패</button></td></tr>`).join("")}</tbody>`
+      ? `<thead><tr><th>순위</th><th>button</th><th>name</th><th>pattern</th><th>level</th><th>floor</th><th>score</th>${mode === "belowFloorAverage" ? "<th>floor 평균</th><th>표준편차</th><th>평균 하회</th>" : ""}<th>마지막 시도</th><th>경과일</th><th>히스토리</th><th>추천 가중치</th><th></th></tr></thead><tbody>${rows.map((row, index) => `<tr><td class="num">${index + 1}</td><td>${row.button}B</td><td class="nameCell">${escapeHtml(row.name)}</td><td>${escapeHtml(row.pattern)}</td><td class="num">${escapeHtml(row.level)}</td><td class="num">${escapeHtml(row.floorName)}</td><td class="num${row.maxCombo === true ? " comboScore" : ""}">${formatValue(row.score, "score")}</td>${mode === "belowFloorAverage" ? `<td class="num">${row.floorMean.toFixed(2)}</td><td class="num">${row.floorDeviation.toFixed(2)}</td><td class="num">${row.deficitZ.toFixed(2)}σ</td>` : ""}<td>${escapeHtml(formatDate(new Date(row.lastAttemptAt).toISOString()))}</td><td class="num">${row.elapsedDays.toFixed(1)}</td><td class="num">${row.historyCount}${row.manualFailureCount ? ` <small>(실패 ${row.manualFailureCount})</small>` : ""}</td><td class="num"><strong>${row.recommendationWeight.toFixed(4)}</strong></td><td><button type="button" class="compactButton" data-stale-failure-key="${encodeURIComponent(recordKey(row))}">갱신 실패</button></td></tr>`).join("")}</tbody>`
       : `<tbody><tr><td class="empty">선택한 범위에 해당하는 기록이 없습니다.</td></tr></tbody>`;
   } catch (error) {
     if (renderToken !== state.staleRecommendationRenderToken) return;
