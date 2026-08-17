@@ -683,7 +683,7 @@ let achievementDragActive = false;
 let achievementDragValue = true;
 let achievementSuppressClick = false;
 
-const UI_SCHEMA_VERSION = "v-log-rate-v22";
+const UI_SCHEMA_VERSION = "v-log-rate-v23";
 const REQUIRED_UI_IDS = [
   "statusText",
   "viewTabs",
@@ -4709,7 +4709,7 @@ async function renderSelfCompareView() {
     const range = getSelfCompareRange();
     state.selfCompareRows = buildSelfCompareRows(available, range);
     const endLabel = Number.isFinite(range.end) ? formatDate(new Date(range.end).toISOString()) : "현재";
-    selfCompareStatus.textContent = `${formatDate(new Date(range.start).toISOString())} → ${endLabel} · 공통 기록 ${state.selfCompareRows.length}개`;
+    selfCompareStatus.textContent = `${formatDate(new Date(range.start).toISOString())} → ${endLabel} · 변경 기록 ${state.selfCompareRows.length}개`;
     renderTable();
   } catch (error) {
     state.selfCompareRows = [];
@@ -4843,6 +4843,9 @@ function buildSelfCompareRows(entries, range) {
         ymdt: currentRecord.updatedAt,
       } : latestHistoryEventAt(entry, Infinity);
     if (!previous || !current || !Number.isFinite(Number(current.score))) return [];
+    const scoreChanged = Math.abs(Number(current.score) - Number(previous.score)) > 1e-9;
+    const maxComboChanged = (current.maxCombo === true) !== (previous.maxCombo === true);
+    if (!scoreChanged && !maxComboChanged) return [];
     const source = currentRecord || entry;
     const floorName = getFloorLabel(source) || getFloorLabel(entry);
     const difficultyConstant = difficultyConstantForFloor(floorName, entry.button);
@@ -7156,13 +7159,11 @@ function renderTableSummary(view, rows) {
 
 function renderSelfCompareSummary(rows) {
   const improved = rows.filter((row) => row.scoreDiff > 0).length;
-  const unchanged = rows.filter((row) => Math.abs(row.scoreDiff) < 1e-9).length;
   const averageScoreDiff = rows.length ? rows.reduce((sum, row) => sum + row.scoreDiff, 0) / rows.length : 0;
   const buttons = buttonFilter.value ? [Number(buttonFilter.value)] : BUTTONS;
   const cards = [
-    ["공통 기록", rows.length],
+    ["변경 기록", rows.length],
     ["score 상승", improved],
-    ["score 동일", unchanged],
     ["평균 score 변화", formatSigned(averageScoreDiff, 3)],
     ...buttons.map((button) => {
       const buttonRows = rows.filter((row) => Number(row.button) === button);
