@@ -1460,6 +1460,21 @@ main {
   height: var(--chart-height, 430px);
 }
 
+.maintenanceSection {
+  grid-column: 1 / -1;
+}
+
+.practiceQueueSection {
+  margin: 12px 0 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.mutedText {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
 .historyProgressEstimate {
   margin: 6px 0 0;
   color: var(--muted);

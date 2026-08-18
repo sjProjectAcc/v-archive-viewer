@@ -2,6 +2,8 @@
   "version": "0.1.51",
   "scripts": {
     "build": "node scripts/build-static.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "validate:app": "node scripts/validate-app-structure.mjs",
     "tags:update": "node scripts/update-tag-data.mjs",
     "tags:validate": "node scripts/validate-tag-data.mjs",
     "tauri": "tauri",

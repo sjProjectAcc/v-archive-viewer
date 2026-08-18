@@ -42,6 +42,8 @@ jobs:
       - name: Validate source
         run: |
           node --check web/app.js
+          npm test
+          npm run validate:app
           npm run tags:validate
           npm audit --audit-level=high
           cargo test --manifest-path src-tauri/Cargo.toml
@@ -54,7 +56,7 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          $zipName = "v-log-test-windows-x64.zip"
+          $zipName = "v-log-test-windows-x64-$env:GITHUB_RUN_NUMBER.zip"
           New-Item -ItemType Directory -Force test-package | Out-Null
           Copy-Item src-tauri/target/release/v-archive-viewer.exe test-package/v-archive-viewer.exe
           @"
@@ -74,6 +76,9 @@ jobs:
           @{ version=$version; build=[int64]$env:GITHUB_RUN_NUMBER; url=$url; sha256=$sha256; size=$zip.Length } |
             ConvertTo-Json -Compress |
             Set-Content -Encoding UTF8 test-desktop-version.json
+          "zip_name=$zipName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "zip_size=$($zip.Length)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "zip_sha256=$sha256" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Publish developer preview
         shell: pwsh
@@ -81,20 +86,51 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $notes = "Automated V-LOG developer preview from commit $env:GITHUB_SHA (build $env:GITHUB_RUN_NUMBER)."
+          $zipName = "${{ steps.package.outputs.zip_name }}"
+          function Invoke-GhRetry([scriptblock]$Command) {
+            for ($attempt = 1; $attempt -le 4; $attempt++) {
+              & $Command
+              if ($LASTEXITCODE -eq 0) { return }
+              if ($attempt -eq 4) { throw "GitHub release command failed after $attempt attempts." }
+              Start-Sleep -Seconds ([math]::Pow(2, $attempt))
+            }
+          }
           gh release view test-latest --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload test-latest v-log-test-windows-x64.zip --repo $env:GITHUB_REPOSITORY --clobber
-            gh release upload test-latest test-desktop-version.json --repo $env:GITHUB_REPOSITORY --clobber
-            gh release edit test-latest --repo $env:GITHUB_REPOSITORY --prerelease --title "V-LOG Developer Preview" --notes $notes --target $env:GITHUB_SHA
+            Invoke-GhRetry { gh release upload test-latest $zipName --repo $env:GITHUB_REPOSITORY }
           } else {
-            gh release create test-latest v-log-test-windows-x64.zip --repo $env:GITHUB_REPOSITORY --prerelease --target $env:GITHUB_SHA --title "V-LOG Developer Preview" --notes $notes
-            gh release upload test-latest test-desktop-version.json --repo $env:GITHUB_REPOSITORY
+            Invoke-GhRetry { gh release create test-latest $zipName --repo $env:GITHUB_REPOSITORY --prerelease --target $env:GITHUB_SHA --title "V-LOG Developer Preview" --notes $notes }
+          }
+
+          $asset = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/test-latest" | ConvertFrom-Json |
+            Select-Object -ExpandProperty assets | Where-Object name -eq $zipName
+          if (-not $asset -or [int64]$asset.size -ne [int64]${{ steps.package.outputs.zip_size }}) {
+            throw "Uploaded ZIP size verification failed."
+          }
+          Invoke-WebRequest -UseBasicParsing -Uri $asset.browser_download_url -OutFile verified-test-update.zip
+          $remoteSha = (Get-FileHash -Algorithm SHA256 verified-test-update.zip).Hash.ToLowerInvariant()
+          if ($remoteSha -ne "${{ steps.package.outputs.zip_sha256 }}") { throw "Uploaded ZIP SHA-256 verification failed." }
+
+          # The mutable manifest is published last, so clients never see an unverified build.
+          Invoke-GhRetry { gh release upload test-latest test-desktop-version.json --repo $env:GITHUB_REPOSITORY --clobber }
+          Invoke-GhRetry { gh release edit test-latest --repo $env:GITHUB_REPOSITORY --prerelease --title "V-LOG Developer Preview" --notes $notes --target $env:GITHUB_SHA }
+
+      - name: Verify public update pair
+        shell: pwsh
+        run: |
+          $manifestUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/test-latest/test-desktop-version.json?run=$env:GITHUB_RUN_NUMBER"
+          $manifest = Invoke-RestMethod -Uri $manifestUrl -Headers @{ "Cache-Control" = "no-cache" }
+          Invoke-WebRequest -UseBasicParsing -Uri "$($manifest.url)?run=$env:GITHUB_RUN_NUMBER" -OutFile public-test-update.zip
+          $zip = Get-Item public-test-update.zip
+          $sha = (Get-FileHash -Algorithm SHA256 $zip.FullName).Hash.ToLowerInvariant()
+          if ($zip.Length -ne [int64]$manifest.size -or $sha -ne $manifest.sha256) {
+            throw "Public update manifest and ZIP do not match."
           }
 
       - name: Upload test ZIP
         uses: actions/upload-artifact@v4
         with:
           name: v-log-test-windows-x64-${{ github.run_number }}
-          path: v-log-test-windows-x64.zip
+          path: ${{ steps.package.outputs.zip_name }}
           retention-days: 14
           if-no-files-found: error

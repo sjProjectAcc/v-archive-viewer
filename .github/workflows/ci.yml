@@ -36,6 +36,8 @@ jobs:
       - name: Validate frontend
         run: |
           node --check web/app.js
+          npm test
+          npm run validate:app
           npm audit --audit-level=high
           npm run build
 

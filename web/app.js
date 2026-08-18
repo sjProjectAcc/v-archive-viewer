@@ -102,6 +102,9 @@ const SHARED_DATA_STORE = "sharedData";
 const HANGY_TAG_CACHE_KEY = "vArchiveHangyPatternTagsV1";
 const HANGY_SONG_CATALOG_CACHE_KEY = "vArchiveHangySongCatalogV1";
 const HANGY_SONG_CATALOG_CACHE_TTL = 12 * 60 * 60 * 1000;
+const PRACTICE_QUEUE_KEY = "vArchivePracticeQueueV1";
+const BACKUP_SCHEMA_VERSION = 1;
+const CALCULATION_MODEL_VERSION = "2026.08";
 const PUBLISHED_TAG_MANIFEST_PATH = "data/tag-manifest.json";
 const PUBLISHED_TAG_SCHEMA_VERSION = 1;
 const HANGY_TRAIT_LABELS = Object.freeze({
@@ -557,6 +560,8 @@ const staleScoreMinInput = document.querySelector("#staleScoreMinInput");
 const staleScoreMaxInput = document.querySelector("#staleScoreMaxInput");
 const staleRecommendationsSummary = document.querySelector("#staleRecommendationsSummary");
 const staleRecommendationsTable = document.querySelector("#staleRecommendationsTable");
+const practiceQueueTable = document.querySelector("#practiceQueueTable");
+const practiceQueueClearButton = document.querySelector("#practiceQueueClearButton");
 const logPowerCalculatorPanel = document.querySelector("#logPowerCalculatorPanel");
 const calculatorTitle = document.querySelector("#calculatorTitle");
 const logPowerCalculatorContext = document.querySelector("#logPowerCalculatorContext");
@@ -614,6 +619,16 @@ const overviewPanel = document.querySelector("#overviewPanel");
 const overviewTierTable = document.querySelector("#overviewTierTable");
 const overviewDjClassTable = document.querySelector("#overviewDjClassTable");
 const overviewErrorSection = document.querySelector("#overviewErrorSection");
+const dataHealthRefreshButton = document.querySelector("#dataHealthRefreshButton");
+const localBackupExportButton = document.querySelector("#localBackupExportButton");
+const localBackupImportButton = document.querySelector("#localBackupImportButton");
+const localBackupFileInput = document.querySelector("#localBackupFileInput");
+const dataHealthSummary = document.querySelector("#dataHealthSummary");
+const dataHealthStatus = document.querySelector("#dataHealthStatus");
+const growthDigestSummary = document.querySelector("#growthDigestSummary");
+const growthDigestTable = document.querySelector("#growthDigestTable");
+const catalogChangeSummary = document.querySelector("#catalogChangeSummary");
+const catalogChangeTable = document.querySelector("#catalogChangeTable");
 const overviewErrorTable = document.querySelector("#overviewErrorTable");
 const nativeOnlyEls = document.querySelectorAll(".nativeOnly");
 const webOnlyEls = document.querySelectorAll(".webOnly");
@@ -1108,10 +1123,17 @@ function wireEvents() {
     });
   });
   staleRecommendationsTable.addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-stale-failure-key]");
-    if (!button) return;
-    void markStaleRecommendationFailure(button.dataset.staleFailureKey || "");
+    const failureButton = event.target.closest("button[data-stale-failure-key]");
+    if (failureButton) return void markStaleRecommendationFailure(failureButton.dataset.staleFailureKey || "");
+    const queueButton = event.target.closest("button[data-practice-add]");
+    if (queueButton) addPracticeQueueItem(queueButton.dataset.practiceAdd || "");
   });
+  practiceQueueTable.addEventListener("click", handlePracticeQueueAction);
+  practiceQueueClearButton.addEventListener("click", clearCompletedPracticeQueue);
+  dataHealthRefreshButton.addEventListener("click", () => void renderDataHealth());
+  localBackupExportButton.addEventListener("click", () => void exportLocalBackup());
+  localBackupImportButton.addEventListener("click", () => localBackupFileInput.click());
+  localBackupFileInput.addEventListener("change", () => void importLocalBackup(localBackupFileInput.files?.[0]));
   compareLoadButton.addEventListener("click", () => loadComparison(false));
   compareNicknameInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") loadComparison(false);
@@ -3045,6 +3067,7 @@ async function fetchArchive(nickname, forceFullRefresh = false) {
   const [catalogResult, recordResult] = await Promise.all([catalogRequest, fetchRecords(nickname, since)]);
   const catalogSongs = catalogResult.songs;
   const catalogChangedPatterns = catalogResult.changedPatterns;
+  const catalogChanges = describeChangedCatalogPatterns(previousCatalog?.songs, catalogSongs);
   const catalogErrors = catalogResult.errors;
   if (!catalogErrors.length) applySongCatalogMetrics(catalogSongs);
   const { records: recordUpdates, errors: recordErrors } = recordResult;
@@ -3071,6 +3094,7 @@ async function fetchArchive(nickname, forceFullRefresh = false) {
     lastUpdatedRecords: recordUpdates.length,
     lastCatalogChangedPatterns: catalogChangedPatterns,
     lastCatalogAdjustedRecords: catalogAdjustedRecords,
+    lastCatalogChanges: catalogChanges.length ? catalogChanges : (cachedState.lastCatalogChanges || []),
     lastForceFullRefresh: forceFullRefresh,
   };
 
@@ -3097,6 +3121,7 @@ async function fetchArchive(nickname, forceFullRefresh = false) {
     lastRecordSyncAt: nextState.lastRecordSyncAt || "",
     catalogChangedPatterns,
     catalogAdjustedRecords,
+    catalogChanges: nextState.lastCatalogChanges || [],
   });
 }
 
@@ -3116,6 +3141,7 @@ async function loadCachedPayload(nickname) {
     lastRecordSyncAt: cachedState.lastRecordSyncAt || "",
     catalogChangedPatterns: cachedState.lastCatalogChangedPatterns || 0,
     catalogAdjustedRecords: cachedState.lastCatalogAdjustedRecords || 0,
+    catalogChanges: cachedState.lastCatalogChanges || [],
   });
 }
 
@@ -3302,6 +3328,19 @@ function countChangedCatalogPatterns(previousSongs, currentSongs) {
     if (JSON.stringify(previous.get(key) || null) !== JSON.stringify(current.get(key) || null)) changed += 1;
   }
   return changed;
+}
+
+function describeChangedCatalogPatterns(previousSongs, currentSongs) {
+  if (!Array.isArray(previousSongs) || !previousSongs.length) return [];
+  const previous = songCatalogPatternMap(previousSongs);
+  const current = songCatalogPatternMap(currentSongs);
+  return [...new Set([...previous.keys(), ...current.keys()])].flatMap((key) => {
+    const before = previous.get(key);
+    const after = current.get(key);
+    if (JSON.stringify(before || null) === JSON.stringify(after || null)) return [];
+    const [button, title, pattern] = key.split("|");
+    return [{ key, button, title, pattern, before: before || null, after: after || null, changedAt: utcNowIso() }];
+  }).slice(0, 500);
 }
 
 function applySongCatalogToRecords(records, songs) {
@@ -4880,17 +4919,6 @@ function getHistoryTimeRange() {
   return { start, end };
 }
 
-function formatDateTimeInput(time, round = "floor") {
-  const rounded = round === "ceil" ? Math.ceil(time / 60000) * 60000 : Math.floor(time / 60000) * 60000;
-  const date = new Date(rounded);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hour = String(date.getHours()).padStart(2, "0");
-  const minute = String(date.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${day}T${hour}:${minute}`;
-}
-
 function normalizeHistoryDateTimeInput(value, isEnd = false) {
   if (!value) return "";
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return `${value}T${isEnd ? "23:59" : "00:00"}`;
@@ -6304,6 +6332,9 @@ function renderOverview() {
   const errors = state.payload.errors || [];
   overviewErrorSection.hidden = errors.length === 0;
   if (errors.length) renderOverviewTable(overviewErrorTable, "errors", errors);
+  renderCatalogChangeReport();
+  void renderDataHealth();
+  void renderGrowthDigest();
 }
 
 function renderOverviewTable(table, view, sourceRows) {
@@ -6316,6 +6347,129 @@ function renderOverviewTable(table, view, sourceRows) {
   const header = `<thead><tr>${colDefs.map(([, label]) => `<th>${escapeHtml(label)}</th>`).join("")}</tr></thead>`;
   const body = `<tbody>${rows.map((row) => `<tr>${colDefs.map(([key]) => renderCell(row, key)).join("")}</tr>`).join("")}</tbody>`;
   table.innerHTML = header + body;
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  return `${(bytes / (1024 ** index)).toFixed(index ? 1 : 0)} ${units[index]}`;
+}
+
+async function readAllCacheStores() {
+  const db = await openCacheDb();
+  const names = [PROFILE_STORE, HISTORY_STORE, SHARED_DATA_STORE];
+  const result = {};
+  await Promise.all(names.map((name) => new Promise((resolve, reject) => {
+    const request = db.transaction(name, "readonly").objectStore(name).getAll();
+    request.onsuccess = () => { result[name] = Array.isArray(request.result) ? request.result : []; resolve(); };
+    request.onerror = () => reject(request.error);
+  })));
+  return result;
+}
+
+async function renderDataHealth() {
+  if (!dataHealthSummary) return;
+  dataHealthStatus.textContent = "로컬 데이터를 계산하고 있습니다.";
+  try {
+    const stores = await readAllCacheStores();
+    const localEntries = Object.keys(localStorage).filter((key) => key.startsWith("vArchive"));
+    const localBytes = localEntries.reduce((sum, key) => sum + key.length + (localStorage.getItem(key)?.length || 0), 0) * 2;
+    const storeBytes = Object.fromEntries(Object.entries(stores).map(([name, rows]) => [name, new Blob([JSON.stringify(rows)]).size]));
+    const historyEvents = stores[HISTORY_STORE].reduce((sum, row) => sum + (row.history?.length || 0), 0);
+    const catalog = loadHangySongCatalog();
+    const metrics = [
+      ["프로필", `${stores[PROFILE_STORE].length}개 · ${formatBytes(storeBytes[PROFILE_STORE])}`],
+      ["히스토리", `${historyEvents}건 · ${formatBytes(storeBytes[HISTORY_STORE])}`],
+      ["공유 데이터", `${stores[SHARED_DATA_STORE].length}개 · ${formatBytes(storeBytes[SHARED_DATA_STORE])}`],
+      ["설정", `${localEntries.length}키 · ${formatBytes(localBytes)}`],
+      ["곡 목록", `${catalog?.songs?.length || 0}곡`],
+      ["DB 스키마", `v${DB_VERSION}`],
+      ["계산식", CALCULATION_MODEL_VERSION],
+    ];
+    dataHealthSummary.innerHTML = metrics.map(([label, value]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("");
+    dataHealthStatus.textContent = `마지막 확인 ${new Date().toLocaleString("ko-KR")} · 계정 토큰은 백업 대상이 아닙니다.`;
+  } catch (error) {
+    dataHealthStatus.textContent = `데이터 상태 확인 실패: ${error.message || error}`;
+  }
+}
+
+async function exportLocalBackup() {
+  try {
+    const stores = await readAllCacheStores();
+    const local = {};
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith("vArchive") || /token|account/i.test(key)) continue;
+      local[key] = localStorage.getItem(key);
+    }
+    const backup = { schema: BACKUP_SCHEMA_VERSION, app: "V-LOG", exportedAt: utcNowIso(), mode: state.isTestMode ? "test" : "public", stores, local };
+    const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `v-log-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    dataHealthStatus.textContent = "분석 데이터와 설정 백업을 저장했습니다.";
+  } catch (error) {
+    dataHealthStatus.textContent = `백업 실패: ${error.message || error}`;
+  }
+}
+
+async function importLocalBackup(file) {
+  if (!file) return;
+  try {
+    const backup = JSON.parse(await file.text());
+    if (backup?.app !== "V-LOG" || backup.schema !== BACKUP_SCHEMA_VERSION) throw new Error("지원하지 않는 백업 형식입니다.");
+    if (!confirm("현재 로컬 분석 데이터와 설정을 백업 내용으로 교체할까요?")) return;
+    const db = await openCacheDb();
+    for (const name of [PROFILE_STORE, HISTORY_STORE, SHARED_DATA_STORE]) {
+      await new Promise((resolve, reject) => {
+        const transaction = db.transaction(name, "readwrite");
+        const store = transaction.objectStore(name);
+        store.clear();
+        for (const row of backup.stores?.[name] || []) store.put(row);
+        transaction.oncomplete = resolve;
+        transaction.onerror = () => reject(transaction.error);
+      });
+    }
+    for (const [key, value] of Object.entries(backup.local || {})) {
+      if (key.startsWith("vArchive") && !/token|account/i.test(key)) localStorage.setItem(key, String(value));
+    }
+    dataHealthStatus.textContent = "백업을 복원했습니다. 화면을 다시 불러옵니다.";
+    setTimeout(() => location.reload(), 500);
+  } catch (error) {
+    dataHealthStatus.textContent = `복원 실패: ${error.message || error}`;
+  } finally {
+    localBackupFileInput.value = "";
+  }
+}
+
+async function renderGrowthDigest() {
+  if (!growthDigestSummary || !state.payload) return;
+  try {
+    const entries = await loadRecordHistories(state.payload.nickname || getCurrentNickname());
+    const cutoff = Date.now() - 30 * 86400000;
+    const currentByKey = new Map((state.payload.records || []).map((row) => [recordKey(row), row]));
+    const rows = entries.flatMap((entry) => {
+      const previous = [...(entry.history || [])].filter((event) => new Date(event.ymdt).getTime() <= cutoff).at(-1);
+      const current = currentByKey.get(recordKey(entry));
+      if (!previous || !current || Number(current.score) <= Number(previous.score)) return [];
+      const constant = difficultyConstantForFloor(getFloorLabel(current), current.button);
+      const lpGain = (scoreToPoint(Number(current.score)) - scoreToPoint(Number(previous.score))) * constant;
+      return [{ ...current, previousScore: previous.score, lpGain }];
+    }).sort((a, b) => b.lpGain - a.lpGain);
+    growthDigestSummary.innerHTML = [["최근 30일 상승", `${rows.length}패턴`], ["LogPower 증가", rows.reduce((sum, row) => sum + row.lpGain, 0).toFixed(2)], ["가장 큰 상승", rows[0] ? `${rows[0].name} +${rows[0].lpGain.toFixed(2)}` : "-"]]
+      .map(([label, value]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("");
+    growthDigestTable.innerHTML = rows.length ? `<thead><tr><th>button</th><th>name</th><th>pattern</th><th>floor</th><th>30일 전</th><th>현재</th><th>LP+</th></tr></thead><tbody>${rows.slice(0, 20).map((row) => `<tr><td>${row.button}B</td><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.pattern)}</td><td>${escapeHtml(getFloorLabel(row))}</td><td>${Number(row.previousScore).toFixed(2)}</td><td>${Number(row.score).toFixed(2)}</td><td>+${row.lpGain.toFixed(2)}</td></tr>`).join("")}</tbody>` : `<tbody><tr><td class="empty">30일 전과 비교할 히스토리가 없습니다.</td></tr></tbody>`;
+  } catch (error) {
+    growthDigestTable.innerHTML = `<tbody><tr><td class="empty">성장 요약 오류: ${escapeHtml(error.message || error)}</td></tr></tbody>`;
+  }
+}
+
+function renderCatalogChangeReport() {
+  const changes = state.payload?.sync?.catalogChanges || [];
+  catalogChangeSummary.innerHTML = `<div class="metric"><span>최근 변경</span><strong>${changes.length}패턴</strong></div>`;
+  catalogChangeTable.innerHTML = changes.length ? `<thead><tr><th>button</th><th>title</th><th>pattern</th><th>이전</th><th>현재</th><th>시점</th></tr></thead><tbody>${changes.map((row) => `<tr><td>${escapeHtml(row.button)}B</td><td>${escapeHtml(row.title)}</td><td>${escapeHtml(row.pattern)}</td><td>${escapeHtml(row.before ? `${row.before.level ?? "-"} / ${row.before.floorName ?? "-"}` : "없음")}</td><td>${escapeHtml(row.after ? `${row.after.level ?? "-"} / ${row.after.floorName ?? "-"}` : "삭제")}</td><td>${escapeHtml(formatDate(row.changedAt))}</td></tr>`).join("")}</tbody>` : `<tbody><tr><td class="empty">최근 곡 목록 변경이 없습니다.</td></tr></tbody>`;
 }
 
 function renderChart() {
@@ -9046,13 +9200,53 @@ async function renderStaleRecommendations() {
       ["계산식", mode === "belowFloorAverage" ? "기본 가중치 × (floor 평균 - score) / 표준편차" : "ln(1 + 경과일) / √히스토리 횟수"],
     ].map(([label, value]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("");
     staleRecommendationsTable.innerHTML = rows.length
-      ? `<thead><tr><th>순위</th><th>button</th><th>name</th><th>pattern</th><th>level</th><th>floor</th><th>score</th>${mode === "belowFloorAverage" ? "<th>floor 평균</th><th>표준편차</th><th>평균 하회</th>" : ""}<th>마지막 시도</th><th>경과일</th><th>히스토리</th><th>추천 가중치</th><th></th></tr></thead><tbody>${rows.map((row, index) => `<tr><td class="num">${index + 1}</td><td>${row.button}B</td><td class="nameCell">${escapeHtml(row.name)}</td><td>${escapeHtml(row.pattern)}</td><td class="num">${escapeHtml(row.level)}</td><td class="num">${escapeHtml(row.floorName)}</td><td class="num${row.maxCombo === true ? " comboScore" : ""}">${formatValue(row.score, "score")}</td>${mode === "belowFloorAverage" ? `<td class="num">${row.floorMean.toFixed(2)}</td><td class="num">${row.floorDeviation.toFixed(2)}</td><td class="num">${row.deficitZ.toFixed(2)}σ</td>` : ""}<td>${escapeHtml(formatDate(new Date(row.lastAttemptAt).toISOString()))}</td><td class="num">${row.elapsedDays.toFixed(1)}</td><td class="num">${row.historyCount}${row.manualFailureCount ? ` <small>(실패 ${row.manualFailureCount})</small>` : ""}</td><td class="num"><strong>${row.recommendationWeight.toFixed(4)}</strong></td><td><button type="button" class="compactButton" data-stale-failure-key="${encodeURIComponent(recordKey(row))}">갱신 실패</button></td></tr>`).join("")}</tbody>`
+      ? `<thead><tr><th>순위</th><th>button</th><th>name</th><th>pattern</th><th>level</th><th>floor</th><th>score</th>${mode === "belowFloorAverage" ? "<th>floor 평균</th><th>표준편차</th><th>평균 하회</th>" : ""}<th>마지막 시도</th><th>경과일</th><th>히스토리</th><th>추천 가중치</th><th></th></tr></thead><tbody>${rows.map((row, index) => `<tr><td class="num">${index + 1}</td><td>${row.button}B</td><td class="nameCell">${escapeHtml(row.name)}</td><td>${escapeHtml(row.pattern)}</td><td class="num">${escapeHtml(row.level)}</td><td class="num">${escapeHtml(row.floorName)}</td><td class="num${row.maxCombo === true ? " comboScore" : ""}">${formatValue(row.score, "score")}</td>${mode === "belowFloorAverage" ? `<td class="num">${row.floorMean.toFixed(2)}</td><td class="num">${row.floorDeviation.toFixed(2)}</td><td class="num">${row.deficitZ.toFixed(2)}σ</td>` : ""}<td>${escapeHtml(formatDate(new Date(row.lastAttemptAt).toISOString()))}</td><td class="num">${row.elapsedDays.toFixed(1)}</td><td class="num">${row.historyCount}${row.manualFailureCount ? ` <small>(실패 ${row.manualFailureCount})</small>` : ""}</td><td class="num"><strong>${row.recommendationWeight.toFixed(4)}</strong></td><td><button type="button" class="compactButton" data-practice-add="${encodeURIComponent(recordKey(row))}">연습 추가</button> <button type="button" class="compactButton" data-stale-failure-key="${encodeURIComponent(recordKey(row))}">갱신 실패</button></td></tr>`).join("")}</tbody>`
       : `<tbody><tr><td class="empty">선택한 범위에 해당하는 기록이 없습니다.</td></tr></tbody>`;
+    renderPracticeQueue();
   } catch (error) {
     if (renderToken !== state.staleRecommendationRenderToken) return;
     staleRecommendationsSummary.innerHTML = "";
     staleRecommendationsTable.innerHTML = `<tbody><tr><td class="empty">추천 계산 오류: ${escapeHtml(error.message || error)}</td></tr></tbody>`;
   }
+}
+
+function getPracticeQueue() {
+  try { return JSON.parse(appStorageGetItem(PRACTICE_QUEUE_KEY) || "[]"); } catch { return []; }
+}
+
+function savePracticeQueue(queue) {
+  appStorageSetItem(PRACTICE_QUEUE_KEY, JSON.stringify(queue.slice(-200)));
+  renderPracticeQueue();
+}
+
+function addPracticeQueueItem(encodedKey) {
+  const key = decodeURIComponent(encodedKey);
+  const record = (state.payload?.records || []).find((row) => recordKey(row) === key);
+  if (!record) return;
+  const queue = getPracticeQueue();
+  if (!queue.some((item) => item.key === key && item.status === "pending")) queue.push({ key, button: record.button, name: record.name, pattern: record.pattern, floorName: getFloorLabel(record), score: record.score, addedAt: utcNowIso(), status: "pending" });
+  savePracticeQueue(queue);
+}
+
+function handlePracticeQueueAction(event) {
+  const button = event.target.closest("button[data-practice-action]");
+  if (!button) return;
+  const index = Number(button.dataset.practiceIndex);
+  const queue = getPracticeQueue();
+  if (!queue[index]) return;
+  queue[index].status = button.dataset.practiceAction;
+  queue[index].completedAt = utcNowIso();
+  savePracticeQueue(queue);
+}
+
+function clearCompletedPracticeQueue() {
+  savePracticeQueue(getPracticeQueue().filter((item) => item.status === "pending"));
+}
+
+function renderPracticeQueue() {
+  if (!practiceQueueTable) return;
+  const queue = getPracticeQueue();
+  practiceQueueTable.innerHTML = queue.length ? `<thead><tr><th>상태</th><th>button</th><th>name</th><th>pattern</th><th>floor</th><th>추가 시점</th><th></th></tr></thead><tbody>${queue.map((item, index) => `<tr><td>${item.status === "pending" ? "대기" : item.status === "success" ? "성공" : "실패"}</td><td>${item.button}B</td><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.pattern)}</td><td>${escapeHtml(item.floorName)}</td><td>${escapeHtml(formatDate(item.addedAt))}</td><td>${item.status === "pending" ? `<button class="compactButton" data-practice-action="success" data-practice-index="${index}">성공</button> <button class="compactButton" data-practice-action="failed" data-practice-index="${index}">실패</button>` : ""}</td></tr>`).join("")}</tbody>` : `<tbody><tr><td class="empty">연습 큐가 비어 있습니다.</td></tr></tbody>`;
 }
 
 async function markStaleRecommendationFailure(encodedKey) {
@@ -9737,14 +9931,14 @@ function renderCell(row, key) {
   if (key === "previousScore" && row.previousMaxCombo === true) classes.push("comboScore");
   if (key === "currentScore" && row.currentMaxCombo === true) classes.push("comboScore");
   if (getEffectiveTableView() === "records" && key === "rating") {
-    return `<td class="${classes.join(" ")}">${escapeHtml(formatRecordRatio(row.rating, row.maxRating))}</td>`;
+    return `<td class="${classes.join(" ")}" title="API 원본 · POINT 모델 ${CALCULATION_MODEL_VERSION}">${escapeHtml(formatRecordRatio(row.rating, row.maxRating))}</td>`;
   }
   if (getEffectiveTableView() === "records" && key === "djpower") {
-    return `<td class="${classes.join(" ")}">${escapeHtml(formatRecordRatio(row.djpower, row.maxDjpower))}</td>`;
+    return `<td class="${classes.join(" ")}" title="API 원본 · DJPower 모델 ${CALCULATION_MODEL_VERSION}">${escapeHtml(formatRecordRatio(row.djpower, row.maxDjpower))}</td>`;
   }
   if (getEffectiveTableView() === "records" && key === "logPower") {
     const constant = difficultyConstantForFloor(getFloorLabel(row), row.button);
-    return `<td class="${classes.join(" ")}">${escapeHtml(formatRecordRatio(scoreToPoint(Number(row.score)) * constant, 10 * constant))}</td>`;
+    return `<td class="${classes.join(" ")}" title="Score와 floor에서 계산 · LogPower 모델 ${CALCULATION_MODEL_VERSION}">${escapeHtml(formatRecordRatio(scoreToPoint(Number(row.score)) * constant, 10 * constant))}</td>`;
   }
   return `<td class="${classes.join(" ")}">${escapeHtml(formatValue(value, key))}</td>`;
 }

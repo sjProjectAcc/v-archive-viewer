@@ -682,14 +682,14 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
         .map_err(|error| format!("업데이트 파일 읽기 실패: {error}"))?;
     if bytes.len() as u64 != manifest.size {
         return Err(format!(
-            "업데이트 파일 크기가 일치하지 않습니다: {} / {} bytes",
+            "릴리스의 업데이트 정보와 ZIP이 일치하지 않습니다. 잠시 후 업데이트 확인을 다시 눌러주세요: {} / {} bytes",
             bytes.len(),
             manifest.size
         ));
     }
     let actual_sha256 = format!("{:x}", Sha256::digest(&bytes));
     if !actual_sha256.eq_ignore_ascii_case(&manifest.sha256) {
-        return Err("업데이트 파일 SHA-256이 일치하지 않습니다.".into());
+        return Err("릴리스의 업데이트 정보와 ZIP 해시가 일치하지 않습니다. 잠시 후 업데이트 확인을 다시 눌러주세요.".into());
     }
 
     let current_exe = std::env::current_exe()

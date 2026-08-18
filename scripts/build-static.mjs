@@ -105,7 +105,7 @@ const htmlAsset = {
   body: htmlBody,
   type: "text/html; charset=utf-8",
   etag: `"${version}"`,
-  cacheControl: "private, max-age=31536000, immutable",
+  cacheControl: "no-cache, must-revalidate",
 };
 const assets = {
   "/": htmlAsset,
