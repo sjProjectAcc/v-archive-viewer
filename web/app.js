@@ -9174,6 +9174,7 @@ async function renderStaleRecommendations() {
       const floorName = getFloorLabel(record);
       const currentFloor = floorIndex(floorName);
       const score = Number(record.score);
+      if (score >= 100) return [];
       const updatedAt = new Date(record.updatedAt).getTime();
       if (currentFloor < floorMin || currentFloor > floorMax || score < scoreMin || score > scoreMax || !Number.isFinite(updatedAt)) return [];
       const stats = floorStats.get(`${record.button}|${floorName}`);

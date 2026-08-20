@@ -20,3 +20,7 @@ test("HTML is revalidated while hashed assets remain immutable", () => {
   assert.match(staticBuilder, /cacheControl: "no-cache, must-revalidate"/);
   assert.match(staticBuilder, /cacheControl: "public, max-age=31536000, immutable"/);
 });
+
+test("perfect scores are excluded from refresh recommendations", () => {
+  assert.match(app, /if \(score >= 100\) return \[\];/);
+});
