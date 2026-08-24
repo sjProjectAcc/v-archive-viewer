@@ -4602,7 +4602,7 @@ function renderAchievementList() {
     return `<label class="achievementItem${selected ? " selected" : ""}">
       <input type="checkbox" data-achievement-id="${encodeURIComponent(row.id)}"${selected ? " checked" : ""}>
       <img class="achievementJacket" src="${escapeHtml(getJacketUrl(row))}" alt="" loading="lazy">
-      <span class="achievementSong"><strong>${escapeHtml(row.name)}</strong><span>${row.button}B · ${escapeHtml(row.pattern)} · Lv.${escapeHtml(row.level)} · floor ${escapeHtml(row.floorName)}</span><small class="achievementDiff">score ${formatSigned(row.scoreDiff, 2)} · logPower ${formatSigned(row.logPowerDiff, 2)}</small></span>
+      <span class="achievementSong"><strong>${escapeHtml(row.name)}</strong><span>${row.button}B · ${escapeHtml(row.pattern)} · Lv.${escapeHtml(row.level)} · floor ${escapeHtml(row.floorName)}</span><small class="achievementAge" title="${escapeHtml(formatDate(row.currentUpdatedAt))}">${escapeHtml(formatRelativeElapsed(row.currentUpdatedAt))}</small><small class="achievementDiff">score ${formatSigned(row.scoreDiff, 2)} · logPower ${formatSigned(row.logPowerDiff, 2)}</small></span>
       ${renderAchievementSide(row.previousScore, row.previousLogPower, row.previousPoint, row.previousDjPower, row.previousPointEstimated, row.previousDjPowerEstimated, row.previousMaxCombo, row.previousUpdatedAt, "before")}
       <span class="achievementArrow">→</span>
       ${renderAchievementSide(row.currentScore, row.currentLogPower, row.currentPoint, row.currentDjPower, row.currentPointEstimated, row.currentDjPowerEstimated, row.currentMaxCombo, row.currentUpdatedAt, "after")}
@@ -8488,6 +8488,19 @@ function renderLogPowerCalculator() {
   }).join("");
   const capLabel = score > 99.9 ? " · 99.9로 상한 적용" : "";
   logPowerCalculatorBreakdown.innerHTML = `<span>Score Point <strong>${point.toFixed(4)}</strong>${capLabel}</span><span>floor 기본 상수 <strong>${baseConstant.toFixed(4)}</strong></span><span>${hasLiveScale ? "최신 곡 목록" : "내장값"} 기준 버튼별 TOP50 5000 보정</span>`;
+}
+
+function formatRelativeElapsed(value, now = Date.now()) {
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return "";
+  const elapsedMinutes = Math.max(0, Math.floor((now - time) / 60000));
+  if (elapsedMinutes < 1) return "방금 전";
+  if (elapsedMinutes < 60) return `${elapsedMinutes}분 전`;
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `${elapsedHours}시간 전`;
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  if (elapsedDays < 30) return `${elapsedDays}일 전`;
+  return `${Math.floor(elapsedDays / 30)}달 전`;
 }
 
 async function drawAchievementImageV2({ nickname, rows, columns, profile }) {

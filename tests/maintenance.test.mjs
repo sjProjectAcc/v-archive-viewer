@@ -24,3 +24,9 @@ test("HTML is revalidated while hashed assets remain immutable", () => {
 test("perfect scores are excluded from refresh recommendations", () => {
   assert.match(app, /if \(score >= 100\) return \[\];/);
 });
+
+test("achievement cards show relative elapsed time", () => {
+  assert.match(app, /function formatRelativeElapsed\(/);
+  assert.match(app, /achievementAge/);
+  assert.match(app, /달 전/);
+});
