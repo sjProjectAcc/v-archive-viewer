@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import vm from "node:vm";
 
 const app = await readFile(new URL("../web/app.js", import.meta.url), "utf8");
 const workflow = await readFile(new URL("../.github/workflows/test-build.yml", import.meta.url), "utf8");
@@ -41,4 +42,19 @@ test("DJPower NEW metadata handles special releases and retries failed lookups",
 test("DJPower NEW reconstruction is compared with the API catalog", () => {
   assert.match(app, /function validateCurrentDjPowerNewTab\(/);
   assert.match(app, /\["NEW 복원",/);
+});
+
+test("NEW release lookup retries empty and failed results after twelve hours", () => {
+  const start = app.indexOf("function shouldRetryDjPowerReleaseLookup(");
+  const end = app.indexOf("\nfunction ", start + 1);
+  const context = vm.createContext({});
+  vm.runInContext(`const DJPOWER_RELEASE_LOOKUP_RETRY_TTL = 43200000; ${app.slice(start, end)}`, context);
+  const check = context.shouldRetryDjPowerReleaseLookup;
+  assert.equal(check({ releaseAtByTitle: {}, lookupByTitle: {} }, "816", 50000000), true);
+  for (const status of ["failed", "empty"]) {
+    const cache = { releaseAtByTitle: {}, lookupByTitle: { "816": { status, attemptedAt: 1000 } } };
+    assert.equal(check(cache, "816", 43200999), false);
+    assert.equal(check(cache, "816", 43201000), true);
+  }
+  assert.equal(check({ releaseAtByTitle: { "816": 1787227440000 } }, "816", 50000000), false);
 });
