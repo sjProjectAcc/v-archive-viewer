@@ -568,6 +568,9 @@ const staleRecommendationsSummary = document.querySelector("#staleRecommendation
 const staleRecommendationsTable = document.querySelector("#staleRecommendationsTable");
 const practiceQueueTable = document.querySelector("#practiceQueueTable");
 const practiceQueueClearButton = document.querySelector("#practiceQueueClearButton");
+const practiceCountInput = document.querySelector("#practiceCountInput");
+const practiceGenerateButton = document.querySelector("#practiceGenerateButton");
+const practiceStatus = document.querySelector("#practiceStatus");
 const logPowerCalculatorPanel = document.querySelector("#logPowerCalculatorPanel");
 const calculatorTitle = document.querySelector("#calculatorTitle");
 const logPowerCalculatorContext = document.querySelector("#logPowerCalculatorContext");
@@ -1136,6 +1139,7 @@ function wireEvents() {
   });
   practiceQueueTable.addEventListener("click", handlePracticeQueueAction);
   practiceQueueClearButton.addEventListener("click", clearCompletedPracticeQueue);
+  practiceGenerateButton.addEventListener("click", generateTodayPractice);
   dataHealthRefreshButton.addEventListener("click", () => void refreshDataHealth());
   localBackupExportButton.addEventListener("click", () => void exportLocalBackup());
   localBackupImportButton.addEventListener("click", () => localBackupFileInput.click());
@@ -9318,11 +9322,18 @@ async function renderStaleRecommendations() {
 }
 
 function getPracticeQueue() {
-  try { return JSON.parse(appStorageGetItem(PRACTICE_QUEUE_KEY) || "[]"); } catch { return []; }
+  try {
+    const queue = JSON.parse(appStorageGetItem(practiceQueueStorageKey()) || "[]");
+    return Array.isArray(queue) ? queue : [];
+  } catch { return []; }
+}
+
+function practiceQueueStorageKey() {
+  return `${PRACTICE_QUEUE_KEY}:${cacheKey(state.payload?.nickname || getCurrentNickname())}`;
 }
 
 function savePracticeQueue(queue) {
-  appStorageSetItem(PRACTICE_QUEUE_KEY, JSON.stringify(queue.slice(-200)));
+  appStorageSetItem(practiceQueueStorageKey(), JSON.stringify(queue.slice(-200)));
   renderPracticeQueue();
 }
 
@@ -9341,6 +9352,15 @@ function handlePracticeQueueAction(event) {
   const index = Number(button.dataset.practiceIndex);
   const queue = getPracticeQueue();
   if (!queue[index]) return;
+  if (button.dataset.practiceAction === "replace") {
+    const candidates = buildTodayPracticeCandidates();
+    const excluded = new Set(queue.map((item) => String(item.title ?? item.key.split("|")[1])));
+    const replacement = selectTodayPractice(candidates.filter((item) => !excluded.has(String(item.title))), 1, queue[index].role || "갱신 도전")[0];
+    if (!replacement) { practiceStatus.textContent = "현재 범위에 교체할 다른 곡이 없습니다."; return; }
+    queue[index] = { ...replacement, addedAt: utcNowIso(), status: "pending" };
+    savePracticeQueue(queue);
+    return;
+  }
   queue[index].status = button.dataset.practiceAction;
   queue[index].completedAt = utcNowIso();
   savePracticeQueue(queue);
@@ -9353,7 +9373,81 @@ function clearCompletedPracticeQueue() {
 function renderPracticeQueue() {
   if (!practiceQueueTable) return;
   const queue = getPracticeQueue();
-  practiceQueueTable.innerHTML = queue.length ? `<thead><tr><th>상태</th><th>button</th><th>name</th><th>pattern</th><th>floor</th><th>추가 시점</th><th></th></tr></thead><tbody>${queue.map((item, index) => `<tr><td>${item.status === "pending" ? "대기" : item.status === "success" ? "성공" : "실패"}</td><td>${item.button}B</td><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.pattern)}</td><td>${escapeHtml(item.floorName)}</td><td>${escapeHtml(formatDate(item.addedAt))}</td><td>${item.status === "pending" ? `<button class="compactButton" data-practice-action="success" data-practice-index="${index}">성공</button> <button class="compactButton" data-practice-action="failed" data-practice-index="${index}">실패</button>` : ""}</td></tr>`).join("")}</tbody>` : `<tbody><tr><td class="empty">연습 큐가 비어 있습니다.</td></tr></tbody>`;
+  practiceQueueTable.innerHTML = queue.length ? `<thead><tr><th>상태</th><th>구성</th><th>button</th><th>name</th><th>pattern</th><th>floor</th><th>선정 이유</th><th></th></tr></thead><tbody>${queue.map((item, index) => `<tr><td>${item.status === "pending" ? "대기" : item.status === "success" ? "성공" : "실패"}</td><td>${escapeHtml(item.role || "직접 선택")}</td><td>${item.button}B</td><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.pattern)}</td><td>${escapeHtml(item.floorName)}</td><td>${escapeHtml(item.reason || "직접 선택")}</td><td>${item.status === "pending" ? `<button class="compactButton" data-practice-action="success" data-practice-index="${index}">성공</button> <button class="compactButton" data-practice-action="failed" data-practice-index="${index}">실패</button> <button class="compactButton" data-practice-action="replace" data-practice-index="${index}">교체</button>` : ""}</td></tr>`).join("")}</tbody>` : `<tbody><tr><td class="empty">연습 큐가 비어 있습니다.</td></tr></tbody>`;
+}
+
+function buildTodayPracticeCandidates() {
+  const records = (state.payload?.records || []).filter((row) => !buttonFilter.value || String(row.button) === buttonFilter.value);
+  const means = new Map();
+  for (const row of records) {
+    const key = `${row.button}|${getFloorLabel(row)}`;
+    const stats = means.get(key) || { sum: 0, count: 0 };
+    if (Number.isFinite(Number(row.score))) { stats.sum += Number(row.score); stats.count++; }
+    means.set(key, stats);
+  }
+  const topByButton = new Map(BUTTONS.map((button) => [String(button), buildTopRowsForButton(records, button, 50)]));
+  const queue = getPracticeQueue();
+  let start = floorIndex(staleFloorMinSelect.value);
+  let end = floorIndex(staleFloorMaxSelect.value);
+  if (start > end) [start, end] = [end, start];
+  const scoreMin = Math.min(Number(staleScoreMinInput.value), Number(staleScoreMaxInput.value));
+  const scoreMax = Math.max(Number(staleScoreMinInput.value), Number(staleScoreMaxInput.value));
+  return records.flatMap((row) => {
+    const score = Number(row.score);
+    const floorName = getFloorLabel(row);
+    const index = floorIndex(floorName);
+    if (!Number.isFinite(score) || score >= 100 || index < start || index > end || score < scoreMin || score > scoreMax) return [];
+    const key = recordKey(row);
+    const completed = queue.filter((item) => item.key === key && item.completedAt).map((item) => Date.parse(item.completedAt)).filter(Number.isFinite);
+    const lastAt = Math.max(Date.parse(row.updatedAt) || 0, 0, ...completed);
+    const days = Math.max(0, (Date.now() - lastAt) / 86400000);
+    const stats = means.get(`${row.button}|${floorName}`);
+    const deficit = Math.max(0, stats.sum / stats.count - score);
+    const top = topByButton.get(String(row.button)) || [];
+    const cutoff = top.length >= 50 ? top.at(-1).logPower : 0;
+    const constant = difficultyConstantForFloor(floorName, row.button);
+    const lp = scoreToPoint(score) * constant;
+    const maximum = 10 * constant;
+    const canEnter = !top.some((item) => recordKey(item) === key) && maximum > cutoff;
+    return [{ key, title: row.title, button: row.button, name: row.name, pattern: row.pattern, floorName, score, floorIndex: index, days, deficit, canEnter, lpGap: Math.max(0, maximum - lp), cooldown: days < 1 ? 0.15 : 1 }];
+  });
+}
+
+function selectTodayPractice(candidates, count, singleRole = "") {
+  const roles = singleRole ? Array(count).fill(singleRole) : Array.from({ length: count }, (_, index) => index < Math.round(count * 0.2) ? "몸풀기" : index < Math.round(count * 0.8) ? "갱신 도전" : "마무리");
+  const usedTitles = new Set();
+  const result = [];
+  for (const role of roles) {
+    const ranked = candidates.filter((item) => !usedTitles.has(String(item.title))).map((item) => {
+      const age = Math.log1p(item.days);
+      const weight = role === "몸풀기" ? (age + 1) / (item.floorIndex + 5)
+        : role === "마무리" ? (item.score / 100) ** 8 * (age + 1)
+          : age + item.deficit * 2 + (item.canEnter ? 3 : 0) + Math.log1p(item.lpGap);
+      return { ...item, weight: weight * item.cooldown };
+    }).sort((a, b) => b.weight - a.weight || String(a.key).localeCompare(String(b.key)));
+    const item = ranked[0];
+    if (!item) break;
+    usedTitles.add(String(item.title));
+    const reasons = [];
+    if (item.days >= 1) reasons.push(`${Math.floor(item.days)}일 동안 미갱신`);
+    if (role === "몸풀기") reasons.push("낮은 floor 우선");
+    if (role === "마무리") reasons.push("높은 달성률");
+    if (item.deficit > 0 && role === "갱신 도전") reasons.push(`floor 평균보다 ${item.deficit.toFixed(2)} 낮음`);
+    if (item.canEnter && role === "갱신 도전") reasons.push("LP TOP50 진입 가능");
+    result.push({ ...item, role, reason: reasons.join(" · ") || "현재 범위의 갱신 후보" });
+  }
+  return result;
+}
+
+function generateTodayPractice() {
+  if (!state.payload) return;
+  const count = Math.max(1, Math.min(30, Math.round(Number(practiceCountInput.value) || 10)));
+  practiceCountInput.value = count;
+  const queue = getPracticeQueue();
+  if (queue.some((item) => item.status === "pending") && !confirm("대기 중인 연습 목록을 새 세트로 교체할까요?")) return;
+  const selected = selectTodayPractice(buildTodayPracticeCandidates(), count);
+  savePracticeQueue([...queue.filter((item) => item.status !== "pending"), ...selected.map((item) => ({ ...item, addedAt: utcNowIso(), status: "pending" }))]);
+  practiceStatus.textContent = `${state.payload.nickname} · ${selected.length}곡 생성${selected.length < count ? " · 범위 내 후보가 부족합니다." : ""}`;
 }
 
 async function markStaleRecommendationFailure(encodedKey) {
