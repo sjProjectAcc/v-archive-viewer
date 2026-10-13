@@ -17,6 +17,7 @@ const state = {
   djPowerHistoryPeriodCache: null,
   djPowerHistoryPeriodCacheHydrating: null,
   djPowerHistoryPeriodCacheSaveTimer: null,
+  djPowerNewTabValidation: null,
   floorPatternCounts: null,
   view: "chart",
   chartMetric: "score",
@@ -140,6 +141,7 @@ const DJPOWER_HISTORY_SERIES_LEGACY_CACHE_KEY = "vArchiveDjPowerHistorySeriesV1"
 const DJPOWER_HISTORY_SERIES_CACHE_KEY = "vArchiveDjPowerHistorySeriesV2";
 const DJPOWER_HISTORY_PERIOD_CACHE_KEY = "vArchiveDjPowerHistoryPeriodsV1";
 const DJPOWER_HISTORY_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+const DJPOWER_RELEASE_LOOKUP_RETRY_TTL = 12 * 60 * 60 * 1000;
 const DJPOWER_NEW_RULE_CHANGED_AT = Date.parse("2025-09-11T00:00:00.000Z");
 const DJPOWER_BASE_DLC_CODES = new Set(["R", "RV", "P1", "P2"]);
 const DJPOWER_LEGACY_DLC_CODES = new Set(["TR", "CE", "T1", "T2", "T3", "ES", "P3", "TQ", "BS"]);
@@ -183,7 +185,11 @@ const DJPOWER_STATIC_RELEASES = Object.freeze([
   ["2024-12-19", ["Diomedes ~Extended Mix~"]],
   ["2026-06-26", ["Megingjord"]],
 ]);
-const DJPOWER_STATIC_RELEASE_BY_TITLE = Object.freeze({ "441": "2021-12-02" });
+const DJPOWER_STATIC_RELEASE_BY_TITLE = Object.freeze({
+  "441": "2021-12-02",
+  // Added with the PLI4 update despite retaining the PLI2 DLC code.
+  "829": "2026-09-03",
+});
 const TAGS_API_URL = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/song_tags_2?select=song_title%2Ctags%2Caka&limit=1000";
 const TAGS_ABILITY_API_URL = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/ability?select=id%2Cability_set&order=id";
 const TAGS_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqd3V1b2RtdHR0cW9oeHN5Y3ZwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUxNDkwNjYsImV4cCI6MjA3MDcyNTA2Nn0.FItZtjt2v2otOUnmDtqhKG4IrPD4FjaRc_tVy-nxpsI";
@@ -1130,7 +1136,7 @@ function wireEvents() {
   });
   practiceQueueTable.addEventListener("click", handlePracticeQueueAction);
   practiceQueueClearButton.addEventListener("click", clearCompletedPracticeQueue);
-  dataHealthRefreshButton.addEventListener("click", () => void renderDataHealth());
+  dataHealthRefreshButton.addEventListener("click", () => void refreshDataHealth());
   localBackupExportButton.addEventListener("click", () => void exportLocalBackup());
   localBackupImportButton.addEventListener("click", () => localBackupFileInput.click());
   localBackupFileInput.addEventListener("change", () => void importLocalBackup(localBackupFileInput.files?.[0]));
@@ -2390,6 +2396,28 @@ async function hydrateHangySongCatalog() {
   return legacy;
 }
 
+function djPowerSongCatalogRevision(songs) {
+  const compact = (Array.isArray(songs) ? songs : []).map((song) => [
+    song?.title, song?.name, song?.dlcCode, song?.newTab === true,
+    ...BUTTONS.map((button) => Object.entries(song?.patterns?.[`${button}B`] || {}).map(([pattern, value]) => `${pattern}:${value?.level ?? ""}`).join(",")),
+  ]);
+  return hashDjPowerHistoryCacheKey(JSON.stringify(compact));
+}
+
+function djPowerDlcRevision(dlcs) {
+  return hashDjPowerHistoryCacheKey(JSON.stringify((Array.isArray(dlcs) ? dlcs : []).map((dlc) => [dlc?.dlcCode, dlc?.ymdt])));
+}
+
+function invalidateDjPowerDerivedCaches() {
+  state.djPowerHistoryCatalog = null;
+  state.djPowerHistoryCatalogUpdatedAt = 0;
+  state.djPowerHistoryReleaseAtByTitle = {};
+  state.djPowerHistoryUpdateTimes = [];
+  state.djPowerHistoryPeriodCache = null;
+  state.djPowerHistorySeriesCache.clear();
+  state.djPowerNewTabValidation = null;
+}
+
 async function ensureHangySongCatalog(force = false) {
   const cached = await hydrateHangySongCatalog();
   if (!force && cached && Date.now() - Number(cached.updatedAt || 0) < HANGY_SONG_CATALOG_CACHE_TTL) return cached.songs;
@@ -2397,6 +2425,10 @@ async function ensureHangySongCatalog(force = false) {
   if (!response.ok) throw new Error(`곡 목록 HTTP ${response.status}`);
   const songs = await response.json();
   if (!Array.isArray(songs)) throw new Error("곡 목록 응답이 올바르지 않습니다.");
+  if (cached?.songs && djPowerSongCatalogRevision(cached.songs) !== djPowerSongCatalogRevision(songs)) {
+    invalidateDjPowerDerivedCaches();
+    appStorageRemoveItem(DJPOWER_HISTORY_DLC_CACHE_KEY);
+  }
   const next = { updatedAt: Date.now(), songs };
   state.hangySongCatalogCache = next;
   await saveSharedData(HANGY_SONG_CATALOG_CACHE_KEY, next);
@@ -5116,14 +5148,21 @@ function addSixMonths(time) {
 function loadDjPowerHistoryReleaseCache() {
   try {
     const cached = JSON.parse(appStorageGetItem(DJPOWER_HISTORY_RELEASE_CACHE_KEY) || "null");
-    if (!cached || typeof cached !== "object") return { releaseAtByTitle: {}, checkedTitles: {} };
+    if (!cached || typeof cached !== "object") return { releaseAtByTitle: {}, lookupByTitle: {} };
     return {
       releaseAtByTitle: cached.releaseAtByTitle && typeof cached.releaseAtByTitle === "object" ? cached.releaseAtByTitle : {},
-      checkedTitles: cached.checkedTitles && typeof cached.checkedTitles === "object" ? cached.checkedTitles : {},
+      lookupByTitle: cached.lookupByTitle && typeof cached.lookupByTitle === "object" ? cached.lookupByTitle : {},
     };
   } catch {
-    return { releaseAtByTitle: {}, checkedTitles: {} };
+    return { releaseAtByTitle: {}, lookupByTitle: {} };
   }
+}
+
+function shouldRetryDjPowerReleaseLookup(cache, title, now = Date.now()) {
+  if (Number.isFinite(Number(cache.releaseAtByTitle?.[title]))) return false;
+  const lookup = cache.lookupByTitle?.[title];
+  const attemptedAt = Number(lookup?.attemptedAt || 0);
+  return !attemptedAt || now - attemptedAt >= DJPOWER_RELEASE_LOOKUP_RETRY_TTL;
 }
 
 function buildDjPowerHistoryMetadata(songs, dlcs, dynamicReleaseAtByTitle = {}) {
@@ -5181,14 +5220,19 @@ async function ensureDjPowerHistoryMetadata() {
     appStorageRemoveItem(DJPOWER_HISTORY_LEGACY_CATALOG_CACHE_KEY);
     await hydrateDjPowerHistorySeriesCache();
     let dlcSource;
+    let cachedDlcSource = null;
     try {
       const cached = JSON.parse(appStorageGetItem(DJPOWER_HISTORY_DLC_CACHE_KEY) || "null");
+      if (cached?.dlcs) cachedDlcSource = cached;
       if (cached?.dlcs && Date.now() - Number(cached.updatedAt || 0) < DJPOWER_HISTORY_CACHE_TTL) dlcSource = cached;
     } catch {}
     if (!dlcSource) {
       const dlcsResponse = await fetchWithTimeout(DLC_DB_URL, { credentials: "omit" });
       if (!dlcsResponse.ok) throw new Error("DLC 목록을 불러오지 못했습니다.");
       dlcSource = { updatedAt: Date.now(), dlcs: await dlcsResponse.json() };
+      if (cachedDlcSource?.dlcs && djPowerDlcRevision(cachedDlcSource.dlcs) !== djPowerDlcRevision(dlcSource.dlcs)) {
+        invalidateDjPowerDerivedCaches();
+      }
       appStorageSetItem(DJPOWER_HISTORY_DLC_CACHE_KEY, JSON.stringify(dlcSource));
     }
     const songs = await ensureHangySongCatalog(false);
@@ -5200,19 +5244,26 @@ async function ensureDjPowerHistoryMetadata() {
       if (!DJPOWER_RV_CP_CODES.has(song.dlcCode)) return false;
       if (DJPOWER_INITIAL_RV_TITLES.has(String(song.title))) return false;
       if (DJPOWER_STATIC_RELEASE_BY_TITLE[String(song.title)] || staticNames.has(normalizeDjPowerSongName(song.name))) return false;
-      return !dynamicCache.checkedTitles[String(song.title)];
+      return shouldRetryDjPowerReleaseLookup(dynamicCache, String(song.title));
     });
     const invoke = window.__TAURI__?.core?.invoke;
     if (unresolved.length && invoke) {
       for (let index = 0; index < unresolved.length; index += 1) {
         const song = unresolved[index];
+        const title = String(song.title);
         historyStatus.textContent = `DJPower 출시 시점 확인 ${index + 1}/${unresolved.length} · ${song.name}`;
         try {
           const response = await invoke("fetch_pattern_grade_history", { title: Number(song.title) });
           const dates = (response?.items || []).map((item) => Date.parse(item?.ymdt || item?.ymd || "")).filter(Number.isFinite);
-          if (dates.length) dynamicCache.releaseAtByTitle[String(song.title)] = Math.min(...dates);
-        } catch {}
-        dynamicCache.checkedTitles[String(song.title)] = true;
+          if (dates.length) {
+            dynamicCache.releaseAtByTitle[title] = Math.min(...dates);
+            dynamicCache.lookupByTitle[title] = { status: "success", attemptedAt: Date.now() };
+          } else {
+            dynamicCache.lookupByTitle[title] = { status: "empty", attemptedAt: Date.now() };
+          }
+        } catch (error) {
+          dynamicCache.lookupByTitle[title] = { status: "failed", attemptedAt: Date.now(), message: String(error?.message || error).slice(0, 240) };
+        }
         if (index + 1 < unresolved.length) await delay(150);
       }
       appStorageSetItem(DJPOWER_HISTORY_RELEASE_CACHE_KEY, JSON.stringify(dynamicCache));
@@ -5226,6 +5277,7 @@ async function ensureDjPowerHistoryMetadata() {
     state.djPowerHistoryReleaseAtByTitle = metadata.releaseAtByTitle;
     state.djPowerHistoryUpdateTimes = metadata.updateTimes;
     await hydrateDjPowerHistoryPeriodCache();
+    state.djPowerNewTabValidation = validateCurrentDjPowerNewTab(songs);
     return metadata;
   })();
   try {
@@ -5373,6 +5425,28 @@ function getDjPowerHistoryPeriod(time) {
   cache.periods[key] = period;
   scheduleDjPowerHistoryPeriodCacheSave();
   return { ...period, newTitleSet: new Set(newTitles) };
+}
+
+function validateCurrentDjPowerNewTab(songs, time = Date.now()) {
+  const updateAt = latestDjPowerUpdateAt(time);
+  const period = getDjPowerHistoryPeriod(time);
+  if (!Number.isFinite(updateAt) || !period) return null;
+  const apiTitles = new Set((Array.isArray(songs) ? songs : [])
+    .filter((song) => song?.newTab === true)
+    .map((song) => String(song.title)));
+  const reconstructedTitles = period.newTitleSet;
+  const missingTitles = [...apiTitles].filter((title) => !reconstructedTitles.has(title));
+  const extraTitles = [...reconstructedTitles].filter((title) => !apiTitles.has(title));
+  const nameByTitle = new Map((Array.isArray(songs) ? songs : []).map((song) => [String(song.title), String(song.name || `#${song.title}`)]));
+  return {
+    checkedAt: Date.now(),
+    updateAt,
+    apiCount: apiTitles.size,
+    reconstructedCount: reconstructedTitles.size,
+    missing: missingTitles.map((title) => ({ title, name: nameByTitle.get(title) || `#${title}` })),
+    extra: extraTitles.map((title) => ({ title, name: nameByTitle.get(title) || `#${title}` })),
+    matches: missingTitles.length === 0 && extraTitles.length === 0,
+  };
 }
 
 function hashDjPowerHistoryCacheKey(value) {
@@ -6378,20 +6452,39 @@ async function renderDataHealth() {
     const storeBytes = Object.fromEntries(Object.entries(stores).map(([name, rows]) => [name, new Blob([JSON.stringify(rows)]).size]));
     const historyEvents = stores[HISTORY_STORE].reduce((sum, row) => sum + (row.history?.length || 0), 0);
     const catalog = loadHangySongCatalog();
+    const newTab = state.djPowerNewTabValidation;
     const metrics = [
       ["프로필", `${stores[PROFILE_STORE].length}개 · ${formatBytes(storeBytes[PROFILE_STORE])}`],
       ["히스토리", `${historyEvents}건 · ${formatBytes(storeBytes[HISTORY_STORE])}`],
       ["공유 데이터", `${stores[SHARED_DATA_STORE].length}개 · ${formatBytes(storeBytes[SHARED_DATA_STORE])}`],
       ["설정", `${localEntries.length}키 · ${formatBytes(localBytes)}`],
       ["곡 목록", `${catalog?.songs?.length || 0}곡`],
+      ["NEW 복원", newTab ? (newTab.matches ? `${newTab.apiCount}곡 · 일치` : `API ${newTab.apiCount} / 복원 ${newTab.reconstructedCount}`) : "미검사"],
       ["DB 스키마", `v${DB_VERSION}`],
       ["계산식", CALCULATION_MODEL_VERSION],
     ];
     dataHealthSummary.innerHTML = metrics.map(([label, value]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("");
-    dataHealthStatus.textContent = `마지막 확인 ${new Date().toLocaleString("ko-KR")} · 계정 토큰은 백업 대상이 아닙니다.`;
+    const mismatch = newTab && !newTab.matches
+      ? ` · 누락 ${newTab.missing.map((item) => `${item.title} ${item.name}`).join(", ") || "없음"} · 초과 ${newTab.extra.map((item) => `${item.title} ${item.name}`).join(", ") || "없음"}`
+      : "";
+    dataHealthStatus.textContent = `마지막 확인 ${new Date().toLocaleString("ko-KR")} · 계정 토큰은 백업 대상이 아닙니다.${mismatch}`;
   } catch (error) {
     dataHealthStatus.textContent = `데이터 상태 확인 실패: ${error.message || error}`;
   }
+}
+
+async function refreshDataHealth() {
+  dataHealthRefreshButton.disabled = true;
+  dataHealthStatus.textContent = "현재 NEW 구성과 복원 데이터를 확인하고 있습니다.";
+  try {
+    await ensureDjPowerHistoryMetadata();
+  } catch (error) {
+    dataHealthStatus.textContent = `NEW 복원 확인 실패: ${error.message || error}`;
+    return;
+  } finally {
+    dataHealthRefreshButton.disabled = false;
+  }
+  await renderDataHealth();
 }
 
 async function exportLocalBackup() {

@@ -30,3 +30,15 @@ test("achievement cards show relative elapsed time", () => {
   assert.match(app, /achievementAge/);
   assert.match(app, /달 전/);
 });
+
+test("DJPower NEW metadata handles special releases and retries failed lookups", () => {
+  assert.match(app, /"829": "2026-09-03"/);
+  assert.match(app, /DJPOWER_RELEASE_LOOKUP_RETRY_TTL/);
+  assert.match(app, /status: "failed"/);
+  assert.doesNotMatch(app, /dynamicCache\.checkedTitles\[String\(song\.title\)\] = true/);
+});
+
+test("DJPower NEW reconstruction is compared with the API catalog", () => {
+  assert.match(app, /function validateCurrentDjPowerNewTab\(/);
+  assert.match(app, /\["NEW 복원",/);
+});
