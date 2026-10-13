@@ -121,6 +121,7 @@ const DJPOWER_HISTORY_DLC_CACHE_KEY = "vArchiveDjPowerHistoryDlcsV1";
 const DJPOWER_HISTORY_RELEASE_CACHE_KEY = "vArchiveDjPowerHistoryReleaseV1";
 const DJPOWER_HISTORY_SERIES_CACHE_KEY = "vArchiveDjPowerHistorySeriesV1";
 const DJPOWER_HISTORY_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+const DJPOWER_RELEASE_LOOKUP_RETRY_TTL = 12 * 60 * 60 * 1000;
 const DJPOWER_NEW_RULE_CHANGED_AT = Date.parse("2025-09-11T00:00:00.000Z");
 const DJPOWER_BASE_DLC_CODES = new Set(["R", "RV", "P1", "P2"]);
 const DJPOWER_LEGACY_DLC_CODES = new Set(["TR", "CE", "T1", "T2", "T3", "ES", "P3", "TQ", "BS"]);
@@ -164,7 +165,7 @@ const DJPOWER_STATIC_RELEASES = Object.freeze([
   ["2024-12-19", ["Diomedes ~Extended Mix~"]],
   ["2026-06-26", ["Megingjord"]],
 ]);
-const DJPOWER_STATIC_RELEASE_BY_TITLE = Object.freeze({ "441": "2021-12-02" });
+const DJPOWER_STATIC_RELEASE_BY_TITLE = Object.freeze({ "441": "2021-12-02", "829": "2026-09-03" });
 const TAGS_API_URL = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/song_tags_2?select=song_title%2Ctags%2Caka&limit=1000";
 const TAGS_ABILITY_API_URL = "https://fjwuuodmtttqohxsycvp.supabase.co/rest/v1/ability?select=id%2Cability_set&order=id";
 const TAGS_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqd3V1b2RtdHR0cW9oeHN5Y3ZwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUxNDkwNjYsImV4cCI6MjA3MDcyNTA2Nn0.FItZtjt2v2otOUnmDtqhKG4IrPD4FjaRc_tVy-nxpsI";
@@ -2164,11 +2165,30 @@ async function ensureHangySongCatalog(force = false) {
   if (!response.ok) throw new Error(`곡 목록 HTTP ${response.status}`);
   const songs = await response.json();
   if (!Array.isArray(songs)) throw new Error("곡 목록 응답이 올바르지 않습니다.");
+  if (cached?.songs && djPowerSongCatalogRevision(cached.songs) !== djPowerSongCatalogRevision(songs)) {
+    invalidateDjPowerDerivedCaches();
+    appStorageRemoveItem(DJPOWER_HISTORY_DLC_CACHE_KEY);
+  }
   const next = { updatedAt: Date.now(), songs };
   state.hangySongCatalogCache = next;
   await saveSharedData(HANGY_SONG_CATALOG_CACHE_KEY, next);
   appStorageRemoveItem(HANGY_SONG_CATALOG_CACHE_KEY);
   return songs;
+}
+
+function djPowerSongCatalogRevision(songs) {
+  return hashDjPowerHistoryCacheKey(JSON.stringify((Array.isArray(songs) ? songs : []).map((song) => [
+    song.title, song.name, song.dlcCode, song.newTab === true,
+    ...BUTTONS.map((button) => Object.entries(song.patterns?.[`${button}B`] || {}).map(([pattern, value]) => `${pattern}:${value?.level ?? ""}`).join(",")),
+  ])));
+}
+
+function invalidateDjPowerDerivedCaches() {
+  state.djPowerHistoryCatalog = null;
+  state.djPowerHistoryCatalogUpdatedAt = 0;
+  state.djPowerHistoryReleaseAtByTitle = {};
+  state.djPowerHistoryUpdateTimes = [];
+  state.djPowerHistorySeriesCache.clear();
 }
 
 function buildHangyTargets(songs) {
@@ -4609,13 +4629,13 @@ function addSixMonths(time) {
 function loadDjPowerHistoryReleaseCache() {
   try {
     const cached = JSON.parse(appStorageGetItem(DJPOWER_HISTORY_RELEASE_CACHE_KEY) || "null");
-    if (!cached || typeof cached !== "object") return { releaseAtByTitle: {}, checkedTitles: {} };
+    if (!cached || typeof cached !== "object") return { releaseAtByTitle: {}, lookupByTitle: {} };
     return {
       releaseAtByTitle: cached.releaseAtByTitle && typeof cached.releaseAtByTitle === "object" ? cached.releaseAtByTitle : {},
-      checkedTitles: cached.checkedTitles && typeof cached.checkedTitles === "object" ? cached.checkedTitles : {},
+      lookupByTitle: cached.lookupByTitle && typeof cached.lookupByTitle === "object" ? cached.lookupByTitle : {},
     };
   } catch {
-    return { releaseAtByTitle: {}, checkedTitles: {} };
+    return { releaseAtByTitle: {}, lookupByTitle: {} };
   }
 }
 
@@ -4668,6 +4688,13 @@ function buildDjPowerHistoryMetadata(songs, dlcs, dynamicReleaseAtByTitle = {}) 
   };
 }
 
+function shouldRetryDjPowerReleaseLookup(cache, title, now = Date.now()) {
+  const releaseAt = Number(cache.releaseAtByTitle?.[title]);
+  if (Number.isFinite(releaseAt) && releaseAt > 0) return false;
+  const attemptedAt = Number(cache.lookupByTitle?.[title]?.attemptedAt || 0);
+  return !attemptedAt || now - attemptedAt >= DJPOWER_RELEASE_LOOKUP_RETRY_TTL;
+}
+
 async function ensureDjPowerHistoryMetadata() {
   if (state.djPowerHistoryPreparing) return state.djPowerHistoryPreparing;
   state.djPowerHistoryPreparing = (async () => {
@@ -4692,19 +4719,22 @@ async function ensureDjPowerHistoryMetadata() {
       if (!DJPOWER_RV_CP_CODES.has(song.dlcCode)) return false;
       if (DJPOWER_INITIAL_RV_TITLES.has(String(song.title))) return false;
       if (DJPOWER_STATIC_RELEASE_BY_TITLE[String(song.title)] || staticNames.has(normalizeDjPowerSongName(song.name))) return false;
-      return !dynamicCache.checkedTitles[String(song.title)];
+      return shouldRetryDjPowerReleaseLookup(dynamicCache, String(song.title));
     });
     const invoke = window.__TAURI__?.core?.invoke;
     if (unresolved.length && invoke) {
       for (let index = 0; index < unresolved.length; index += 1) {
         const song = unresolved[index];
+        const title = String(song.title);
         historyStatus.textContent = `DJPower 출시 시점 확인 ${index + 1}/${unresolved.length} · ${song.name}`;
         try {
           const response = await invoke("fetch_pattern_grade_history", { title: Number(song.title) });
           const dates = (response?.items || []).map((item) => Date.parse(item?.ymdt || item?.ymd || "")).filter(Number.isFinite);
-          if (dates.length) dynamicCache.releaseAtByTitle[String(song.title)] = Math.min(...dates);
-        } catch {}
-        dynamicCache.checkedTitles[String(song.title)] = true;
+          if (dates.length) dynamicCache.releaseAtByTitle[title] = Math.min(...dates);
+          dynamicCache.lookupByTitle[title] = { status: dates.length ? "success" : "empty", attemptedAt: Date.now() };
+        } catch (error) {
+          dynamicCache.lookupByTitle[title] = { status: "failed", attemptedAt: Date.now(), message: String(error?.message || error).slice(0, 240) };
+        }
         if (index + 1 < unresolved.length) await delay(150);
       }
       appStorageSetItem(DJPOWER_HISTORY_RELEASE_CACHE_KEY, JSON.stringify(dynamicCache));
